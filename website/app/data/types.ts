@@ -91,6 +91,9 @@ export interface DocSearchResult {
   title: string;
   category: string;
   description?: string;
+  snippet?: string;
+  matchStart?: number;
+  matchEnd?: number;
 }
 
 // Skills types
