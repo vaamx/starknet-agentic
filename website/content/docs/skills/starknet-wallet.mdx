@@ -1,0 +1,251 @@
+---
+title: Wallet Skill
+description: Manage Starknet wallets, check balances, and transfer tokens
+---
+
+# Wallet Skill
+
+The `starknet-wallet` skill enables AI agents to manage Starknet wallets with native Account Abstraction support. Transfer tokens, check balances, interact with contracts, and use gasless transactions.
+
+<Callout type="tip" title="MCP Tools Available">
+This skill's functionality is also available through the MCP server tools: `starknet_get_balance`, `starknet_get_balances`, `starknet_transfer`, and more.
+</Callout>
+
+## Installation
+
+```bash
+npm install starknet@^8.9.1 @avnu/avnu-sdk@^4.0.1
+```
+
+## Configuration
+
+Set these environment variables:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `STARKNET_RPC_URL` | Yes | Starknet JSON-RPC endpoint |
+| `STARKNET_ACCOUNT_ADDRESS` | Yes | Agent's account address |
+| `STARKNET_PRIVATE_KEY` | Yes | Agent's signing key |
+| `AVNU_PAYMASTER_URL` | No | For gasless transactions |
+
+```bash
+STARKNET_RPC_URL=https://starknet-mainnet.g.alchemy.com/v2/YOUR_KEY
+STARKNET_ACCOUNT_ADDRESS=0x...
+STARKNET_PRIVATE_KEY=0x...
+```
+
+## MCP Tools
+
+The MCP server provides these wallet tools:
+
+| Tool | Purpose |
+|------|---------|
+| `starknet_get_balance` | Check single token balance |
+| `starknet_get_balances` | Check multiple token balances (batch) |
+| `starknet_transfer` | Send tokens with optional gasless mode |
+| `starknet_call_contract` | Read contract state (view functions) |
+| `starknet_invoke_contract` | Execute contract functions |
+
+## Check Balance
+
+### Single Token
+
+Use `starknet_get_balance` for quick single-token queries:
+
+```typescript
+// Via MCP tool
+const result = await mcpClient.callTool({
+  name: "starknet_get_balance",
+  arguments: {
+    address: "0x...",
+    token: "ETH", // Symbol (ETH, STRK, USDC, USDT) or contract address
+  }
+});
+// Returns: { address, token, tokenAddress, balance, raw, decimals }
+```
+
+### Multiple Tokens
+
+Use `starknet_get_balances` for efficient portfolio queries:
+
+```typescript
+const result = await mcpClient.callTool({
+  name: "starknet_get_balances",
+  arguments: {
+    address: "0x...",
+    tokens: ["ETH", "STRK", "USDC", "USDT"], // Up to 200 tokens
+  }
+});
+```
+
+### Direct Balance Query with starknet.js
+
+```typescript
+import { RpcProvider, Contract } from "starknet";
+
+const provider = new RpcProvider({ nodeUrl: process.env.STARKNET_RPC_URL });
+
+const ethAddress = "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7";
+const ethContract = new Contract({
+  abi: erc20Abi,
+  address: ethAddress,
+  providerOrAccount: provider,
+});
+
+const balance = await ethContract.balanceOf(accountAddress);
+const balanceBigInt = BigInt(balance.low) + (BigInt(balance.high) << 128n);
+```
+
+## Transfer Tokens
+
+### Standard Transfer
+
+```typescript
+const result = await mcpClient.callTool({
+  name: "starknet_transfer",
+  arguments: {
+    recipient: "0x...",
+    token: "STRK",
+    amount: "10.5", // Human-readable
+  }
+});
+```
+
+### Gasless Transfer
+
+Pay gas in a different token using the AVNU paymaster:
+
+```typescript
+const result = await mcpClient.callTool({
+  name: "starknet_transfer",
+  arguments: {
+    recipient: "0x...",
+    token: "STRK",
+    amount: "100",
+    gasfree: true,
+    gasToken: "USDC", // Pay gas in USDC
+  }
+});
+```
+
+### Direct Transfer with starknet.js
+
+```typescript
+import { Account, RpcProvider, CallData, cairo, ETransactionVersion } from "starknet";
+
+const provider = new RpcProvider({ nodeUrl: process.env.STARKNET_RPC_URL });
+
+const account = new Account({
+  provider,
+  address: process.env.STARKNET_ACCOUNT_ADDRESS,
+  signer: process.env.STARKNET_PRIVATE_KEY,
+  transactionVersion: ETransactionVersion.V3,
+});
+
+const tokenAddress = "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d";
+
+const { transaction_hash } = await account.execute({
+  contractAddress: tokenAddress,
+  entrypoint: "transfer",
+  calldata: CallData.compile({
+    recipient: recipientAddress,
+    amount: cairo.uint256(amountInWei),
+  }),
+});
+
+await account.waitForTransaction(transaction_hash);
+```
+
+## Contract Interactions
+
+### Read Contract State
+
+```typescript
+const result = await mcpClient.callTool({
+  name: "starknet_call_contract",
+  arguments: {
+    contractAddress: "0x...",
+    entrypoint: "balanceOf",
+    calldata: [accountAddress],
+  }
+});
+```
+
+### Write to Contracts
+
+```typescript
+const result = await mcpClient.callTool({
+  name: "starknet_invoke_contract",
+  arguments: {
+    contractAddress: "0x...",
+    entrypoint: "approve",
+    calldata: [spenderAddress, ...uint256Amount],
+    gasfree: true,
+  }
+});
+```
+
+## Multi-Call Transactions
+
+Execute multiple operations atomically:
+
+```typescript
+const { transaction_hash } = await account.execute([
+  {
+    contractAddress: tokenA,
+    entrypoint: "approve",
+    calldata: CallData.compile({
+      spender: routerAddress,
+      amount: cairo.uint256(amount),
+    }),
+  },
+  {
+    contractAddress: routerAddress,
+    entrypoint: "swap",
+    calldata: CallData.compile({ /* swap params */ }),
+  },
+]);
+```
+
+## Session Keys
+
+Session keys allow agents to operate autonomously within defined limits:
+
+1. **Owner creates session key** with policies:
+   - Allowed contract addresses and methods
+   - Maximum spending per transaction/period
+   - Expiry timestamp
+
+2. **Agent uses session key** for autonomous operations
+
+3. **Owner can revoke** at any time
+
+<Callout type="info" title="Implementation">
+See [Cartridge Controller](https://docs.cartridge.gg/controller/getting-started) for the reference session key implementation.
+</Callout>
+
+## Token Addresses
+
+### Mainnet
+
+| Token | Address |
+|-------|---------|
+| ETH | `0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7` |
+| STRK | `0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d` |
+| USDC | `0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8` |
+| USDT | `0x068f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8` |
+
+## Error Handling
+
+| Error | Cause | Resolution |
+|-------|-------|------------|
+| `INSUFFICIENT_BALANCE` | Not enough tokens | Check balance before transfer |
+| `INVALID_NONCE` | Nonce mismatch | Retry with fresh nonce |
+| `TRANSACTION_REVERTED` | Contract execution failed | Check calldata and allowances |
+| `FEE_TRANSFER_FAILURE` | Can't pay gas | Use paymaster or add ETH/STRK |
+
+## References
+
+- [starknet.js Documentation](https://www.starknetjs.com/)
+- [AVNU Paymaster](https://docs.avnu.fi/paymaster)
+- [Session Keys Guide](https://www.starknet.io/blog/session-keys-on-starknet-unlocking-gasless-secure-transactions/)

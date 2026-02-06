@@ -92,3 +92,15 @@ export interface DocSearchResult {
   category: string;
   description?: string;
 }
+
+// Skills types
+export interface Skill {
+  slug: string;
+  name: string;
+  title: string;
+  description: string;
+  keywords: string[];
+  icon: string;
+  color: string;
+  features: string[];
+}

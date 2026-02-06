@@ -9,6 +9,7 @@ import {
   Steps,
   Step,
 } from "@/components/docs";
+import { SkillsGrid, SkillCard } from "@/components/skills";
 
 // Custom heading component with auto-generated IDs for TOC
 function createHeading(level: 1 | 2 | 3 | 4 | 5 | 6) {
@@ -185,6 +186,8 @@ export const mdxComponents: MDXComponents = {
   Steps,
   Step,
   CodeBlock,
+  SkillsGrid,
+  SkillCard,
 };
 
 export function useMDXComponents(components: MDXComponents): MDXComponents {

@@ -75,6 +75,52 @@ export const DOC_CATEGORIES: DocCategory[] = [
     ],
   },
   {
+    title: "Skills",
+    slug: "skills",
+    pages: [
+      {
+        slug: "overview",
+        title: "Skills Overview",
+        description: "Introduction to agent skills and installation guide",
+      },
+      {
+        slug: "starknet-wallet",
+        title: "Wallet Skill",
+        description: "Manage wallets, transfers, and balances",
+      },
+      {
+        slug: "starknet-defi",
+        title: "DeFi Skill",
+        description: "Token swaps, staking, and DeFi operations",
+      },
+      {
+        slug: "starknet-identity",
+        title: "Identity Skill",
+        description: "On-chain agent identity with ERC-8004",
+      },
+      {
+        slug: "starknet-mini-pay",
+        title: "Mini-Pay Skill",
+        description: "P2P payments, QR codes, and invoices",
+      },
+      {
+        slug: "starknet-anonymous-wallet",
+        title: "Anonymous Wallet Skill",
+        description: "Privacy-preserving wallets via Typhoon",
+      },
+      {
+        slug: "writing-skills",
+        title: "Writing Your Own Skill",
+        description: "Guide to creating custom agent skills",
+      },
+      {
+        slug: "publishing",
+        title: "Publishing to ClawHub",
+        description: "Share your skills with the community",
+      },
+    ],
+  },
+  {
     title: "Contracts",
     slug: "contracts",
     pages: [

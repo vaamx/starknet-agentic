@@ -1,0 +1,289 @@
+---
+title: Identity Skill
+description: Register AI agents on-chain using ERC-8004 for identity and reputation
+---
+
+# Identity Skill
+
+The `starknet-identity` skill enables AI agents to register on-chain identities using the ERC-8004 Trustless Agents standard. Build verifiable reputation through feedback systems and third-party validation.
+
+<Callout type="info" title="ERC-8004 Standard">
+ERC-8004 defines three interconnected registries for trustless agent identity: Identity (NFTs), Reputation (feedback), and Validation (assessments).
+</Callout>
+
+## Overview
+
+ERC-8004 provides:
+
+1. **Identity Registry** - Agents as ERC-721 NFTs with key-value metadata
+2. **Reputation Registry** - Cryptographically authorized feedback system
+3. **Validation Registry** - Third-party validator assessments (zkML, TEE, stakers)
+
+## Installation
+
+```bash
+npm install starknet
+```
+
+## Agent Registration
+
+### Register a New Agent
+
+```typescript
+import { Account, RpcProvider, Contract, CallData, constants } from "starknet";
+
+const provider = new RpcProvider({ nodeUrl: process.env.STARKNET_RPC_URL });
+const account = new Account(
+  provider,
+  address,
+  privateKey,
+  undefined,
+  constants.TRANSACTION_VERSION.V3
+);
+
+const metadata = [
+  { key: "agentName", value: "MyTradingAgent" },
+  { key: "agentType", value: "defi-trader" },
+  { key: "version", value: "1.0.0" },
+  { key: "model", value: "claude-opus-4-5" },
+  { key: "status", value: "active" },
+];
+
+const tokenUri = "ipfs://QmYourAgentSpecHash";
+
+const { transaction_hash } = await account.execute({
+  contractAddress: registryAddress,
+  entrypoint: "register_with_metadata",
+  calldata: CallData.compile({
+    token_uri: tokenUri,
+    metadata: metadata,
+  }),
+});
+
+const receipt = await account.waitForTransaction(transaction_hash);
+// Parse agent_id from events
+```
+
+### Query Agent Information
+
+```typescript
+const identityRegistry = new Contract(identityRegistryAbi, registryAddress, provider);
+
+// Check if agent exists
+const exists = await identityRegistry.agent_exists(agentId);
+
+// Get total registered agents
+const totalAgents = await identityRegistry.total_agents();
+
+// Get agent metadata
+const name = await identityRegistry.get_metadata(agentId, "agentName");
+const agentType = await identityRegistry.get_metadata(agentId, "agentType");
+
+// Get agent owner (ERC-721)
+const owner = await identityRegistry.owner_of(agentId);
+```
+
+### Update Agent Metadata
+
+```typescript
+// Only the agent owner can update metadata
+await account.execute({
+  contractAddress: registryAddress,
+  entrypoint: "set_metadata",
+  calldata: CallData.compile({
+    agent_id: agentId,
+    key: "status",
+    value: "upgraded",
+  }),
+});
+```
+
+## Metadata Schema
+
+Recommended metadata keys:
+
+| Key | Description | Example |
+|-----|-------------|---------|
+| `agentName` | Display name | `"MyTradingAgent"` |
+| `agentType` | Category | `"defi-trader"`, `"nft-curator"` |
+| `version` | Semantic version | `"1.0.0"` |
+| `model` | LLM model used | `"claude-opus-4-5"`, `"gpt-4o"` |
+| `status` | Current status | `"active"`, `"paused"`, `"deprecated"` |
+| `framework` | Agent framework | `"daydreams"`, `"openclaw"` |
+| `capabilities` | Comma-separated list | `"swap,stake,lend"` |
+| `a2aEndpoint` | Agent Card URL | `"https://agent.example.com"` |
+
+## Reputation System
+
+The reputation system uses cryptographic authorization to prevent spam while allowing legitimate feedback.
+
+### Authorization Flow
+
+<Steps>
+<Step number={1} title="Agent Owner Creates Authorization">
+Signs a FeedbackAuth struct specifying who can give feedback and limits.
+</Step>
+<Step number={2} title="Client Submits Feedback">
+Uses the authorization to submit scored feedback with tags.
+</Step>
+<Step number={3} title="On-Chain Verification">
+Contract verifies the signature and records the feedback.
+</Step>
+</Steps>
+
+### Authorize and Submit Feedback
+
+```typescript
+// Step 1: Agent owner creates authorization
+const feedbackAuth = {
+  agent_id: agentId,
+  client_address: clientAddress,
+  index_limit: 10, // Max feedback entries
+  expiry: Math.floor(Date.now() / 1000) + 3600, // 1 hour
+  chain_id: chainId,
+  identity_registry: registryAddress,
+  signer_address: ownerAddress,
+};
+
+// Sign the authorization
+const messageHash = computePoseidonHash(feedbackAuth);
+const signature = await ownerAccount.signMessage(messageHash);
+
+// Step 2: Client submits feedback
+await clientAccount.execute({
+  contractAddress: reputationRegistryAddress,
+  entrypoint: "give_feedback",
+  calldata: CallData.compile({
+    agent_id: agentId,
+    score: 85, // 0-100
+    tag1: encodedTag("reliability"),
+    tag2: encodedTag("speed"),
+    fileuri: "",
+    filehash: 0,
+    feedback_auth: feedbackAuth,
+    signature: signature,
+  }),
+});
+```
+
+### Query Reputation
+
+```typescript
+const reputationRegistry = new Contract(reputationAbi, reputationAddress, provider);
+
+// Get summary (count + average score)
+const [count, avgScore] = await reputationRegistry.get_summary(
+  agentId,
+  [], // all clients (or filter specific)
+  0,  // tag1 filter (0 = all)
+  0,  // tag2 filter (0 = all)
+);
+
+// Read specific feedback
+const [score, tag1, tag2, isRevoked] = await reputationRegistry.read_feedback(
+  agentId,
+  clientAddress,
+  feedbackIndex,
+);
+
+// Get all clients who gave feedback
+const clients = await reputationRegistry.get_clients(agentId);
+```
+
+## Validation System
+
+Third-party validators can assess agents and provide scored evaluations.
+
+### Request Validation
+
+```typescript
+// Agent owner requests validation
+await account.execute({
+  contractAddress: validationAddress,
+  entrypoint: "validation_request",
+  calldata: CallData.compile({
+    validator_address: validatorAddress,
+    agent_id: agentId,
+    request_uri: "ipfs://QmValidationRequestDetails",
+    request_hash: 0,
+  }),
+});
+```
+
+### Submit Validation Response
+
+```typescript
+// Validator responds
+await validatorAccount.execute({
+  contractAddress: validationAddress,
+  entrypoint: "validation_response",
+  calldata: CallData.compile({
+    request_hash: requestHash,
+    response: 92, // Score 0-100
+    response_uri: "ipfs://QmValidationReport",
+    response_hash: reportHash,
+    tag: encodedTag("performance"),
+  }),
+});
+```
+
+### Query Validation Status
+
+```typescript
+const [validationCount, avgValidationScore] = await validationRegistry.get_summary(
+  agentId,
+  [], // all validators
+  0,  // tag filter
+);
+
+const [validator, agentId_, response, tag, lastUpdate] =
+  await validationRegistry.get_validation_status(requestHash);
+```
+
+## A2A Integration
+
+Combine on-chain identity with A2A Agent Cards for discoverability:
+
+```json
+{
+  "name": "MyTradingAgent",
+  "description": "Autonomous DeFi trading agent on Starknet",
+  "url": "https://my-agent.example.com",
+  "version": "1.0.0",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false
+  },
+  "skills": [
+    {
+      "id": "starknet-swap",
+      "name": "Token Swap",
+      "description": "Execute token swaps via AVNU"
+    }
+  ],
+  "starknetIdentity": {
+    "registryAddress": "0x...",
+    "agentId": 42,
+    "reputationScore": 85,
+    "validationCount": 3
+  }
+}
+```
+
+Serve at `/.well-known/agent.json` for A2A discovery.
+
+## Security Considerations
+
+<Callout type="warning" title="Security">
+- Only the agent owner can update metadata and authorize feedback
+- Self-feedback is prevented (owner cannot rate own agent)
+- Self-validation is prevented (owner cannot validate own agent)
+- Signatures include chain ID and expiry to prevent replay attacks
+- Agent identity (NFT) is transferable - new owner inherits reputation
+</Callout>
+
+## References
+
+- [ERC-8004 EIP](https://eips.ethereum.org/EIPS/eip-8004)
+- [ERC-8004 Cairo Implementation](https://github.com/Akashneelesh/erc8004-cairo)
+- [A2A Protocol](https://a2a-protocol.org/latest/)

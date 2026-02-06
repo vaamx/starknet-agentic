@@ -1,0 +1,320 @@
+---
+title: Anonymous Wallet Skill
+description: Create privacy-preserving Starknet wallets via Typhoon
+---
+
+# Anonymous Wallet Skill
+
+The `starknet-anonymous-wallet` skill enables AI agents to create and manage anonymous Starknet wallets using Typhoon's privacy protocol. Break the on-chain link between your deposits and agent operations.
+
+<Callout type="warning" title="Privacy Protocol">
+This skill uses Typhoon to create wallets with no on-chain connection to the funding source. Use responsibly and in compliance with applicable laws.
+</Callout>
+
+## Overview
+
+This skill provides:
+
+- Anonymous account creation via Typhoon
+- ABI discovery and function inspection
+- Contract read/write operations
+- Preflight simulation and fee estimation
+- ERC20 allowance management
+- TypedData signing for authentication
+
+## Installation
+
+```bash
+npm install starknet@^9.2.1 typhoon-sdk@^1.1.13
+```
+
+## Configuration
+
+```bash
+# Required for on-chain operations
+export STARKNET_RPC_URL=https://rpc.starknet.lava.build:443
+```
+
+## Account Creation Flow
+
+<Steps>
+<Step number={1} title="Check for Existing Account">
+```bash
+node scripts/check-account.js
+```
+
+If `hasAccount: false`, proceed to fund via Typhoon.
+</Step>
+
+<Step number={2} title="Fund via Typhoon">
+1. Go to [Typhoon Finance](https://www.typhoon-finance.com/app)
+2. Make a STRK deposit
+3. Download your deposit note
+4. Copy the note content
+</Step>
+
+<Step number={3} title="Create Account">
+```bash
+node scripts/create-account.js '<deposit note JSON>'
+```
+
+The note format:
+```json
+{
+  "secret": "0x...",
+  "nullifier": "0x...",
+  "txHash": "0x...",
+  "pool": "0x...",
+  "day": "0x..."
+}
+```
+</Step>
+
+<Step number={4} title="Verify Success">
+The script outputs your new account address. The private key is stored securely in your local environment.
+</Step>
+</Steps>
+
+<Callout type="info" title="Creation Time">
+Account creation can take several minutes. Typhoon proof generation and Starknet deployment require time - avoid retrying unless it fails.
+</Callout>
+
+## Show Account Address
+
+```bash
+# Show all accounts
+node scripts/show-address.js
+
+# Show specific account by index
+node scripts/show-address.js 0
+```
+
+## Scripts Reference
+
+| Script | Purpose |
+|--------|---------|
+| `check-account.js` | Check if accounts exist |
+| `show-address.js` | Show account addresses |
+| `load-account.js` | Load existing account |
+| `create-account.js` | Create via Typhoon |
+| `get-abi.js` | Fetch ABI and list functions |
+| `call-contract.js` | Call view functions |
+| `invoke-contract.js` | Execute external functions |
+| `check-allowance.js` | Check ERC20 allowance |
+| `multicall.js` | Execute multiple calls |
+| `estimate-fee.js` | Preflight fee estimate |
+| `simulate.js` | Preflight simulation |
+| `sign-typed-data.js` | Sign typedData for auth |
+| `sign-invoke-tx.js` | Sign transaction (no broadcast) |
+
+## ABI Discovery
+
+Fetch contract ABI and list available functions:
+
+```bash
+node scripts/get-abi.js '{"contractAddress":"0x..."}'
+```
+
+With function ranking (helps agents choose the right function):
+
+```bash
+node scripts/get-abi.js '{"contractAddress":"0x...","query":"swap exact tokens"}'
+```
+
+## Contract Operations
+
+### Read (View Functions)
+
+```bash
+node scripts/call-contract.js '{
+  "contractAddress":"0x...",
+  "method":"balanceOf",
+  "args":["0x..."]
+}'
+```
+
+With felt string decoding:
+
+```bash
+node scripts/call-contract.js '{
+  "contractAddress":"0x...",
+  "method":"symbol",
+  "args":[],
+  "decodeShortStrings":true
+}'
+```
+
+### Write (External Functions)
+
+```bash
+node scripts/invoke-contract.js '{
+  "privateKeyPath":"...",
+  "accountAddress":"0x...",
+  "contractAddress":"0x...",
+  "method":"transfer",
+  "args":["0xrecipient","1000000000000000000"]
+}'
+```
+
+## Allowance Checks
+
+### Raw Amount (Base Units)
+
+```bash
+node scripts/check-allowance.js '{
+  "tokenAddress":"0x...",
+  "ownerAddress":"0x...",
+  "spenderAddress":"0x...",
+  "requiredAmount":"20000000000000000000"
+}'
+```
+
+### Human-Readable Amount
+
+```bash
+node scripts/check-allowance.js '{
+  "tokenAddress":"0x...",
+  "ownerAddress":"0x...",
+  "spenderAddress":"0x...",
+  "requiredAmountHuman":"20"
+}'
+```
+
+## Preflight Operations
+
+### Fee Estimation
+
+```bash
+node scripts/estimate-fee.js '{
+  "privateKeyPath":"...",
+  "accountAddress":"0x...",
+  "calls":[{
+    "contractAddress":"0x...",
+    "method":"transfer",
+    "args":["0x...","1000"]
+  }]
+}'
+```
+
+### Simulation
+
+```bash
+node scripts/simulate.js '{
+  "privateKeyPath":"...",
+  "accountAddress":"0x...",
+  "calls":[{
+    "contractAddress":"0x...",
+    "method":"transfer",
+    "args":["0x...","1000"]
+  }]
+}'
+```
+
+## Multicall
+
+Execute multiple operations atomically:
+
+```bash
+node scripts/multicall.js '{
+  "privateKeyPath":"...",
+  "accountAddress":"0x...",
+  "calls":[
+    {"contractAddress":"0x...","method":"approve","args":["0xspender","1000"]},
+    {"contractAddress":"0x...","method":"swap","args":["..."]}
+  ]
+}'
+```
+
+## TypedData Signing
+
+Sign authentication challenges (SIWS/Starkbook style):
+
+```bash
+node scripts/sign-typed-data.js '{
+  "accountAddress":"0x...",
+  "typedData": {
+    "domain": {},
+    "types": {},
+    "primaryType": "Message",
+    "message": {}
+  }
+}'
+```
+
+Or from file:
+
+```bash
+node scripts/sign-typed-data.js '{
+  "accountAddress":"0x...",
+  "typedDataPath":"/tmp/challenge.json"
+}'
+```
+
+## Sign Without Broadcasting
+
+Sign a transaction without submitting it:
+
+```bash
+node scripts/sign-invoke-tx.js '{
+  "accountAddress":"0x...",
+  "calls":[{
+    "contractAddress":"0xTOKEN",
+    "entrypoint":"transfer",
+    "calldata":["0xTO","<uint256_low>","<uint256_high>"]
+  }]
+}'
+```
+
+Returns an `invokeTransaction` payload ready for RPC submission.
+
+## Agent Workflow
+
+<Steps>
+<Step number={1} title="Address Discovery">
+When the user mentions protocols/tokens, the agent must search for:
+- Contract addresses
+- Protocol documentation
+
+Use MCP-compatible sources (APIs, docs URLs, raw GitHub files).
+</Step>
+
+<Step number={2} title="Load Account">
+```bash
+node scripts/load-account.js
+```
+</Step>
+
+<Step number={3} title="ABI Discovery">
+```bash
+node scripts/get-abi.js '{"contractAddress":"0x...","query":"swap"}'
+```
+</Step>
+
+<Step number={4} title="Preflight">
+Always simulate before executing:
+```bash
+node scripts/simulate.js '{"calls":[...]}'
+```
+</Step>
+
+<Step number={5} title="Execute">
+```bash
+node scripts/invoke-contract.js '{"..."}'
+```
+</Step>
+</Steps>
+
+## Security Notes
+
+<Callout type="warning" title="Privacy">
+- Typhoon breaks the on-chain link between deposits and withdrawals
+- Never reuse addresses across different identity contexts
+- Be aware that transaction patterns can still leak information
+- Private keys are stored locally - secure your machine
+</Callout>
+
+## References
+
+- [Typhoon Finance](https://www.typhoon-finance.com/)
+- [Starknet Documentation](https://docs.starknet.io/)
+- [starknet.js](https://www.starknetjs.com/)
