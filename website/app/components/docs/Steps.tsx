@@ -6,7 +6,16 @@ interface StepProps {
   children: ReactNode;
 }
 
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
 export function Step({ number, title, children }: StepProps) {
+  const id = `step-${number}-${slugify(title)}`;
+
   return (
     <div className="relative pl-12 pb-8 last:pb-0">
       {/* Vertical line */}
@@ -19,7 +28,7 @@ export function Step({ number, title, children }: StepProps) {
 
       {/* Content */}
       <div>
-        <h3 className="font-heading font-bold text-lg text-neo-dark mb-2" id={`step-${number}`}>
+        <h3 className="font-heading font-bold text-lg text-neo-dark mb-2" id={id}>
           {title}
         </h3>
         <div className="text-neo-dark/80 [&>p:first-child]:mt-0">
