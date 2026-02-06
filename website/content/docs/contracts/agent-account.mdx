@@ -1,0 +1,229 @@
+---
+title: Agent Account
+description: Smart contract account with session keys for autonomous AI agent operation
+---
+
+# Agent Account
+
+The **Agent Account** is a smart contract account designed specifically for AI agents. It extends Starknet's native account abstraction with features critical for autonomous agent operation.
+
+<Callout type="info" title="Coming Soon">
+The Agent Account contract is currently in development. This page describes the planned functionality based on the technical specification.
+</Callout>
+
+## Overview
+
+The Agent Account provides:
+
+- **Session keys** - Temporary keys with limited permissions
+- **Spending limits** - Cap how much an agent can spend per session or time period
+- **Method restrictions** - Limit which contract methods a session can call
+- **Time bounds** - Sessions automatically expire
+- **Paymaster integration** - Gas fees paid in any token or sponsored
+
+## Why Agent Accounts?
+
+Standard EOA (Externally Owned Account) wallets aren't suitable for AI agents because:
+
+| Problem | Agent Account Solution |
+|---------|----------------------|
+| Private key exposure | Session keys with limited scope |
+| Unlimited spending | Per-session and per-day spending limits |
+| No method restrictions | Whitelist of allowed contract calls |
+| No expiration | Time-bounded sessions |
+| Gas in native token only | Paymaster support for any token |
+
+## Planned Features
+
+### Session Keys
+
+Create temporary keys that can only perform specific actions:
+
+```typescript
+// Create a session key for a trading agent
+const session = await agentAccount.createSession({
+  publicKey: sessionPublicKey,
+  allowedMethods: [
+    {
+      contractAddress: avnuRouterAddress,
+      selector: "swap",
+    },
+    {
+      contractAddress: agentAccount.address,
+      selector: "transfer", // Allow transfers to specific addresses
+      allowedCalldataPatterns: [
+        { index: 0, values: [approvedRecipient1, approvedRecipient2] }
+      ]
+    }
+  ],
+  spendingLimits: [
+    { token: STRK_ADDRESS, maxPerTransaction: parseUnits("100", 18), maxPerDay: parseUnits("1000", 18) },
+    { token: ETH_ADDRESS, maxPerTransaction: parseUnits("0.1", 18), maxPerDay: parseUnits("1", 18) },
+  ],
+  validUntil: Math.floor(Date.now() / 1000) + 86400, // 24 hours
+});
+```
+
+### Spending Limits
+
+Configure granular spending controls:
+
+- **Per-transaction limits** - Maximum amount per single transaction
+- **Per-day limits** - Rolling 24-hour spending cap
+- **Per-session limits** - Total spending allowed for a session
+- **Token-specific limits** - Different limits for different tokens
+
+### Method Whitelisting
+
+Restrict which contract methods a session can call:
+
+```typescript
+const allowedMethods = [
+  // Allow swaps on AVNU
+  { contractAddress: AVNU_ROUTER, selector: "swap" },
+
+  // Allow staking on specific protocol
+  { contractAddress: STAKING_CONTRACT, selector: "stake" },
+  { contractAddress: STAKING_CONTRACT, selector: "unstake" },
+
+  // Disallow everything else by default
+];
+```
+
+### Paymaster Integration
+
+Integrate with paymasters for flexible gas payment:
+
+```typescript
+// Agent pays gas in USDC
+const tx = await agentAccount.execute(calls, {
+  paymaster: {
+    address: AVNU_PAYMASTER,
+    feeToken: USDC_ADDRESS,
+  }
+});
+
+// Sponsor pays gas (gasless for agent)
+const tx = await agentAccount.execute(calls, {
+  paymaster: {
+    address: SPONSOR_PAYMASTER,
+    sponsorSignature: sponsorSig,
+  }
+});
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Agent Account                          │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │   Owner     │  │  Session 1  │  │  Session 2  │  ...    │
+│  │ (Full Key)  │  │ (Limited)   │  │ (Limited)   │         │
+│  └─────────────┘  └─────────────┘  └─────────────┘         │
+├─────────────────────────────────────────────────────────────┤
+│  Validation Logic:                                          │
+│  - Check signature (owner or valid session)                 │
+│  - Verify method is allowed for session                     │
+│  - Check spending limits not exceeded                       │
+│  - Verify session not expired                               │
+├─────────────────────────────────────────────────────────────┤
+│  Execution:                                                 │
+│  - Execute calls if validation passes                       │
+│  - Update spending counters                                 │
+│  - Emit events for tracking                                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Integration with ERC-8004
+
+The Agent Account will integrate with ERC-8004 identity:
+
+```typescript
+// Agent Account is the owner of the ERC-8004 identity NFT
+const agentId = await identityRegistry.owner_of(agentId);
+assert(agentId === agentAccount.address);
+
+// Session keys can update agent metadata within permissions
+await agentAccount.executeWithSession(sessionKey, {
+  contractAddress: identityRegistryAddress,
+  entrypoint: "set_metadata",
+  calldata: CallData.compile({
+    agent_id: agentId,
+    key: "status",
+    value: "active",
+  }),
+});
+```
+
+## Security Model
+
+### Defense in Depth
+
+Multiple layers of protection:
+
+1. **Session isolation** - Compromise of session key doesn't expose owner key
+2. **Spending limits** - Even with session key, damage is bounded
+3. **Method restrictions** - Can't call arbitrary contracts
+4. **Time limits** - Sessions automatically expire
+5. **Revocation** - Owner can immediately revoke any session
+
+### Threat Model
+
+| Threat | Mitigation |
+|--------|-----------|
+| Session key stolen | Spending limits cap losses; time expiry limits window |
+| Malicious agent code | Method whitelist prevents unauthorized calls |
+| Long-running compromise | Daily limits reset; sessions expire |
+| Draining attacks | Per-transaction limits prevent single large theft |
+
+## Reference Implementation
+
+The Agent Account design is inspired by:
+
+- **[Cartridge Controller](https://github.com/cartridge-gg/controller)** - Session key implementation for gaming
+- **[Argent Account](https://github.com/argentlabs/argent-contracts-starknet)** - Guardian and recovery features
+- **[Braavos Account](https://github.com/myBraavos/braavos-account-cairo)** - Hardware signer support
+
+## Roadmap
+
+<Steps>
+<Step number={1} title="Specification Complete">
+Technical specification defined in `docs/SPECIFICATION.md`.
+</Step>
+
+<Step number={2} title="Cairo Implementation">
+In progress - implementing core session key logic.
+</Step>
+
+<Step number={3} title="Testing">
+Unit tests and integration tests with ERC-8004 contracts.
+</Step>
+
+<Step number={4} title="Sepolia Deployment">
+Deploy to testnet for community testing.
+</Step>
+
+<Step number={5} title="Audit & Mainnet">
+Security audit before mainnet deployment.
+</Step>
+</Steps>
+
+## Contribute
+
+The Agent Account is being developed in the open. Contributions welcome:
+
+- **Specification feedback** - Review `docs/SPECIFICATION.md`
+- **Implementation help** - Cairo contract development
+- **Testing** - E2E test scenarios
+- **Documentation** - Usage guides and examples
+
+See the [GitHub repository](https://github.com/starkware-libs/starknet-agentic) for contribution guidelines.
+
+## Related Documentation
+
+- [ERC-8004 Overview](/docs/contracts/erc-8004-overview) - Agent identity standard
+- [Identity Registry](/docs/contracts/identity-registry) - Agent NFT registration
+- [Wallet Skill](/docs/skills/starknet-wallet) - Current wallet management approach
+- [Configuration](/docs/getting-started/configuration) - Setting up agent credentials

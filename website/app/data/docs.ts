@@ -144,6 +144,16 @@ export const DOC_CATEGORIES: DocCategory[] = [
         title: "Validation Registry",
         description: "Third-party validator assessments",
       },
+      {
+        slug: "agent-account",
+        title: "Agent Account",
+        description: "Smart contract account with session keys",
+      },
+      {
+        slug: "deployment",
+        title: "Deployment Guide",
+        description: "Deploy contracts to Sepolia and Mainnet",
+      },
     ],
   },
 ];
