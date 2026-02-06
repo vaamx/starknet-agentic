@@ -10,8 +10,11 @@ interface DocsTableOfContentsProps {
 export function DocsTableOfContents({ items }: DocsTableOfContentsProps) {
   const [activeId, setActiveId] = useState<string>("");
 
+  // Filter out items with empty IDs (can't navigate to them)
+  const validItems = items.filter((item) => item.id && item.id.trim() !== "");
+
   useEffect(() => {
-    if (items.length === 0) return;
+    if (validItems.length === 0) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -28,7 +31,7 @@ export function DocsTableOfContents({ items }: DocsTableOfContentsProps) {
     );
 
     // Observe all heading elements
-    items.forEach((item) => {
+    validItems.forEach((item) => {
       const element = document.getElementById(item.id);
       if (element) {
         observer.observe(element);
@@ -36,9 +39,9 @@ export function DocsTableOfContents({ items }: DocsTableOfContentsProps) {
     });
 
     return () => observer.disconnect();
-  }, [items]);
+  }, [validItems]);
 
-  if (items.length === 0) {
+  if (validItems.length === 0) {
     return null;
   }
 
@@ -48,7 +51,7 @@ export function DocsTableOfContents({ items }: DocsTableOfContentsProps) {
         On this page
       </h4>
       <ul className="space-y-1 border-l-2 border-neo-dark/10">
-        {items.map((item) => {
+        {validItems.map((item) => {
           const isActive = activeId === item.id;
           return (
             <li key={item.id}>
