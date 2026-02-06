@@ -114,26 +114,26 @@ const tx = await agentAccount.execute(calls, {
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Agent Account                          │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │   Owner     │  │  Session 1  │  │  Session 2  │  ...    │
-│  │ (Full Key)  │  │ (Limited)   │  │ (Limited)   │         │
-│  └─────────────┘  └─────────────┘  └─────────────┘         │
-├─────────────────────────────────────────────────────────────┤
-│  Validation Logic:                                          │
-│  - Check signature (owner or valid session)                 │
-│  - Verify method is allowed for session                     │
-│  - Check spending limits not exceeded                       │
-│  - Verify session not expired                               │
-├─────────────────────────────────────────────────────────────┤
-│  Execution:                                                 │
-│  - Execute calls if validation passes                       │
-│  - Update spending counters                                 │
-│  - Emit events for tracking                                 │
-└─────────────────────────────────────────────────────────────┘
+```text
++-------------------------------------------------------------+
+|                      Agent Account                          |
++-------------------------------------------------------------+
+|  +-------------+  +-------------+  +-------------+          |
+|  |    Owner    |  |  Session 1  |  |  Session 2  |  ...     |
+|  |  (Full Key) |  |  (Limited)  |  |  (Limited)  |          |
+|  +-------------+  +-------------+  +-------------+          |
++-------------------------------------------------------------+
+|  Validation Logic:                                          |
+|  - Check signature (owner or valid session)                 |
+|  - Verify method is allowed for session                     |
+|  - Check spending limits not exceeded                       |
+|  - Verify session not expired                               |
++-------------------------------------------------------------+
+|  Execution:                                                 |
+|  - Execute calls if validation passes                       |
+|  - Update spending counters                                 |
+|  - Emit events for tracking                                 |
++-------------------------------------------------------------+
 ```
 
 ## Integration with ERC-8004

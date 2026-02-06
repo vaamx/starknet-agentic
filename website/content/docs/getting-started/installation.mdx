@@ -101,31 +101,31 @@ pnpm install && pnpm build
 
 After installation, you'll have access to these packages:
 
-```
+```text
 starknet-agentic/
-├── packages/
-│   ├── starknet-mcp-server/     # MCP tools for AI agents
-│   │   ├── src/                 # Source code
-│   │   ├── dist/                # Built output (after pnpm build)
-│   │   └── package.json
-│   │
-│   ├── starknet-a2a/            # Agent-to-Agent protocol
-│   │   ├── src/
-│   │   ├── dist/
-│   │   └── package.json
-│   │
-│   └── starknet-identity/
-│       └── erc8004-cairo/       # Cairo smart contracts
-│           ├── src/             # Contract source
-│           ├── tests/           # Unit tests (snforge)
-│           └── Scarb.toml       # Cairo package config
-│
-├── skills/                      # Reusable agent skills
-│   ├── starknet-wallet/
-│   ├── starknet-defi/
-│   └── starknet-identity/
-│
-└── examples/                    # Example implementations
+|-- packages/
+|   |-- starknet-mcp-server/     # MCP tools for AI agents
+|   |   |-- src/                 # Source code
+|   |   |-- dist/                # Built output (after pnpm build)
+|   |   +-- package.json
+|   |
+|   |-- starknet-a2a/            # Agent-to-Agent protocol
+|   |   |-- src/
+|   |   |-- dist/
+|   |   +-- package.json
+|   |
+|   +-- starknet-identity/
+|       +-- erc8004-cairo/       # Cairo smart contracts
+|           |-- src/             # Contract source
+|           |-- tests/           # Unit tests (snforge)
+|           +-- Scarb.toml       # Cairo package config
+|
+|-- skills/                      # Reusable agent skills
+|   |-- starknet-wallet/
+|   |-- starknet-defi/
+|   +-- starknet-identity/
+|
++-- examples/                    # Example implementations
 ```
 
 ## Installing Cairo Contracts (Optional)

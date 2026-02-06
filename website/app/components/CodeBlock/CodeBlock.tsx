@@ -11,7 +11,7 @@ interface CodeBlockProps {
   showCopyButton?: boolean;
 }
 
-const languageMap: Record<string, BundledLanguage> = {
+const languageMap: Record<string, BundledLanguage | "text"> = {
   typescript: "typescript",
   ts: "typescript",
   javascript: "javascript",
@@ -38,6 +38,9 @@ const languageMap: Record<string, BundledLanguage> = {
   html: "html",
   sql: "sql",
   graphql: "graphql",
+  text: "text",
+  plaintext: "text",
+  txt: "text",
 };
 
 export async function CodeBlock({
@@ -48,24 +51,49 @@ export async function CodeBlock({
   showCopyButton = true,
 }: CodeBlockProps) {
   const lang = languageMap[language.toLowerCase()] || "typescript";
+  // Trim leading/trailing newlines but preserve indentation
+  const trimmedCode = code.replace(/^\n+|\n+$/g, '');
 
-  const html = await codeToHtml(code.trim(), {
-    lang,
+  // For plain text, render without syntax highlighting
+  if (lang === "text") {
+    return (
+      <div className="group relative">
+        {filename && (
+          <div className="bg-[#161b22] px-4 py-2 text-sm text-gray-400 border-b border-gray-700 font-mono flex items-center justify-between rounded-t-lg border-2 border-b-0 border-black">
+            <span>{filename}</span>
+          </div>
+        )}
+        {showCopyButton && <CopyButton code={trimmedCode} />}
+        <pre
+          className={`!bg-[#0d1117] !m-0 p-4 overflow-x-auto text-sm leading-relaxed text-gray-100 whitespace-pre border-2 border-black shadow-neo ${filename ? 'rounded-t-none' : 'rounded-lg'}`}
+          style={{ fontFamily: 'var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace' }}
+        >
+          {trimmedCode}
+        </pre>
+      </div>
+    );
+  }
+
+  const html = await codeToHtml(trimmedCode, {
+    lang: lang as BundledLanguage,
     theme: "github-dark-default",
   });
 
   return (
-    <div className="my-4 neo-sm rounded-lg overflow-hidden group relative">
+    <div className="group relative">
       {filename && (
-        <div className="bg-[#161b22] px-4 py-2 text-sm text-gray-400 border-b border-gray-700 font-mono flex items-center justify-between">
+        <div className="bg-[#161b22] px-4 py-2 text-sm text-gray-400 border-b border-gray-700 font-mono flex items-center justify-between rounded-t-lg border-2 border-b-0 border-black">
           <span>{filename}</span>
         </div>
       )}
-      {showCopyButton && <CopyButton code={code.trim()} />}
+      {showCopyButton && <CopyButton code={trimmedCode} />}
       <div
         className={`
           [&>pre]:!bg-[#0d1117] [&>pre]:!m-0 [&>pre]:p-4 [&>pre]:overflow-x-auto
-          [&>pre]:text-sm [&>pre]:leading-relaxed
+          [&>pre]:text-sm [&>pre]:leading-relaxed [&>pre]:font-mono
+          [&>pre]:border-2 [&>pre]:border-black [&>pre]:shadow-neo [&>pre]:rounded-lg
+          [&_code]:font-mono
+          ${filename ? "[&>pre]:rounded-t-none [&>pre]:border-t-0" : ""}
           ${showLineNumbers ? "[&_.line]:before:content-[counter(line)] [&_.line]:before:counter-increment-[line] [&_.line]:before:mr-4 [&_.line]:before:text-gray-500 [&_.line]:before:text-right [&_.line]:before:w-4 [&_.line]:before:inline-block [&>pre]:counter-reset-[line]" : ""}
         `}
         dangerouslySetInnerHTML={{ __html: html }}

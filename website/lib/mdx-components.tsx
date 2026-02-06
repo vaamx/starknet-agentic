@@ -71,14 +71,19 @@ async function CustomCode({
   className,
   ...props
 }: React.HTMLAttributes<HTMLElement> & { children?: string }) {
+  const code = typeof children === "string" ? children : "";
+
   // Check if this is a code block (has language class)
   const match = /language-(\w+)/.exec(className || "");
 
   if (match) {
     const language = match[1];
-    const code = typeof children === "string" ? children : "";
-
     return <CodeBlock code={code} language={language} />;
+  }
+
+  // If no language but has newlines, it's a code block (like ASCII diagrams)
+  if (code.includes("\n")) {
+    return <CodeBlock code={code} language="text" />;
   }
 
   // Inline code
@@ -98,20 +103,32 @@ function CustomPre({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Custom table components
+// Custom table components with neo-brutalist styling
 function CustomTable({ children }: { children: React.ReactNode }) {
   return (
     <div className="my-6 overflow-x-auto">
-      <table className="w-full border-collapse border-2 border-neo-dark/20 rounded-lg overflow-hidden">
+      <table className="w-full border-2 border-black shadow-neo bg-white">
         {children}
       </table>
     </div>
   );
 }
 
+function CustomThead({ children }: { children: React.ReactNode }) {
+  return <thead className="bg-neo-yellow/30">{children}</thead>;
+}
+
+function CustomTbody({ children }: { children: React.ReactNode }) {
+  return <tbody className="divide-y divide-neo-dark/10">{children}</tbody>;
+}
+
+function CustomTr({ children }: { children: React.ReactNode }) {
+  return <tr className="hover:bg-neo-dark/5 transition-colors">{children}</tr>;
+}
+
 function CustomTh({ children }: { children: React.ReactNode }) {
   return (
-    <th className="px-4 py-3 text-left font-heading font-bold bg-neo-dark/5 border-b-2 border-neo-dark/20">
+    <th className="px-4 py-3 text-left font-heading font-bold text-neo-dark border-b-2 border-black">
       {children}
     </th>
   );
@@ -119,7 +136,7 @@ function CustomTh({ children }: { children: React.ReactNode }) {
 
 function CustomTd({ children }: { children: React.ReactNode }) {
   return (
-    <td className="px-4 py-3 border-b border-neo-dark/10">{children}</td>
+    <td className="px-4 py-3 text-neo-dark/80">{children}</td>
   );
 }
 
@@ -168,6 +185,9 @@ export const mdxComponents: MDXComponents = {
 
   // Tables
   table: CustomTable,
+  thead: CustomThead,
+  tbody: CustomTbody,
+  tr: CustomTr,
   th: CustomTh,
   td: CustomTd,
 

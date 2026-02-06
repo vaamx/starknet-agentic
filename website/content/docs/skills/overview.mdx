@@ -59,15 +59,16 @@ claw install starknet-wallet
 
 Each skill follows this structure:
 
-```
+```text
 skills/
-└── starknet-wallet/
-    ├── SKILL.md          # Skill definition (required)
-    ├── package.json      # Dependencies (optional)
-    ├── scripts/          # Reference implementations
-    │   ├── check-balance.ts
-    │   └── transfer.ts
-    └── .env.example      # Environment template
+|
++-- starknet-wallet/
+    |-- SKILL.md          # Skill definition (required)
+    |-- package.json      # Dependencies (optional)
+    |-- scripts/          # Reference implementations
+    |   |-- check-balance.ts
+    |   +-- transfer.ts
+    +-- .env.example      # Environment template
 ```
 
 ## SKILL.md Format

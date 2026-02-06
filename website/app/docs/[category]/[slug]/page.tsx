@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { MDXRemote } from "next-mdx-remote/rsc";
+import remarkGfm from "remark-gfm";
 import { findDocPage, getAdjacentPages } from "@/data/docs";
 import { DocsPagination } from "@/components/docs";
 import { DocsContentWrapper } from "./DocsContentWrapper";
@@ -64,7 +65,15 @@ export default async function DocPage({ params }: DocPageProps) {
           {/* Content */}
           {doc ? (
             <article className="prose prose-neo max-w-none">
-              <MDXRemote source={doc.content} components={mdxComponents} />
+              <MDXRemote
+                source={doc.content}
+                components={mdxComponents}
+                options={{
+                  mdxOptions: {
+                    remarkPlugins: [remarkGfm],
+                  },
+                }}
+              />
             </article>
           ) : (
             <>

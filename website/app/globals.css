@@ -92,7 +92,7 @@
   }
 
   .prose-neo pre {
-    @apply bg-[#0d1117] text-gray-100 rounded-lg p-4 overflow-x-auto my-6 text-sm border-2 border-black shadow-neo;
+    @apply bg-[#0d1117] text-gray-100 rounded-lg p-4 overflow-x-auto my-6 text-sm font-mono border-2 border-black shadow-neo;
   }
 
   .prose-neo blockquote {
@@ -163,4 +163,17 @@
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border-width: 0;
+}
+
+/* Force monospace font on code blocks - override shiki inline styles */
+.prose-neo pre,
+.prose-neo pre code,
+.prose-neo pre span {
+  font-family: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace !important;
+  letter-spacing: 0 !important;
+  word-spacing: 0 !important;
+  font-variant-ligatures: none !important;
+  font-feature-settings: "liga" 0, "calt" 0 !important;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }

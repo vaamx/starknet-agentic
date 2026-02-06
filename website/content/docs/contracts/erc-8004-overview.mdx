@@ -28,21 +28,21 @@ ERC-8004 solves these problems with three interconnected on-chain registries.
 
 The **IdentityRegistry** is an ERC-721 contract where each NFT represents an agent identity. Agent owners can attach arbitrary key-value metadata to their agent tokens.
 
-```
-┌─────────────────────────────────────────┐
-│           IdentityRegistry              │
-├─────────────────────────────────────────┤
-│  Agent #1 (NFT)                         │
-│  ├─ agentName: "TradingBot"             │
-│  ├─ agentType: "defi-trader"            │
-│  ├─ model: "claude-opus-4-5"            │
-│  └─ status: "active"                    │
-├─────────────────────────────────────────┤
-│  Agent #2 (NFT)                         │
-│  ├─ agentName: "CustomerService"        │
-│  ├─ agentType: "support"                │
-│  └─ capabilities: "refund,inquiry"      │
-└─────────────────────────────────────────┘
+```text
++-----------------------------------------+
+|           IdentityRegistry              |
++-----------------------------------------+
+|  Agent #1 (NFT)                         |
+|  |-- agentName: "TradingBot"            |
+|  |-- agentType: "defi-trader"           |
+|  |-- model: "claude-opus-4-5"           |
+|  +-- status: "active"                   |
++-----------------------------------------+
+|  Agent #2 (NFT)                         |
+|  |-- agentName: "CustomerService"       |
+|  |-- agentType: "support"               |
+|  +-- capabilities: "refund,inquiry"     |
++-----------------------------------------+
 ```
 
 Key features:
@@ -54,17 +54,17 @@ Key features:
 
 The **ReputationRegistry** tracks feedback from users who interact with agents. It uses cryptographic authorization to prevent spam while allowing legitimate feedback.
 
-```
-┌─────────────────────────────────────────┐
-│          ReputationRegistry             │
-├─────────────────────────────────────────┤
-│  Agent #1 Feedback                      │
-│  ├─ Client A: Score 85, tags: speed     │
-│  ├─ Client B: Score 92, tags: accuracy  │
-│  └─ Client C: Score 78, tags: cost      │
-│                                         │
-│  Summary: 3 reviews, avg 85             │
-└─────────────────────────────────────────┘
+```text
++-----------------------------------------+
+|          ReputationRegistry             |
++-----------------------------------------+
+|  Agent #1 Feedback                      |
+|  |-- Client A: Score 85, tags: speed    |
+|  |-- Client B: Score 92, tags: accuracy |
+|  +-- Client C: Score 78, tags: cost     |
+|                                         |
+|  Summary: 3 reviews, avg 85             |
++-----------------------------------------+
 ```
 
 Key features:
@@ -78,17 +78,17 @@ Key features:
 
 The **ValidationRegistry** enables third-party validators (auditors, zkML verifiers, stakers) to assess agents and publish scored evaluations.
 
-```
-┌─────────────────────────────────────────┐
-│         ValidationRegistry              │
-├─────────────────────────────────────────┤
-│  Agent #1 Validations                   │
-│  ├─ Validator X: Score 95 (security)    │
-│  ├─ Validator Y: Score 88 (performance) │
-│  └─ Validator Z: Score 92 (compliance)  │
-│                                         │
-│  Summary: 3 validations, avg 92         │
-└─────────────────────────────────────────┘
+```text
++-----------------------------------------+
+|         ValidationRegistry              |
++-----------------------------------------+
+|  Agent #1 Validations                   |
+|  |-- Validator X: Score 95 (security)   |
+|  |-- Validator Y: Score 88 (performance)|
+|  +-- Validator Z: Score 92 (compliance) |
+|                                         |
+|  Summary: 3 validations, avg 92         |
++-----------------------------------------+
 ```
 
 Key features:
@@ -99,18 +99,19 @@ Key features:
 
 ## How the Registries Connect
 
-```
-                    ┌────────────────────┐
-                    │  IdentityRegistry  │
-                    │   (Agent NFTs)     │
-                    └────────────────────┘
-                              │
-                    ┌─────────┴─────────┐
-                    ▼                   ▼
-         ┌──────────────────┐  ┌──────────────────┐
-         │ ReputationRegistry│  │ ValidationRegistry│
-         │   (User Feedback) │  │ (Expert Audits)  │
-         └──────────────────┘  └──────────────────┘
+```text
+                    +--------------------+
+                    |  IdentityRegistry  |
+                    |   (Agent NFTs)     |
+                    +---------+----------+
+                              |
+                    +---------+---------+
+                    |                   |
+                    v                   v
+         +------------------+  +------------------+
+         |ReputationRegistry|  |ValidationRegistry|
+         | (User Feedback)  |  | (Expert Audits)  |
+         +------------------+  +------------------+
 ```
 
 Both ReputationRegistry and ValidationRegistry require a reference to IdentityRegistry at deployment. They verify that agent IDs exist in the identity registry before accepting feedback or validation requests.
