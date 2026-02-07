@@ -256,12 +256,7 @@ fn test_deploy_account_rejects_zero_public_key() {
 fn test_deploy_account_fails_without_registry() {
     let account_class = declare("AgentAccount").unwrap().contract_class();
     let account_class_hash = *account_class.class_hash;
-    let (factory, factory_addr) = deploy_factory(account_class_hash, zero());
-
-    let owner = factory.get_owner();
-    start_cheat_caller_address(factory_addr, owner);
-    factory.set_identity_registry(zero());
-    stop_cheat_caller_address(factory_addr);
+    let (factory, _) = deploy_factory(account_class_hash, zero());
 
     let key = StarkCurveKeyPairImpl::from_secret_key(0x5);
     factory.deploy_account(key.public_key, 0x1, "");
@@ -270,16 +265,9 @@ fn test_deploy_account_fails_without_registry() {
 #[test]
 #[should_panic(expected: 'Account class hash not set')]
 fn test_deploy_account_fails_without_class_hash() {
-    let account_class = declare("AgentAccount").unwrap().contract_class();
-    let account_class_hash = *account_class.class_hash;
-    let registry = deploy_identity_registry();
-    let (factory, factory_addr) = deploy_factory(account_class_hash, registry);
-
     let zero_class: ClassHash = 0.try_into().unwrap();
-    let owner = factory.get_owner();
-    start_cheat_caller_address(factory_addr, owner);
-    factory.set_account_class_hash(zero_class);
-    stop_cheat_caller_address(factory_addr);
+    let registry = deploy_identity_registry();
+    let (factory, _) = deploy_factory(zero_class, registry);
 
     let key = StarkCurveKeyPairImpl::from_secret_key(0x6);
     factory.deploy_account(key.public_key, 0x2, "");
