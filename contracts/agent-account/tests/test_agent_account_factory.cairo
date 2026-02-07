@@ -120,6 +120,17 @@ fn test_set_account_class_hash_rejects_non_owner() {
     factory.set_account_class_hash(new_hash);
 }
 
+#[test]
+#[should_panic(expected: 'Class hash cannot be zero')]
+fn test_set_account_class_hash_rejects_zero() {
+    let (factory, factory_addr, _, _) = setup();
+    let owner = factory.get_owner();
+    let zero_class: ClassHash = 0.try_into().unwrap();
+
+    start_cheat_caller_address(factory_addr, owner);
+    factory.set_account_class_hash(zero_class);
+}
+
 // ---------------------------------------------------------------------------
 // set_identity_registry
 // ---------------------------------------------------------------------------
@@ -145,6 +156,16 @@ fn test_set_identity_registry_rejects_non_owner() {
 
     start_cheat_caller_address(factory_addr, other());
     factory.set_identity_registry(new_registry);
+}
+
+#[test]
+#[should_panic(expected: 'Registry cannot be zero')]
+fn test_set_identity_registry_rejects_zero() {
+    let (factory, factory_addr, _, _) = setup();
+    let owner = factory.get_owner();
+
+    start_cheat_caller_address(factory_addr, owner);
+    factory.set_identity_registry(zero());
 }
 
 // ---------------------------------------------------------------------------
