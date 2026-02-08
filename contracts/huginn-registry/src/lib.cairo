@@ -93,23 +93,9 @@ pub mod HuginnRegistry {
             let profile = self.agents.read(caller);
             assert(profile.name != '', 'Agent not registered');
 
-            // TODO: Integrate STWO verifier contract
-            // For now, store proof hash
-            let proof_hash = self._hash_proof(proof);
-            
-            let proof_record = Proof {
-                thought_hash,
-                proof_hash,
-                verified: true, // TODO: actual verification
-                agent_id: caller,
-            };
-            self.thought_proofs.write(thought_hash, proof_record);
-
-            self.emit(Event::MimirWisdom(MimirWisdom { 
-                agent_id: caller, 
-                thought_hash, 
-                proof_verified: true 
-            }));
+            // Fail-closed until real verifier integration lands.
+            // Never record or emit verified=true from a stub path.
+            assert(false, 'Verification not implemented');
         }
 
         fn get_agent(self: @ContractState, agent_id: ContractAddress) -> (felt252, ByteArray) {

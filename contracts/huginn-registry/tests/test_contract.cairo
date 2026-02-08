@@ -53,7 +53,8 @@ fn test_log_thought_unregistered() {
 }
 
 #[test]
-fn test_prove_thought() {
+#[should_panic(expected: 'Verification not implemented')]
+fn test_prove_thought_reverts_until_verifier_is_integrated() {
     let contract_address = deploy_contract();
     let dispatcher = IHuginnRegistryDispatcher { contract_address };
 
