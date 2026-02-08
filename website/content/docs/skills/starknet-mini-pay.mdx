@@ -11,23 +11,81 @@ The `starknet-mini-pay` skill enables simple P2P payments on Starknet. Generate 
 Unlike Lightning which requires channel setup, Mini-Pay works instantly with any Starknet wallet.
 </Callout>
 
-## Architecture
+## Example Usages
 
-```text
-+-------------------------------------------------------------+
-|                    STARKNET MINI-PAY                        |
-+-------------------------------------------------------------+
-|  +-------------+  +-------------+  +---------------------+  |
-|  |  QR Codes   |  |  Payment    |  |   Telegram Bot      |  |
-|  |  Generator  |  |   Links     |  |   Interface         |  |
-|  +-------------+  +-------------+  +---------------------+  |
-|                          |                                  |
-|               +----------v----------+                       |
-|               |    starknet-py      |                       |
-|               |    SDK + RPC        |                       |
-|               +---------------------+                       |
-+-------------------------------------------------------------+
-```
+<Collapsible title="Send a payment with memo" defaultOpen={true}>
+
+**Prompt:**
+> Send 0.5 ETH to 0x123... with memo "coffee payment"
+
+**AI uses:** Transfer tool with recipient, amount, and memo
+
+**Response:**
+> Payment sent successfully!
+> - Amount: 0.5 ETH
+> - To: 0x123...
+> - Memo: coffee payment
+> - Transaction: 0x7f3a...
+
+</Collapsible>
+
+<Collapsible title="Generate a QR code">
+
+**Prompt:**
+> Generate a QR code for my Starknet address
+
+**AI uses:** QR generation with your account address
+
+**Response:**
+> Here's your payment QR code. Anyone can scan this to send you tokens on Starknet.
+> [QR code image saved to payment_qr.png]
+
+</Collapsible>
+
+<Collapsible title="Create a payment link">
+
+**Prompt:**
+> Create a payment link for 10 USDC with memo "lunch"
+
+**AI uses:** Link builder with amount, token, and memo
+
+**Response:**
+> Payment link created:
+> `starknet:0x04f3...?amount=10&memo=lunch&token=USDC`
+>
+> Share this link with anyone to request payment.
+
+</Collapsible>
+
+<Collapsible title="Create an invoice with expiry">
+
+**Prompt:**
+> Create an invoice for 25 USDC that expires in 1 hour
+
+**AI uses:** Invoice system with amount, token, and expiry
+
+**Response:**
+> Invoice created:
+> - Amount: 25 USDC
+> - Expires: in 1 hour
+> - Invoice ID: inv_abc123
+> - Status: PENDING
+
+</Collapsible>
+
+<Collapsible title="Check transaction status">
+
+**Prompt:**
+> Check the status of transaction 0xabc...
+
+**AI uses:** Transaction status lookup
+
+**Response:**
+> Transaction 0xabc... status: CONFIRMED
+> - Block: #12345
+> - Confirmations: 42
+
+</Collapsible>
 
 ## Features
 
@@ -35,192 +93,33 @@ Unlike Lightning which requires channel setup, Mini-Pay works instantly with any
 |---------|-------------|
 | **P2P Transfers** | Send ETH/STRK/USDC to any Starknet address |
 | **QR Codes** | Generate QR codes for addresses |
-| **Payment Links** | `starknet:<addr>?amount=1&memo=coffee` |
+| **Payment Links** | `starknet:{addr}?amount=1&memo=coffee` |
 | **Invoices** | Payment requests with expiry |
 | **Telegram Bot** | Send/receive via chat commands |
 | **Transaction History** | Track all transfers with status |
 
-## Installation
-
-```bash
-pip install starknet-py qrcode[pil] python-telegram-bot httpx aiosqlite
-```
-
-## Configuration
-
-```bash
-export STARKNET_RPC="https://rpc.starknet.lava.build:443"
-export MINI_PAY_PRIVATE_KEY="0x..."
-export MINI_PAY_ADDRESS="0x..."
-export TELEGRAM_BOT_TOKEN="..."  # Optional
-```
-
-## CLI Usage
-
-### Send Payment
-
-```bash
-python3 scripts/cli.py send 0x123... 0.5 --memo "coffee"
-```
-
-### Generate QR Code
-
-```bash
-python3 scripts/cli.py qr 0x123... --output qr.png
-```
-
-### Create Payment Link
-
-```bash
-python3 scripts/cli.py link 0x123... --amount 0.1 --memo "lunch"
-```
-
-### Create Invoice
-
-```bash
-python3 scripts/cli.py invoice 0x123... 25.00 --expires 1h
-```
-
-### Check Status
-
-```bash
-python3 scripts/cli.py status 0xabcdef...
-python3 scripts/cli.py balance 0x123...
-```
-
 ## Payment Link Format
 
-```
-starknet:<address>?amount=<value>&memo=<text>&token=<ETH|STRK|USDC>
+```text
+starknet:{address}?amount={value}&memo={text}&token={ETH|STRK|USDC}
 ```
 
 Example:
-```
+```text
 starknet:0x053c91253bc9682c04929ca02ed00b3e423f6714...?amount=0.01&memo=coffee&token=ETH
 ```
 
-## Python API
-
-### Send Payment
-
-```python
-from mini_pay import MiniPay
-
-pay = MiniPay(rpc_url="https://rpc.starknet.lava.build:443")
-
-tx_hash = pay.send(
-    from_address="0x...",
-    private_key="0x...",
-    to_address="0x123...",
-    amount_wei=0.5 * 10**18,
-    token="ETH"
-)
-
-status = pay.get_status(tx_hash)
-print(f"Status: {status}")  # PENDING, CONFIRMED, FAILED
-```
-
-### Generate QR Code
-
-```python
-from qr_generator import QRGenerator
-
-qr = QRGenerator()
-qr.generate(
-    address="0x053c91253bc9682c04929ca02ed00b3e423f6714...",
-    amount=0.01,
-    memo="coffee",
-    output_file="payment_qr.png"
-)
-```
-
-### Payment Links
-
-```python
-from link_builder import PaymentLink
-
-link = PaymentLink()
-
-# Create link
-url = link.create(
-    address="0x123...",
-    amount=0.01,
-    memo="coffee",
-    token="ETH"
-)
-
-# Parse incoming link
-data = link.parse("starknet:0x123...?amount=0.01&memo=coffee")
-```
-
-### Invoice System
-
-```python
-from invoice import InvoiceManager
-
-invoice = InvoiceManager()
-
-# Create invoice
-invoice_data = invoice.create(
-    payer_address="0x...",
-    amount=25.00,
-    token="USDC",
-    expiry_seconds=3600,  # 1 hour
-    description="Payment for services"
-)
-
-# Check invoice status
-status = invoice.get_status(invoice_data.id)
-```
-
-## Telegram Bot
-
-### Setup
-
-```bash
-python3 scripts/telegram_bot.py
-```
-
-### Commands
+## Telegram Bot Commands
 
 | Command | Description |
 |---------|-------------|
-| `/pay <address> <amount> [memo]` | Send payment |
+| `/pay {address} {amount} [memo]` | Send payment |
 | `/qr` | Show your QR code |
 | `/balance` | Check balance |
-| `/link <amount> [memo]` | Generate payment link |
-| `/invoice <amount>` | Create invoice |
+| `/link {amount} [memo]` | Generate payment link |
+| `/invoice {amount}` | Create invoice |
 | `/history` | Transaction history |
 | `/help` | Show help |
-
-### Example Flow
-
-```
-User: /pay 0x123... 0.5 coffee
-Bot:  📤 Sending 0.5 ETH to 0x123... (memo: coffee)
-Bot:  ⏳ Transaction pending: 0xabc...
-Bot:  ✅ Confirmed in block #12345
-```
-
-## Payment Flow
-
-```text
-+-------------+     +-------------+     +-------------+
-|   Sender    |     |  Mini-Pay   |     |  Recipient  |
-+------+------+     +------+------+     +------+------+
-       |                   |                   |
-       |  1. Initiate      |                   |
-       |------------------>|                   |
-       |                   |                   |
-       |                   |  2. Execute       |
-       |                   |  Transfer         |
-       |                   |------------------>|
-       |                   |                   |
-       |                   |  3. Confirm       |
-       |                   |<------------------|
-       |  4. Success       |                   |
-       |<------------------|                   |
-```
 
 ## Comparison with Lightning
 
@@ -239,7 +138,7 @@ Bot:  ✅ Confirmed in block #12345
 |-------|-------|----------|
 | `INSUFFICIENT_BALANCE` | Not enough tokens | Add more to account |
 | `ACCOUNT_NOT_FOUND` | Invalid address | Check address format |
-| `INVALID_AMOUNT` | Amount <= 0 | Use positive amount |
+| `INVALID_AMOUNT` | Amount less than or equal to 0 | Use positive amount |
 | `TX_FAILED` | Transaction reverted | Check recipient address |
 | `INVOICE_EXPIRED` | Past expiry | Create new invoice |
 
@@ -256,5 +155,5 @@ Bot:  ✅ Confirmed in block #12345
 
 - [Starknet Documentation](https://docs.starknet.io/)
 - [starknet-py](https://github.com/starknet-io/starknet-py)
-- [Argent X Wallet](https://www.argent.xyz/argent-x/)
+- [Ready Wallet](https://www.ready.co/download-ready-wallet)
 - [Braavos Wallet](https://braavos.app/)

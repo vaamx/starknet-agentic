@@ -231,12 +231,12 @@ Restart the editor to load the MCP server.
 </Step>
 </Steps>
 
-### ChatGPT (with MCP Bridge)
+### ChatGPT Desktop
 
-ChatGPT doesn't natively support MCP, but you can use an MCP-to-OpenAI bridge.
+ChatGPT desktop app now natively supports MCP. OpenAI adopted MCP in March 2025 and integrated it across their products.
 
-<Callout type="info" title="Community Project">
-  MCP bridges for ChatGPT are community-maintained. See [mcp-openai-bridge](https://github.com/anthropics/mcp-openai-bridge) for setup instructions.
+<Callout type="info" title="Native MCP Support">
+  ChatGPT desktop has built-in MCP support. See the [OpenAI MCP documentation](https://developers.openai.com/codex/mcp/) for configuration instructions.
 </Callout>
 
 ### VS Code with Continue
@@ -318,7 +318,7 @@ The user pays nothing for gas—the API key holder covers the cost.
 After configuration, test the connection:
 
 **In Claude Desktop/Claude Code:**
-> "Check my ETH balance on Starknet"
+> Check my ETH balance on Starknet
 
 **Expected response:**
 > Using starknet_get_balance tool...
@@ -326,7 +326,7 @@ After configuration, test the connection:
 
 **In Cursor:**
 Open the AI chat and ask:
-> "What's my STRK balance?"
+> What's my STRK balance?
 
 ## Available Tools
 
@@ -351,7 +351,7 @@ For complete parameter documentation, see the [MCP Tools Reference](/docs/api-re
 <Collapsible title="Check multiple balances" defaultOpen={true}>
 
 **Prompt:**
-> "Show me my ETH, STRK, and USDC balances"
+> Show me my ETH, STRK, and USDC balances
 
 **AI uses:** `starknet_get_balances` with tokens `["ETH", "STRK", "USDC"]`
 
@@ -366,7 +366,7 @@ For complete parameter documentation, see the [MCP Tools Reference](/docs/api-re
 <Collapsible title="Execute a token swap">
 
 **Prompt:**
-> "Swap 50 USDC for ETH with 1% slippage"
+> Swap 50 USDC for ETH with 1% slippage
 
 **AI uses:** `starknet_swap` with sellToken="USDC", buyToken="ETH", amount="50", slippage=0.01
 
@@ -381,7 +381,7 @@ For complete parameter documentation, see the [MCP Tools Reference](/docs/api-re
 <Collapsible title="Transfer tokens">
 
 **Prompt:**
-> "Send 25 STRK to 0x04f3e8d17b41b1e82b13..."
+> Send 25 STRK to 0x04f3e8d17b41b1e82b13...
 
 **AI uses:** `starknet_transfer` with recipient, token="STRK", amount="25"
 
@@ -396,7 +396,7 @@ For complete parameter documentation, see the [MCP Tools Reference](/docs/api-re
 <Collapsible title="Call a contract (read-only)">
 
 **Prompt:**
-> "Read the name of token contract 0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
+> Read the name of token contract 0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7
 
 **AI uses:** `starknet_call_contract` with entrypoint="name"
 

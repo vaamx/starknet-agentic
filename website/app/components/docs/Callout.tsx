@@ -60,16 +60,16 @@ export function Callout({ type = "info", title, children }: CalloutProps) {
   const styles = CALLOUT_STYLES[type];
 
   return (
-    <div className={`my-6 p-4 rounded-lg border-2 ${styles.bg} ${styles.border}`}>
-      <div className="flex gap-3">
-        <div className={`shrink-0 ${type === "warning" ? "text-neo-yellow" : type === "success" ? "text-neo-green" : type === "error" ? "text-red-500" : type === "tip" ? "text-neo-purple" : "text-neo-blue"}`}>
+    <div className={`my-6 rounded-lg border-2 ${styles.bg} ${styles.border} not-prose`}>
+      <div className="flex items-center gap-3 p-4">
+        <div className={`shrink-0 self-center ${type === "warning" ? "text-neo-yellow" : type === "success" ? "text-neo-green" : type === "error" ? "text-red-500" : type === "tip" ? "text-neo-purple" : "text-neo-blue"}`}>
           {styles.icon}
         </div>
         <div className="flex-1 min-w-0">
           {title && (
-            <h4 className="font-heading font-bold text-neo-dark mb-1">{title}</h4>
+            <p className="font-heading font-bold text-neo-dark m-0 leading-tight">{title}</p>
           )}
-          <div className="text-neo-dark/80 text-sm [&>p]:m-0 [&>ul]:m-0 [&>ul]:pl-4">
+          <div className="text-neo-dark/80 text-sm [&>*]:m-0 [&>*]:mt-1 [&>*:first-child]:mt-0 [&_a]:underline [&_a]:text-inherit">
             {children}
           </div>
         </div>

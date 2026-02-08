@@ -7,21 +7,64 @@ description: Guide to creating custom agent skills for Starknet
 
 This guide walks you through creating a custom skill for AI agents on Starknet. Skills are self-contained capability packages that extend what agents can do.
 
+## Recommended: Use the Skill Creator
+
+The easiest way to create a new skill is using the **skill-creator** skill. Simply prompt your AI agent:
+
+```text
+"Help me create a new skill for [your use case]"
+```
+
+The skill-creator will guide you through:
+1. Understanding your use case with concrete examples
+2. Planning reusable skill contents (scripts, references, assets)
+3. Initializing the skill structure
+4. Writing the SKILL.md and bundled resources
+5. Packaging and validating the skill
+
+<Callout type="tip" title="Skill Creator">
+The skill-creator skill is available from [Anthropic's skills repository](https://github.com/anthropics/skills/tree/main/skills/skill-creator). It provides a complete workflow for creating effective skills.
+</Callout>
+
+## Core Principles
+
+Before diving into structure, understand these key principles:
+
+### Concise is Key
+
+The context window is a public good. Only add context the AI doesn't already have. Challenge each piece of information: "Does the AI really need this explanation?"
+
+### Progressive Disclosure
+
+Skills use a three-level loading system:
+1. **Metadata (name + description)** - Always in context (~100 words)
+2. **SKILL.md body** - When skill triggers (under 500 lines ideal)
+3. **Bundled resources** - As needed by the AI (unlimited)
+
+### Set Appropriate Degrees of Freedom
+
+- **High freedom**: Text-based instructions when multiple approaches are valid
+- **Medium freedom**: Pseudocode or scripts with parameters
+- **Low freedom**: Specific scripts when operations are fragile
+
 ## Skill Structure
 
 Every skill needs at minimum a `SKILL.md` file:
 
 ```text
-skills/
-+-- my-skill/
-    |-- SKILL.md          # Required: Skill definition
-    |-- package.json      # Optional: Dependencies
-    |-- scripts/          # Optional: Reference implementations
-    |   |-- example.ts
-    |   +-- utils.ts
-    |-- .env.example      # Optional: Environment template
-    +-- README.md         # Optional: Additional docs
+my-skill/
+├── SKILL.md              # Required: Skill definition with frontmatter
+├── scripts/              # Optional: Executable code (Python/Bash/etc.)
+│   └── example.py
+├── references/           # Optional: Documentation loaded as needed
+│   └── api-docs.md
+└── assets/               # Optional: Files used in output (templates, images)
+    └── template.json
 ```
+
+<Callout type="warning" title="What NOT to Include">
+Do not create README.md, CHANGELOG.md, or other auxiliary documentation. Skills should only contain information needed for an AI agent to do the job.
+</Callout>
 
 ## SKILL.md Format
 
@@ -31,20 +74,9 @@ The skill definition uses YAML frontmatter followed by markdown documentation:
 ---
 name: my-starknet-skill
 description: >
-  A brief description of what this skill enables.
-  Can span multiple lines for complex capabilities.
-keywords:
-  - starknet
-  - your-domain
-  - relevant-terms
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Glob
-  - Grep
-  - Task
-user-invocable: true
+  Enables token swaps on Starknet via AVNU aggregator. Use when the user
+  wants to: (1) swap tokens, (2) get price quotes, (3) execute DeFi trades.
+  Supports ETH, STRK, USDC, USDT and any verified token.
 ---
 
 # My Starknet Skill
@@ -59,15 +91,44 @@ Your documentation content here...
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | string | Unique identifier (lowercase, hyphens, 1-64 chars) |
-| `description` | string | What the skill does (multi-line supported) |
-| `keywords` | array | Discovery keywords for agents to find this skill |
+| `description` | string | What the skill does AND when to use it (this is the primary trigger) |
+
+<Callout type="info" title="Description is Critical">
+The description is the primary triggering mechanism. Include both what the skill does and specific triggers/contexts for when to use it. All "when to use" information should be here - not in the body, since the body only loads after triggering.
+</Callout>
 
 ### Optional Fields
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `allowed-tools` | array | all | Tools the skill can use |
-| `user-invocable` | boolean | false | Can users invoke directly with `/skill-name` |
+| `license` | string | - | License reference (e.g., "Complete terms in LICENSE.txt") |
+| `compatibility` | object | - | Environment requirements (target product, system packages) |
+
+## Bundled Resources
+
+### Scripts (`scripts/`)
+
+Executable code for tasks that require deterministic reliability or are repeatedly rewritten.
+
+- **When to include**: When the same code is being rewritten repeatedly
+- **Example**: `scripts/rotate_pdf.py` for PDF rotation tasks
+- **Benefits**: Token efficient, deterministic, may be executed without loading into context
+
+### References (`references/`)
+
+Documentation loaded as needed to inform the AI's process.
+
+- **When to include**: For documentation the AI should reference while working
+- **Examples**: API docs, database schemas, company policies
+- **Best practice**: If files are large (over 10k words), include grep search patterns in SKILL.md
+
+### Assets (`assets/`)
+
+Files used in the output, not loaded into context.
+
+- **When to include**: When the skill needs files for final output
+- **Examples**: Templates, images, boilerplate code, fonts
+- **Benefits**: Separates output resources from documentation
 
 ## Writing Documentation
 
@@ -321,20 +382,35 @@ console.log("Minted! TX:", transaction_hash);
 
 ## Testing Your Skill
 
-Before publishing, test your skill:
+Before publishing, validate and package your skill:
 
-1. **Syntax Check** - Ensure YAML frontmatter is valid
-2. **Code Verification** - Run all code examples
-3. **Completeness** - Verify all operations are documented
-4. **Agent Testing** - Have an AI agent use the skill
+<Steps>
+<Step number={1} title="Validate and Package">
+If using the skill-creator, run the packaging script which validates automatically:
 
 ```bash
-# Validate YAML syntax
-npx yaml-lint skills/my-skill/SKILL.md
-
-# Run example scripts
-cd skills/my-skill && npm test
+scripts/package_skill.py path/to/my-skill
 ```
+
+This checks:
+- YAML frontmatter format and required fields
+- Skill naming conventions and directory structure
+- Description completeness and quality
+- File organization and resource references
+</Step>
+
+<Step number={2} title="Test Scripts">
+Run any bundled scripts to ensure they work:
+
+```bash
+cd my-skill/scripts && python example.py
+```
+</Step>
+
+<Step number={3} title="Agent Testing">
+Have an AI agent use the skill on real tasks. Notice struggles or inefficiencies and iterate.
+</Step>
+</Steps>
 
 ## Next Steps
 
