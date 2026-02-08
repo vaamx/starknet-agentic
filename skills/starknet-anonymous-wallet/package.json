@@ -1,13 +1,23 @@
 {
-  "name": "starknet-anonymous-wallet",
-  "version": "1.0.0",
-  "description": "packages for starknet-anonymous-wallet skill",
+  "name": "@starknet-agentic/skill-anonymous-wallet",
+  "version": "0.1.0",
+  "description": "Starknet Anonymous Wallet skill: privacy-focused wallet creation and management",
   "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "SKILL.md",
+    "scripts/",
+    "references/",
+    ".env.example"
+  ],
   "scripts": {
     "create": "node scripts/create-account.js"
   },
   "dependencies": {
-    "starknet": "^9.2.1",
+    "starknet": "^8.9.1",
     "typhoon-sdk": "^1.1.13"
   }
 }

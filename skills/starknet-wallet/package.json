@@ -1,7 +1,18 @@
 {
-  "name": "starknet-wallet-skill",
-  "private": true,
+  "name": "@starknet-agentic/skill-wallet",
+  "version": "0.1.0",
+  "description": "Starknet Wallet skill: create and manage wallets, transfer tokens, session keys, and paymaster support",
   "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "SKILL.md",
+    "README.md",
+    "scripts/",
+    ".env.example"
+  ],
   "scripts": {
     "check-balance": "tsx scripts/check-balance.ts",
     "check-balances": "tsx scripts/check-balances.ts"

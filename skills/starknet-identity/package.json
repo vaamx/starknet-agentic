@@ -1,0 +1,29 @@
+{
+  "name": "@starknet-agentic/skill-identity",
+  "version": "0.1.0",
+  "description": "Starknet Identity skill: ERC-8004 agent registration, reputation, and validation",
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "SKILL.md",
+    "README.md",
+    "scripts/",
+    ".env.example"
+  ],
+  "scripts": {
+    "register-agent": "tsx scripts/register-agent.ts",
+    "query-reputation": "tsx scripts/query-reputation.ts",
+    "set-metadata": "tsx scripts/set-metadata.ts"
+  },
+  "dependencies": {
+    "starknet": "^6.23.1",
+    "dotenv": "^16.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.9.0"
+  }
+}
