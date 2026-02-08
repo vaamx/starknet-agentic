@@ -14,6 +14,20 @@ AI agents are emerging as autonomous economic actors, but they lack standardized
 
 Starknet's native Account Abstraction, low costs, and ZK-provable compute make it uniquely suited to solve these problems.
 
+### Implementation Status
+
+This specification describes both implemented features and planned designs:
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Agent Account Contract | **Tested** | 110 tests across 4 test suites |
+| Agent Registry (ERC-8004) | **Production** | 131+ unit + 47 E2E tests, deployed on Sepolia |
+| MCP Server | **Production** | 9 tools implemented |
+| A2A Adapter | **Functional** | Basic implementation complete |
+| Framework Extensions | **Planned** | Deferred to v2.0 |
+
+See [ROADMAP.md](ROADMAP.md) for detailed implementation plan.
+
 ## 2. Architecture
 
 ### 2.1 Layer Model
@@ -67,6 +81,8 @@ Layer 0: Starknet L2 (native AA, ZK proofs, paymaster)
 
 ### 3.1 Agent Account Contract
 
+**Status:** Tested at `contracts/agent-account/` (~570 lines main contract, 110 tests across 4 suites).
+
 **Purpose:** A purpose-built Starknet account contract for AI agents that extends native AA with agent-specific features.
 
 **Interface:**
@@ -74,19 +90,44 @@ Layer 0: Starknet L2 (native AA, ZK proofs, paymaster)
 ```cairo
 #[starknet::interface]
 trait IAgentAccount<TContractState> {
+    // Account entrypoints
+    fn __validate__(ref self: TContractState, calls: Array<Call>) -> felt252;
+    fn __execute__(ref self: TContractState, calls: Array<Call>) -> Array<Span<felt252>>;
+    fn __validate_declare__(ref self: TContractState, class_hash: felt252) -> felt252;
+    fn __validate_deploy__(
+        ref self: TContractState,
+        class_hash: felt252,
+        contract_address_salt: felt252,
+        public_key: felt252,
+        factory: ContractAddress
+    ) -> felt252;
+
     // Session key management
     fn register_session_key(ref self: TContractState, key: felt252, policy: SessionPolicy);
     fn revoke_session_key(ref self: TContractState, key: felt252);
     fn get_session_key_policy(self: @TContractState, key: felt252) -> SessionPolicy;
     fn is_session_key_valid(self: @TContractState, key: felt252) -> bool;
 
+    // Policy enforcement
+    fn validate_session_key_call(
+        self: @TContractState,
+        key: felt252,
+        target: ContractAddress,
+    ) -> bool;
+    fn use_session_key_allowance(
+        ref self: TContractState,
+        key: felt252,
+        token: ContractAddress,
+        amount: u256,
+    );
+
     // Owner controls
-    fn set_spending_limit(ref self: TContractState, token: ContractAddress, amount: u256, period: u64);
     fn emergency_revoke_all(ref self: TContractState);
-    fn set_allowed_contracts(ref self: TContractState, contracts: Array<ContractAddress>);
+    fn get_active_session_key_count(self: @TContractState) -> u32;
 
     // Agent identity link
     fn set_agent_id(ref self: TContractState, registry: ContractAddress, agent_id: u256);
+    fn init_agent_id_from_factory(ref self: TContractState, registry: ContractAddress, agent_id: u256);
     fn get_agent_id(self: @TContractState) -> (ContractAddress, u256);
 }
 ```
@@ -95,13 +136,13 @@ trait IAgentAccount<TContractState> {
 
 ```cairo
 struct SessionPolicy {
-    allowed_contracts: Array<ContractAddress>,
-    allowed_selectors: Array<felt252>,
-    spending_limit: u256,
-    spending_token: ContractAddress,
     valid_after: u64,
     valid_until: u64,
+    spending_limit: u256,
+    spending_token: ContractAddress,
+    allowed_contract: ContractAddress,  // zero address = any contract
     max_calls_per_tx: u32,
+    spending_period_secs: u64,
 }
 ```
 
@@ -114,7 +155,96 @@ Based on ERC-8004, with Starknet-specific enhancements:
 - Integrates with Agent Account contract for automated identity binding
 - Leverages Starknet's native signature verification (SNIP-6)
 
-### 3.3 Contract Deployment Plan
+### 3.3 ERC-8004 Compatibility Matrix (Parity vs Extension)
+
+This section is the in-repo source of truth for ERC-8004 compatibility decisions.
+`Parity` means behavior is intentionally aligned with ERC-8004 Solidity semantics.
+`Extension` means additive Starknet-native behavior.
+
+#### Identity Registry
+
+| Function | Solidity reference semantic | Cairo semantic | Status | Type | Notes |
+|----------|-----------------------------|----------------|--------|------|-------|
+| `register_with_metadata` | Register agent + metadata, return `agentId` | Same semantic, returns `u256` | Implemented | Parity | Value type adaptation: metadata uses `ByteArray` |
+| `register_with_token_uri` | Register agent + URI, return `agentId` | Same semantic | Implemented | Parity |  |
+| `register` | Register with defaults, return `agentId` | Same semantic | Implemented | Parity |  |
+| `set_metadata` / `get_metadata` | Metadata keyed by string/bytes | Metadata keyed by `ByteArray` | Implemented | Parity | ABI adaptation (`bytes`/`string` -> `ByteArray`) |
+| `set_agent_uri` | Update token URI by authorized caller | Same semantic | Implemented | Parity |  |
+| `get_agent_wallet` | Read current linked wallet | Same semantic | Implemented | Parity |  |
+| `set_agent_wallet` | Signature-proven wallet binding | Signature-proven wallet binding | Implemented | Parity + Extension | Extension: domain-separated hash, nonce, tight deadline window |
+| `unset_agent_wallet` | Remove linked wallet | Same semantic | Implemented | Parity |  |
+| `token_uri` | Read token URI for existing token | Requires token existence, then read | Implemented | Parity | Explicit existence assert added |
+| `get_wallet_set_nonce` | Not in Solidity reference | Per-agent nonce read | Implemented | Extension | Replay protection support |
+
+#### Validation Registry
+
+| Function | Solidity reference semantic | Cairo semantic | Status | Type | Notes |
+|----------|-----------------------------|----------------|--------|------|-------|
+| `validation_request` | Requester designates validator | Same semantic | Implemented | Parity | Includes reentrancy guard |
+| `validation_response` | Only designated validator can respond (0..100) | Same semantic | Implemented | Parity | Progressive updates allowed |
+| `get_validation_status` | Query by `requestHash`, return status tuple | Same semantic shape | Implemented | Parity | Returns zeroed response fields when not responded |
+| `get_summary` | `(count, avgResponse)` | Same semantic | Implemented | Parity |  |
+| `get_summary_paginated` | Not in Solidity reference | Bounded summary window | Implemented | Extension | Added for bounded reads |
+| `get_agent_validations` / `get_validator_requests` | Full list reads | Full list reads | Implemented | Parity | O(n) list reads; see operational notes below |
+| `request_exists` / `get_request` | Existence/details lookup | Same semantic | Implemented | Parity |  |
+
+#### Reputation Registry
+
+| Function | Solidity reference semantic | Cairo semantic | Status | Type | Notes |
+|----------|-----------------------------|----------------|--------|------|-------|
+| `give_feedback` | Feedback with value, decimals, tags, URIs/hashes | Same semantic | Implemented | Parity | Reentrancy guard enabled |
+| `revoke_feedback` | Revoke by original feedback author | Same semantic | Implemented | Parity |  |
+| `append_response` | Append response to feedback | Same semantic + revoked guard | Implemented | Parity + Extension | Extension: explicit revoked-feedback block |
+| `get_summary` | `(count, summaryValue, summaryValueDecimals)` | Same semantic | Implemented | Parity | Weighted/normalized average behavior aligned |
+| `get_summary_paginated` | Not in Solidity reference | Bounded summary window | Implemented | Extension | Added for bounded reads |
+| `read_all_feedback` | Full dataset read by filters | Full dataset read by filters | Implemented | Parity | O(n) read; use bounded summary for large sets |
+
+### 3.4 Workstream D Note: Cross-Chain Hash Interoperability
+
+Cross-chain onboarding must assume hash algorithm differences by default:
+
+- EVM reference flows commonly use `bytes32` values generated with `keccak256`.
+- Cairo storage uses `u256` for request/response hashes (bit-width-compatible with `bytes32`).
+- Auto-generated hashes in the Starknet contracts use Poseidon, not keccak.
+
+Recommended convention for cross-chain portability:
+
+1. Treat externally supplied hashes as opaque 32-byte values.
+2. When proving parity across chains, pass explicit request/response hashes from the source system instead of relying on Starknet auto-generation.
+3. Document hash provenance in off-chain metadata (e.g., `hash_algorithm: keccak256|poseidon`) for indexers.
+4. For v1 migration demos, prefer explicit hash injection and deterministic replay-safe signatures over implicit auto-hash paths.
+
+### 3.5 Operational Notes (Validation/Reputation)
+
+- Progressive overwrite behavior:
+  - `validation_response` is latest-state storage by design.
+  - A designated validator can update the response over time (progressive validation).
+  - Historical evolution is preserved in event logs, not in a full on-chain response history map.
+
+- Unbounded reads:
+  - `get_agent_validations`, `get_validator_requests`, and full-list style accessors are O(n).
+  - On large datasets, clients should prefer paginated summary functions (`get_summary_paginated`) and bounded off-chain indexing.
+  - Avoid relying on unbounded full-array reads for latency-sensitive production paths.
+
+### 3.6 Agent Account Factory
+
+```cairo
+#[starknet::interface]
+trait IAgentAccountFactory<TContractState> {
+    fn deploy_account(
+        ref self: TContractState,
+        public_key: felt252,
+        salt: felt252,
+        token_uri: ByteArray
+    ) -> (ContractAddress, u256);
+    fn get_account_class_hash(self: @TContractState) -> ClassHash;
+    fn set_account_class_hash(ref self: TContractState, new_class_hash: ClassHash);
+    fn get_identity_registry(self: @TContractState) -> ContractAddress;
+    fn set_identity_registry(ref self: TContractState, new_registry: ContractAddress);
+}
+```
+
+### 3.7 Contract Deployment Plan
 
 1. Deploy IdentityRegistry (standalone)
 2. Deploy ReputationRegistry (links to IdentityRegistry)
@@ -123,6 +253,8 @@ Based on ERC-8004, with Starknet-specific enhancements:
 5. Create factory for deploying new AgentAccount instances linked to the registry
 
 ## 4. MCP Server
+
+**Status:** Production-ready at `packages/starknet-mcp-server/` (1,600+ lines, 9 tools implemented).
 
 ### 4.1 Tool Definitions
 
@@ -157,8 +289,11 @@ Each tool follows the MCP tool schema:
 - Session key support (agent operates with limited permissions)
 - Transaction simulation before execution
 - Spending limit enforcement in the MCP server layer
+- Session signature format: owner signatures are `[r, s]`, session signatures are `[session_public_key, r, s]`
 
 ## 5. A2A Adapter
+
+**Status:** Functional at `packages/starknet-a2a/` (437 lines). Basic implementation complete.
 
 ### 5.1 Agent Card Generation
 
@@ -198,6 +333,8 @@ A2A tasks map to Starknet transactions:
 | `canceled` | Not applicable (immutable) |
 
 ## 6. Skills Marketplace
+
+**Status:** 5 skills in `skills/` directory. 3 complete (wallet, mini-pay, anonymous-wallet), 2 templates (defi, identity).
 
 ### 6.1 Skill Directory Structure
 
@@ -239,6 +376,8 @@ user-invocable: boolean # Can users explicitly invoke
 
 ## 7. Framework Extensions
 
+**Status:** Not yet implemented. Deferred to v2.0 (see [ROADMAP.md](ROADMAP.md) section 3.1).
+
 ### 7.1 Daydreams Extension
 
 Follows the Daydreams extension pattern (`extension()` helper):
@@ -271,8 +410,91 @@ Implements the Lucid Agents `Extension` interface:
 
 ## 9. Open Questions
 
-- Should the Agent Account support multiple session keys simultaneously?
-- How should cross-chain identity work between EVM ERC-8004 and Starknet registry?
-- What is the right economic model for agent-to-agent micropayments?
-- Should skills be versioned and how should upgrades be handled?
-- How to integrate Giza's zkML for verifiable agent decisions?
+These questions are tracked for resolution in [ROADMAP.md](ROADMAP.md) section 3.7.
+
+- **Multiple session keys:** Should the Agent Account support multiple session keys simultaneously?
+  - *Current decision:* Single-level delegation only (owner -> agent). Nested delegation deferred to v2.0+.
+- **Cross-chain identity:** How should cross-chain identity work between EVM ERC-8004 and Starknet registry?
+  - *Status:* Open question, tracked in ROADMAP 3.3.
+- **Micropayments:** What is the right economic model for agent-to-agent micropayments?
+  - *Status:* Open question, tracked in ROADMAP 3.7.
+- **Skill versioning:** Should skills be versioned and how should upgrades be handled?
+  - *Status:* Open question, tracked in ROADMAP 3.7.
+- **zkML integration:** How to integrate Giza's zkML for verifiable agent decisions?
+  - **ANSWERED**: See [PROOF_OF_INFERENCE.md](./PROOF_OF_INFERENCE.md) — Obelysk Protocol provides 3-tier verification (full ZK for <200K param models, hybrid TEE+ZK for mid-size, TEE+fraud proofs for 70B+ models). 8 benchmark TXs live on Sepolia.
+
+## 10. Agent Passport
+
+### 10.1 Overview
+
+Agent Passport is a standardized convention for agents to describe their capabilities using ERC-8004 metadata. It enables automated agent discovery, capability matching, and interoperability across the ecosystem.
+
+### 10.2 Schema
+
+An Agent Passport is stored as a set of ERC-8004 metadata entries:
+
+| Metadata Key | Format | Purpose |
+|--------------|--------|---------|
+| `caps` | JSON array of strings | Index of capability names |
+| `capability:<name>` | JSON object | Full capability descriptor |
+
+**Capability Object:**
+
+```json
+{
+  "name": "swap",
+  "category": "defi",
+  "version": "1.0.0",
+  "description": "Execute token swaps via avnu aggregator",
+  "endpoint": "starknet_swap"
+}
+```
+
+**Category Enum:** `defi`, `trading`, `identity`, `messaging`, `payments`, `prediction`
+
+### 10.3 On-Chain Storage
+
+Capabilities are stored on the ERC-8004 IdentityRegistry via `set_metadata`:
+
+```typescript
+// 1. Store capability descriptor
+await registry.set_metadata(agentId, "capability:swap", JSON.stringify({
+  name: "swap",
+  category: "defi",
+  version: "1.0",
+  description: "Execute token swaps via avnu"
+}));
+
+// 2. Update caps index
+await registry.set_metadata(agentId, "caps", JSON.stringify(["swap", "stake", "lend"]));
+```
+
+### 10.4 Validation
+
+Use the `@starknet-agentic/agent-passport` package for validation:
+
+```typescript
+import { validatePassport } from "@starknet-agentic/agent-passport";
+
+const result = validatePassport({
+  capabilities: [
+    { name: "swap", category: "defi", version: "1.0" },
+    { name: "transfer", category: "payments" },
+  ],
+});
+// { valid: true }
+```
+
+### 10.5 JSON Schema
+
+A formal JSON Schema is published at `packages/starknet-agent-passport/schemas/agent-passport.schema.json` and can be used for external validation tooling.
+
+### 10.6 Migration Guide
+
+For existing ERC-8004 agents that use the `capabilities` metadata key (comma-separated string):
+
+1. Read existing `capabilities` value: `"swap,stake,lend"`
+2. Convert to `caps` format: `'["swap","stake","lend"]'`
+3. Write individual `capability:<name>` entries with category metadata
+4. Set `caps` metadata key with the JSON array
+5. Optionally remove the old `capabilities` key
