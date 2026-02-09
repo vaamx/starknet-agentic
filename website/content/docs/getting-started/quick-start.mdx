@@ -7,7 +7,7 @@ import { Callout, Steps, Step } from "@/components/docs";
 
 # Quick Start
 
-Get your AI agent running on Starknet in **under 5 minutes**. This guide walks you through setup, your first balance query, and connecting to an AI assistant.
+Get your AI agent running on Starknet in **under 5 minutes**. This guide walks you through setup and connecting to an AI assistant.
 
 ## Prerequisites
 
@@ -92,33 +92,15 @@ You'll need both a wallet and an RPC endpoint:
   We recommend [Ready Wallet](https://www.ready.co/download-ready-wallet) for beginners. Other popular options include [Braavos](https://braavos.app/) (advanced security features), [Bitget Wallet](https://web3.bitget.com/en/assets/starknet-wallet) (multi-chain), and [OKX Wallet](https://www.okx.com/web3) (mobile-first).
 </Callout>
 
-## Step 3: Run Your First Query
+## Step 3: Connect to an AI Assistant
 
-Check your ETH balance:
+The MCP server works with any AI assistant that supports the Model Context Protocol.
 
-```bash
-cd packages/starknet-mcp-server
-pnpm run example:balance
-```
-
-You should see output like:
-
-```
-Checking balance for 0x123...abc
-Token: ETH (0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7)
-Balance: 0.5 ETH
-Raw: 500000000000000000
-```
-
-<Callout type="success" title="Congratulations!">
-  Your setup is complete. Your agent can now interact with Starknet.
+<Callout type="info" title="Using Other AI Assistants?">
+  This quick start shows Claude Desktop setup, but the MCP server works with ChatGPT, Codex, and other MCP-compatible assistants. See the [full MCP Server guide](/docs/guides/mcp-server) for setup instructions for different platforms.
 </Callout>
 
-## Step 4: Connect to Claude (Optional)
-
-If you want to use Starknet tools directly in Claude Desktop:
-
-### Configure MCP Server
+### Claude Desktop Setup
 
 Add this to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
@@ -177,4 +159,4 @@ Verify your `STARKNET_RPC_URL` is correct and your API key is valid.
 
 ---
 
-Need more help? Check the [full troubleshooting guide](/docs/guides/troubleshooting) or [open an issue](https://github.com/keep-starknet-strange/starknet-agentic/issues).
+Need more help? [Open an issue](https://github.com/keep-starknet-strange/starknet-agentic/issues) on GitHub.

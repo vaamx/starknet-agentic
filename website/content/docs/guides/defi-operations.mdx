@@ -27,20 +27,20 @@ AVNU aggregates liquidity across all Starknet DEXs (Ekubo, JediSwap, etc.) to fi
 ```typescript
 // Via MCP tools
 const quote = await mcpClient.callTool({
-  name: "starknet_get_swap_quote",
+  name: "starknet_get_quote",
   arguments: {
     sellToken: "ETH",
     buyToken: "STRK",
-    sellAmount: "0.1",
+    amount: "0.1",
   }
 });
 
 const result = await mcpClient.callTool({
-  name: "starknet_swap_tokens",
+  name: "starknet_swap",
   arguments: {
     sellToken: "ETH",
     buyToken: "STRK",
-    sellAmount: "0.1",
+    amount: "0.1",
     slippage: 0.01,  // 1%
   }
 });
@@ -52,11 +52,11 @@ Pay gas in any supported token:
 
 ```typescript
 const result = await mcpClient.callTool({
-  name: "starknet_swap_tokens",
+  name: "starknet_swap",
   arguments: {
     sellToken: "ETH",
     buyToken: "STRK",
-    sellAmount: "0.1",
+    amount: "0.1",
     gasfree: true,
     gasToken: "USDC",  // Pay gas in USDC
   }

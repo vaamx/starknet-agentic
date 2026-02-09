@@ -13,8 +13,8 @@ Read `website/CLAUDE.md` and extract the commit hash from the `docs-last-updated
 Run the following to get all changes since the last docs update:
 
 ```bash
-git -C /Users/brandonroberts/workspace/starkware/starknet-agentic log --oneline <baseline_commit>..HEAD
-git -C /Users/brandonroberts/workspace/starkware/starknet-agentic diff --stat <baseline_commit>..HEAD
+git log --oneline <baseline_commit>..HEAD
+git diff --stat <baseline_commit>..HEAD
 ```
 
 **CRITICAL: Do NOT rely on commit messages or summaries.** You MUST:
