@@ -29,7 +29,7 @@ Core infrastructure features required for v1.0 release. MVP definition: MCP serv
 - [x] Register/Setup Publication for `@starknet-agentic/skill-mini-pay`
 - [x] Register/Setup Publication for `@starknet-agentic/skill-anonymous-wallet`
 - [x] Register/Setup Publication for `@starknet-agentic/huginn-onboard`
-- [ ] Publish skills to ClawHub for OpenClaw/MoltBook users (requires OAuth setup)
+- [ ] Publish skills to ClawHub for OpenClaw/MoltBook users (blocked: CLI not on npm, publishing workflow undocumented)
 - [x] Update skills README with installation instructions for all channels
 - [x] Set up automated publishing in CI workflow
 
@@ -39,13 +39,13 @@ Core infrastructure features required for v1.0 release. MVP definition: MCP serv
 - CI validation workflow added to `.github/workflows/ci.yml`
 - Skills README at `skills/README.md` with installation instructions
 - Monorepo approach chosen: all skills in one repo, installable individually or together
-- ClawHub publication pending OpenClaw account setup
+- ClawHub blocked: CLI not published to npm, publishing workflow not documented
 
 **Distribution Channels**:
 - GitHub: `npx skills add keep-starknet-strange/starknet-agentic`
 - Claude Code: `/plugin marketplace add keep-starknet-strange/starknet-agentic`
 - skills.sh: Auto-indexed from GitHub
-- ClawHub: Pending account setup
+- ClawHub: Blocked (check clawhub.ai for updates)
 
 ---
 

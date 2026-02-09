@@ -55,14 +55,23 @@ cd starknet-agentic/skills
 ls -la
 ```
 
-### Option 4: ClawHub (OpenClaw/MoltBook)
+### Option 4: ClawHub (Coming Soon)
 
-Skills are published to ClawHub for OpenClaw and MoltBook users:
+ClawHub integration is planned for OpenClaw and MoltBook users. Publishing workflow is not yet publicly documented - check [clawhub.ai](https://clawhub.ai) for updates.
+
+## Updating Skills
+
+Installed skills don't auto-update. To get the latest version:
 
 ```bash
-# Via clawhub CLI
-clawhub install @starknet-agentic/starknet-wallet
-clawhub install @starknet-agentic/starknet-defi
+# GitHub - reinstall
+npx skills add keep-starknet-strange/starknet-agentic --force
+
+# Claude Code - update plugin
+/plugin update starknet-skills@keep-starknet-strange-starknet-agentic
+
+# Git clone - pull latest
+git pull origin main
 ```
 
 ## Prerequisites
