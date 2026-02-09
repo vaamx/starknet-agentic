@@ -10,38 +10,8 @@
   "plugins": [
     {
       "name": "starknet-skills",
-      "source": ".",
+      "source": "./",
       "description": "Complete Starknet agent toolkit: wallet management, DeFi operations, on-chain identity, P2P payments, and anonymous transactions"
-    },
-    {
-      "name": "starknet-wallet",
-      "source": "./skills/starknet-wallet",
-      "description": "Starknet wallet management with session keys and gasless transactions"
-    },
-    {
-      "name": "starknet-defi",
-      "source": "./skills/starknet-defi",
-      "description": "DeFi operations: swaps, staking, lending via avnu aggregator"
-    },
-    {
-      "name": "starknet-identity",
-      "source": "./skills/starknet-identity",
-      "description": "ERC-8004 on-chain agent identity and reputation"
-    },
-    {
-      "name": "starknet-payments",
-      "source": "./skills/starknet-mini-pay",
-      "description": "P2P payments with QR codes and Telegram bot"
-    },
-    {
-      "name": "starknet-privacy",
-      "source": "./skills/starknet-anonymous-wallet",
-      "description": "Anonymous wallet creation via Typhoon"
-    },
-    {
-      "name": "huginn-onboard",
-      "source": "./skills/huginn-onboard",
-      "description": "Bridge to Starknet and register with Huginn registry"
     }
   ]
 }
