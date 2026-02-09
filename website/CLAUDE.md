@@ -102,4 +102,4 @@ Defined in `globals.css`:
 ## Documentation Tracking
 
 <!-- This field is automatically updated by the /update-docs command -->
-docs-last-updated: 1745284a992d2c9fa0fb9e094a70d508eddb87fd
+docs-last-updated: af60f929b88021598a819919c23fd6b88f5bb856
