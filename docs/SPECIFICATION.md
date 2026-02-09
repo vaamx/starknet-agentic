@@ -151,6 +151,8 @@ In addition to ERC-8004 registries, this repo includes Starknet-native contracts
 
 ### 3.4 ERC-8004 Compatibility Matrix (Parity vs Extension)
 
+> **Reader-friendly version:** For a standalone summary of ERC-8004 parity, Starknet extensions (session keys, domain separation), and cross-chain notes, see [ERC8004-PARITY.md](ERC8004-PARITY.md). This section is the canonical technical reference.
+
 This section is the in-repo source of truth for ERC-8004 compatibility decisions.
 `Parity` means behavior is intentionally aligned with ERC-8004 Solidity semantics.
 `Extension` means additive Starknet-native behavior.

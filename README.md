@@ -55,13 +55,17 @@ Snapshot at time of this README update:
 | [A2A](https://a2a-protocol.org/) | Agent-to-agent workflows | `packages/starknet-a2a` |
 | [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) | Agent identity, reputation, validation | `contracts/erc8004-cairo` |
 
-## Cross-Chain Interop Strategy
+## ERC-8004: Parity + Starknet Extensions
 
-We are implementing a parity-core approach for ERC-8004 so integrations can be reused across EVM networks and Starknet, while keeping Starknet-native capabilities as opt-in extensions.
+All three ERC-8004 registries (Identity, Reputation, Validation) are implemented in Cairo with API-level parity to the [Solidity reference](https://eips.ethereum.org/EIPS/eip-8004). On top of parity, Starknet's native account abstraction enables extensions that EVM deployments cannot offer:
 
-- Goal: portability of agent integrations without giving up Starknet strengths (native account abstraction, Cairo-native patterns, lower execution cost).
-- Scope: API semantics align by default; chain-local state (reputation/validation history) remains chain-scoped unless explicitly aggregated off-chain.
-- Tracking plan: `#78` in this repository.
+- **Session keys**: Agents operate with scoped, revocable credentials -- spending cap per token, expiry, contract/selector restrictions -- instead of raw private keys. If a session key leaks, the attacker gets a bounded credential that the owner can revoke instantly. The master key never leaves the owner.
+- **Domain-separated wallet binding**: `set_agent_wallet` includes chain_id + contract_address + nonce in the signature hash, preventing cross-chain and cross-registry replay.
+- **Bounded reads**: Paginated summary APIs for production-scale reputation and validation queries.
+
+Full compatibility matrix, session key details, and cross-chain notes: **[docs/ERC8004-PARITY.md](docs/ERC8004-PARITY.md)**
+
+Tracking issue: [#78](https://github.com/keep-starknet-strange/starknet-agentic/issues/78)
 
 ## Skills At A Glance
 
