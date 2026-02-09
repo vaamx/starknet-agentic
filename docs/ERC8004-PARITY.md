@@ -187,8 +187,6 @@ Chain-local state (reputation, validation history) remains chain-scoped. Cross-c
 
 ### Sepolia (live)
 
-Canonical source: `contracts/erc8004-cairo/deployed_addresses_sepolia.json` and `contracts/agent-account/deployed_addresses_sepolia.json`.
-
 | Contract | Address |
 |----------|---------|
 | IdentityRegistry | `0x7856876f4c8e1880bc0a2e4c15f4de3085bc2bad5c7b0ae472740f8f558e417` |
