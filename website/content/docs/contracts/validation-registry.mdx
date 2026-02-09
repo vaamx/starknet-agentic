@@ -111,7 +111,7 @@ pub trait IValidationRegistry<TContractState> {
     fn get_validation_status(
         self: @TContractState,
         request_hash: u256
-    ) -> (ContractAddress, u256, u8, u256, u256);
+    ) -> (ContractAddress, u256, u8, u256, u256, u64);
 
     fn get_summary(
         self: @TContractState,
@@ -119,6 +119,15 @@ pub trait IValidationRegistry<TContractState> {
         validator_addresses: Span<ContractAddress>,
         tag: u256
     ) -> (u64, u8);
+
+    fn get_summary_paginated(
+        self: @TContractState,
+        agent_id: u256,
+        validator_addresses: Span<ContractAddress>,
+        tag: u256,
+        request_offset: u64,
+        request_limit: u64
+    ) -> (u64, u8, bool);
 
     fn get_agent_validations(
         self: @TContractState,
@@ -246,10 +255,10 @@ Get the status of a validation request.
 fn get_validation_status(
     self: @TContractState,
     request_hash: u256
-) -> (ContractAddress, u256, u8, u256, u256)
+) -> (ContractAddress, u256, u8, u256, u256, u64)
 ```
 
-**Returns:** Tuple of (validator_address, agent_id, response_score, tag, last_update)
+**Returns:** Tuple of (validator_address, agent_id, response_score, response_hash, tag, last_update)
 
 **Note:** If no response has been submitted yet, response_score and last_update will be 0.
 
@@ -301,6 +310,52 @@ const [securityCount, securityAvg] = await registry.get_summary(
   [],
   encodeTag("security")
 );
+```
+
+### get_summary_paginated
+
+Get aggregated validation with pagination for gas-bounded queries.
+
+```cairo
+fn get_summary_paginated(
+    self: @TContractState,
+    agent_id: u256,
+    validator_addresses: Span<ContractAddress>,
+    tag: u256,
+    request_offset: u64,
+    request_limit: u64
+) -> (u64, u8, bool)
+```
+
+**Parameters:**
+- `agent_id` - Agent's token ID
+- `validator_addresses` - Filter to specific validators (empty for all)
+- `tag` - Filter by tag (0 for all)
+- `request_offset` - Skip first N requests
+- `request_limit` - Max requests to process
+
+**Returns:** Tuple of (count, average_response, truncated)
+
+The `truncated` flag indicates if additional data exists outside the pagination window.
+
+**Example:**
+
+```typescript
+// Paginated query with 100 requests max
+const [count, avgResponse, truncated] = await registry.get_summary_paginated(
+  agentId,
+  [],
+  0,   // tag
+  0,   // request_offset
+  100  // request_limit
+);
+
+if (truncated) {
+  // More data exists - make another call with offset
+  const [count2, avg2, truncated2] = await registry.get_summary_paginated(
+    agentId, [], 0, 100, 100
+  );
+}
 ```
 
 ### get_agent_validations
