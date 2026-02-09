@@ -151,3 +151,9 @@ target/
 deployed_addresses*.json
 .env.local
 .mcp.json
+
+# Claude Code
+.claude/settings.local.json
+
+# macOS
+.DS_Store

@@ -1,0 +1,557 @@
+---
+title: Reputation Registry
+description: On-chain feedback system with cryptographic authorization for AI agents
+---
+
+# Reputation Registry
+
+The **ReputationRegistry** provides an on-chain feedback system for AI agents. It uses cryptographic authorization to prevent spam while allowing legitimate users to submit scored feedback.
+
+## Overview
+
+The ReputationRegistry provides:
+
+- **Authorized feedback submission** via SNIP-12 TypedData signatures
+- **Score-based ratings** (0-100) with tag filtering
+- **Feedback revocation** by the original submitter
+- **Response appending** for bi-directional communication
+- **On-chain aggregation** for querying summaries
+
+## Data Structures
+
+### Feedback
+
+Represents a single feedback entry.
+
+```cairo
+pub struct Feedback {
+    pub score: u8,       // Score from 0-100
+    pub tag1: u256,      // Primary tag (encoded as bytes32)
+    pub tag2: u256,      // Secondary tag (encoded as bytes32)
+    pub is_revoked: bool // Whether feedback has been revoked
+}
+```
+
+### FeedbackAuth
+
+Authorization structure that must be signed by the agent owner.
+
+```cairo
+pub struct FeedbackAuth {
+    pub agent_id: u256,                    // Agent receiving feedback
+    pub client_address: ContractAddress,   // Address authorized to give feedback
+    pub index_limit: u64,                  // Maximum feedback entries allowed
+    pub expiry: u64,                       // Unix timestamp when auth expires
+    pub chain_id: u256,                    // Chain ID to prevent replay
+    pub identity_registry: ContractAddress, // IdentityRegistry address
+    pub signer_address: ContractAddress,   // Agent owner who signed
+}
+```
+
+## Events
+
+### NewFeedback
+
+Emitted when feedback is submitted.
+
+```cairo
+pub struct NewFeedback {
+    #[key]
+    pub agent_id: u256,
+    #[key]
+    pub client_address: ContractAddress,
+    pub score: u8,
+    pub tag1: u256,
+    pub tag2: u256,
+    pub fileuri: ByteArray,
+    pub filehash: u256,
+}
+```
+
+### FeedbackRevoked
+
+Emitted when feedback is revoked.
+
+```cairo
+pub struct FeedbackRevoked {
+    #[key]
+    pub agent_id: u256,
+    #[key]
+    pub client_address: ContractAddress,
+    pub feedback_index: u64,
+}
+```
+
+### ResponseAppended
+
+Emitted when a response is added to feedback.
+
+```cairo
+pub struct ResponseAppended {
+    #[key]
+    pub agent_id: u256,
+    #[key]
+    pub client_address: ContractAddress,
+    pub feedback_index: u64,
+    pub responder: ContractAddress,
+    pub response_uri: ByteArray,
+    pub response_hash: u256,
+}
+```
+
+## Interface
+
+### IReputationRegistry
+
+```cairo
+#[starknet::interface]
+pub trait IReputationRegistry<TContractState> {
+    // Write functions
+    fn give_feedback(
+        ref self: TContractState,
+        agent_id: u256,
+        score: u8,
+        tag1: u256,
+        tag2: u256,
+        fileuri: ByteArray,
+        filehash: u256,
+        feedback_auth: FeedbackAuth,
+        signature: Span<felt252>
+    );
+
+    fn revoke_feedback(
+        ref self: TContractState,
+        agent_id: u256,
+        feedback_index: u64
+    );
+
+    fn append_response(
+        ref self: TContractState,
+        agent_id: u256,
+        client_address: ContractAddress,
+        feedback_index: u64,
+        response_uri: ByteArray,
+        response_hash: u256
+    );
+
+    // Read functions
+    fn get_summary(
+        self: @TContractState,
+        agent_id: u256,
+        client_addresses: Span<ContractAddress>,
+        tag1: u256,
+        tag2: u256
+    ) -> (u64, u8);
+
+    fn read_feedback(
+        self: @TContractState,
+        agent_id: u256,
+        client_address: ContractAddress,
+        index: u64
+    ) -> (u8, u256, u256, bool);
+
+    fn read_all_feedback(
+        self: @TContractState,
+        agent_id: u256,
+        client_addresses: Span<ContractAddress>,
+        tag1: u256,
+        tag2: u256,
+        include_revoked: bool
+    ) -> (Array<ContractAddress>, Array<u8>, Array<u256>, Array<u256>, Array<bool>);
+
+    fn get_response_count(
+        self: @TContractState,
+        agent_id: u256,
+        client_address: ContractAddress,
+        feedback_index: u64,
+        responders: Span<ContractAddress>
+    ) -> u64;
+
+    fn get_clients(self: @TContractState, agent_id: u256) -> Array<ContractAddress>;
+    fn get_last_index(self: @TContractState, agent_id: u256, client_address: ContractAddress) -> u64;
+    fn get_identity_registry(self: @TContractState) -> ContractAddress;
+}
+```
+
+## Functions
+
+### give_feedback
+
+Submit feedback for an agent with cryptographic authorization.
+
+```cairo
+fn give_feedback(
+    ref self: TContractState,
+    agent_id: u256,
+    score: u8,
+    tag1: u256,
+    tag2: u256,
+    fileuri: ByteArray,
+    filehash: u256,
+    feedback_auth: FeedbackAuth,
+    signature: Span<felt252>
+)
+```
+
+**Parameters:**
+- `agent_id` - Target agent's token ID
+- `score` - Rating from 0-100
+- `tag1` - Primary category tag (encoded as u256)
+- `tag2` - Secondary category tag (encoded as u256)
+- `fileuri` - Optional URI to detailed feedback document
+- `filehash` - Optional hash of the feedback document
+- `feedback_auth` - Authorization struct signed by agent owner
+- `signature` - SNIP-12 signature from agent owner
+
+**Validation:**
+- Caller must match `feedback_auth.client_address`
+- Agent must exist in IdentityRegistry
+- Signature must be valid
+- Authorization must not be expired
+- Caller must not be the agent owner (no self-feedback)
+
+**Example:**
+
+```typescript
+import { Account, CallData, typedData } from "starknet";
+
+// Step 1: Agent owner creates and signs authorization
+const feedbackAuth = {
+  agent_id: agentId,
+  client_address: clientAddress,
+  index_limit: 10,
+  expiry: Math.floor(Date.now() / 1000) + 3600, // 1 hour
+  chain_id: chainId,
+  identity_registry: identityRegistryAddress,
+  signer_address: ownerAddress,
+};
+
+// Create typed data for SNIP-12 signature
+const typedDataObj = {
+  types: {
+    StarkNetDomain: [
+      { name: "name", type: "felt" },
+      { name: "chainId", type: "felt" },
+    ],
+    FeedbackAuth: [
+      { name: "agent_id", type: "u256" },
+      { name: "client_address", type: "felt" },
+      { name: "index_limit", type: "felt" },
+      { name: "expiry", type: "felt" },
+      { name: "chain_id", type: "u256" },
+      { name: "identity_registry", type: "felt" },
+      { name: "signer_address", type: "felt" },
+    ],
+  },
+  primaryType: "FeedbackAuth",
+  domain: {
+    name: "ReputationRegistry",
+    chainId: chainId,
+  },
+  message: feedbackAuth,
+};
+
+const signature = await ownerAccount.signMessage(typedDataObj);
+
+// Step 2: Client submits feedback using the authorization
+await clientAccount.execute({
+  contractAddress: reputationRegistryAddress,
+  entrypoint: "give_feedback",
+  calldata: CallData.compile({
+    agent_id: agentId,
+    score: 85,
+    tag1: encodeTag("reliability"),
+    tag2: encodeTag("speed"),
+    fileuri: "",
+    filehash: 0,
+    feedback_auth: feedbackAuth,
+    signature: signature,
+  }),
+});
+```
+
+### revoke_feedback
+
+Revoke previously submitted feedback. Only the original feedback submitter can revoke.
+
+```cairo
+fn revoke_feedback(ref self: TContractState, agent_id: u256, feedback_index: u64)
+```
+
+**Parameters:**
+- `agent_id` - Agent's token ID
+- `feedback_index` - Index of the feedback to revoke
+
+**Access Control:** Only the client who submitted the feedback
+
+**Example:**
+
+```typescript
+await clientAccount.execute({
+  contractAddress: reputationRegistryAddress,
+  entrypoint: "revoke_feedback",
+  calldata: CallData.compile({
+    agent_id: agentId,
+    feedback_index: 0,
+  }),
+});
+```
+
+### append_response
+
+Append a response to existing feedback. Any party can respond.
+
+```cairo
+fn append_response(
+    ref self: TContractState,
+    agent_id: u256,
+    client_address: ContractAddress,
+    feedback_index: u64,
+    response_uri: ByteArray,
+    response_hash: u256
+)
+```
+
+**Parameters:**
+- `agent_id` - Agent's token ID
+- `client_address` - Address of the original feedback submitter
+- `feedback_index` - Index of the feedback to respond to
+- `response_uri` - URI to the response document
+- `response_hash` - Hash of the response document
+
+**Example:**
+
+```typescript
+// Agent owner responds to feedback
+await ownerAccount.execute({
+  contractAddress: reputationRegistryAddress,
+  entrypoint: "append_response",
+  calldata: CallData.compile({
+    agent_id: agentId,
+    client_address: clientAddress,
+    feedback_index: 0,
+    response_uri: "ipfs://QmResponseDocument",
+    response_hash: responseHash,
+  }),
+});
+```
+
+### get_summary
+
+Get aggregated feedback summary for an agent.
+
+```cairo
+fn get_summary(
+    self: @TContractState,
+    agent_id: u256,
+    client_addresses: Span<ContractAddress>,
+    tag1: u256,
+    tag2: u256
+) -> (u64, u8)
+```
+
+**Parameters:**
+- `agent_id` - Agent's token ID
+- `client_addresses` - Filter to specific clients (empty for all)
+- `tag1` - Filter by primary tag (0 for all)
+- `tag2` - Filter by secondary tag (0 for all)
+
+**Returns:** Tuple of (feedback count, average score)
+
+**Example:**
+
+```typescript
+const registry = new Contract(abi, reputationRegistryAddress, provider);
+
+// Get overall summary
+const [count, avgScore] = await registry.get_summary(agentId, [], 0, 0);
+console.log(`${count} reviews, average score: ${avgScore}`);
+
+// Filter by tag
+const [reliabilityCount, reliabilityAvg] = await registry.get_summary(
+  agentId,
+  [],
+  encodeTag("reliability"),
+  0
+);
+```
+
+### read_feedback
+
+Read a single feedback entry.
+
+```cairo
+fn read_feedback(
+    self: @TContractState,
+    agent_id: u256,
+    client_address: ContractAddress,
+    index: u64
+) -> (u8, u256, u256, bool)
+```
+
+**Returns:** Tuple of (score, tag1, tag2, is_revoked)
+
+### read_all_feedback
+
+Read all feedback matching filters.
+
+```cairo
+fn read_all_feedback(
+    self: @TContractState,
+    agent_id: u256,
+    client_addresses: Span<ContractAddress>,
+    tag1: u256,
+    tag2: u256,
+    include_revoked: bool
+) -> (Array<ContractAddress>, Array<u8>, Array<u256>, Array<u256>, Array<bool>)
+```
+
+**Returns:** Five parallel arrays (clients, scores, tag1s, tag2s, revoked statuses)
+
+### get_clients
+
+Get all addresses that have submitted feedback for an agent.
+
+```cairo
+fn get_clients(self: @TContractState, agent_id: u256) -> Array<ContractAddress>
+```
+
+### get_last_index
+
+Get the last feedback index for a specific client.
+
+```cairo
+fn get_last_index(self: @TContractState, agent_id: u256, client_address: ContractAddress) -> u64
+```
+
+### get_response_count
+
+Count responses to a specific feedback entry.
+
+```cairo
+fn get_response_count(
+    self: @TContractState,
+    agent_id: u256,
+    client_address: ContractAddress,
+    feedback_index: u64,
+    responders: Span<ContractAddress>
+) -> u64
+```
+
+## Authorization Flow
+
+The reputation system uses a two-step authorization flow:
+
+<Steps>
+<Step number={1} title="Agent Owner Creates Authorization">
+The agent owner signs a `FeedbackAuth` struct specifying:
+- Which client can give feedback
+- How many feedback entries they can submit
+- When the authorization expires
+</Step>
+
+<Step number={2} title="Client Submits Feedback">
+The client submits feedback along with the signed authorization. The contract verifies:
+- The signature is valid
+- The client address matches
+- The authorization hasn't expired
+- The index limit hasn't been exceeded
+</Step>
+
+<Step number={3} title="Contract Records Feedback">
+If all checks pass, the feedback is recorded on-chain and an event is emitted.
+</Step>
+</Steps>
+
+## Tag Encoding
+
+Tags are stored as `u256` (bytes32). You can encode string tags using Poseidon or keccak hashing:
+
+```typescript
+import { hash } from "starknet";
+
+function encodeTag(tagString: string): bigint {
+  // Simple approach: convert short strings directly
+  if (tagString.length <= 31) {
+    return BigInt("0x" + Buffer.from(tagString).toString("hex"));
+  }
+  // For longer strings, use Poseidon hash
+  return BigInt(hash.computePoseidonHash(tagString));
+}
+
+// Common tags
+const RELIABILITY = encodeTag("reliability");
+const SPEED = encodeTag("speed");
+const ACCURACY = encodeTag("accuracy");
+const COST = encodeTag("cost");
+const SECURITY = encodeTag("security");
+```
+
+## Security Considerations
+
+<Callout type="warning" title="Security Model">
+- **Self-feedback prevention** - The caller cannot be the agent owner
+- **Signature verification** - Uses SNIP-12 TypedData with domain separator
+- **Chain ID binding** - Signatures include chain ID to prevent cross-chain replay
+- **Expiry enforcement** - Authorizations expire at the specified timestamp
+- **Index limits** - Maximum number of feedback entries per authorization
+- **Reentrancy guards** - All state-changing functions are protected
+</Callout>
+
+## Complete Example
+
+```typescript
+import { Account, RpcProvider, Contract, CallData, constants } from "starknet";
+
+// Setup
+const provider = new RpcProvider({ nodeUrl: rpcUrl });
+const ownerAccount = new Account(provider, ownerAddress, ownerPrivateKey, undefined, constants.TRANSACTION_VERSION.V3);
+const clientAccount = new Account(provider, clientAddress, clientPrivateKey, undefined, constants.TRANSACTION_VERSION.V3);
+
+// 1. Owner creates authorization for client
+const feedbackAuth = {
+  agent_id: agentId,
+  client_address: clientAddress,
+  index_limit: 10,
+  expiry: Math.floor(Date.now() / 1000) + 86400, // 24 hours
+  chain_id: "0x534e5f5345504f4c4941", // SN_SEPOLIA
+  identity_registry: identityRegistryAddress,
+  signer_address: ownerAddress,
+};
+
+const signature = await ownerAccount.signMessage(createTypedData(feedbackAuth));
+
+// 2. Client submits feedback
+await clientAccount.execute({
+  contractAddress: reputationRegistryAddress,
+  entrypoint: "give_feedback",
+  calldata: CallData.compile({
+    agent_id: agentId,
+    score: 92,
+    tag1: encodeTag("reliability"),
+    tag2: encodeTag("speed"),
+    fileuri: "ipfs://QmDetailedReview",
+    filehash: reviewHash,
+    feedback_auth: feedbackAuth,
+    signature: signature,
+  }),
+});
+
+// 3. Query reputation
+const registry = new Contract(abi, reputationRegistryAddress, provider);
+const [count, avgScore] = await registry.get_summary(agentId, [], 0, 0);
+console.log(`Agent has ${count} reviews with average score ${avgScore}/100`);
+
+// 4. Owner responds to feedback
+await ownerAccount.execute({
+  contractAddress: reputationRegistryAddress,
+  entrypoint: "append_response",
+  calldata: CallData.compile({
+    agent_id: agentId,
+    client_address: clientAddress,
+    feedback_index: 0,
+    response_uri: "ipfs://QmThankYouResponse",
+    response_hash: 0,
+  }),
+});
+```
