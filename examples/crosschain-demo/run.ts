@@ -1,0 +1,381 @@
+#!/usr/bin/env npx tsx
+import dotenv from "dotenv";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import {
+  Account,
+  CallData,
+  ETransactionVersion,
+  PaymasterRpc,
+  type RpcProvider,
+  byteArray,
+  cairo,
+} from "starknet";
+import { Contract, Interface, JsonRpcProvider, Wallet, ZeroAddress } from "ethers";
+import { preflight } from "./steps/preflight.js";
+import { deployAccount } from "./steps/deploy-account.js";
+import { firstAction } from "./steps/first-action.js";
+import { EVM_NETWORKS, PLACEHOLDER_URI, STARKNET_NAMESPACE } from "./config.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, ".env") });
+
+const EVM_IDENTITY_ABI = [
+  "function register(string agentURI) external returns (uint256)",
+  "function setAgentURI(uint256 agentId, string newURI) external",
+  "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
+] as const;
+
+interface Args {
+  starknetNetwork: string;
+  evmNetwork: string;
+  name: string;
+  description: string;
+  verifyTx: boolean;
+  gasfree: boolean;
+  salt?: string;
+  sharedUri?: string;
+}
+
+function parseArgs(): Args {
+  const args = process.argv.slice(2);
+  const parsed: Args = {
+    starknetNetwork: "sepolia",
+    evmNetwork: "base-sepolia",
+    name: "Starknet Agentic Demo Agent",
+    description: "Cross-chain ERC-8004 identity demo (EVM <-> Starknet)",
+    verifyTx: false,
+    gasfree: false,
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    switch (args[i]) {
+      case "--starknet-network":
+        parsed.starknetNetwork = args[++i];
+        break;
+      case "--evm-network":
+        parsed.evmNetwork = args[++i];
+        break;
+      case "--name":
+        parsed.name = args[++i];
+        break;
+      case "--description":
+        parsed.description = args[++i];
+        break;
+      case "--verify-tx":
+        parsed.verifyTx = true;
+        break;
+      case "--gasfree":
+        parsed.gasfree = true;
+        break;
+      case "--salt":
+        parsed.salt = args[++i];
+        break;
+      case "--shared-uri":
+        parsed.sharedUri = args[++i];
+        break;
+      default:
+        throw new Error(`Unknown argument: ${args[i]}`);
+    }
+  }
+
+  return parsed;
+}
+
+function createSharedUri(input: {
+  name: string;
+  description: string;
+  evmAgentId: string;
+  evmRegistry: string;
+  evmChainId: number;
+  starknetAgentId: string;
+  starknetRegistry: string;
+  starknetNetwork: string;
+}): string {
+  const starknetNamespace = STARKNET_NAMESPACE[input.starknetNetwork] || input.starknetNetwork;
+  const payload = {
+    type: "erc8004-agent-registration-v1",
+    name: input.name,
+    description: input.description,
+    registrations: [
+      {
+        agentId: input.evmAgentId,
+        agentRegistry: `eip155:${input.evmChainId}:${input.evmRegistry}`,
+      },
+      {
+        agentId: input.starknetAgentId,
+        agentRegistry: `starknet:${starknetNamespace}:${input.starknetRegistry}`,
+      },
+    ],
+    generatedAt: new Date().toISOString(),
+    generatedBy: "starknet-agentic/examples/crosschain-demo",
+  };
+
+  return `data:application/json;utf8,${encodeURIComponent(JSON.stringify(payload))}`;
+}
+
+function extractMintedTokenId(receipt: { logs: Array<{ topics: string[]; data: string }> }, iface: Interface): bigint | null {
+  for (const log of receipt.logs) {
+    try {
+      const parsed = iface.parseLog(log);
+      if (!parsed || parsed.name !== "Transfer") {
+        continue;
+      }
+      const from = String(parsed.args[0]);
+      if (from.toLowerCase() !== ZeroAddress.toLowerCase()) {
+        continue;
+      }
+      return BigInt(parsed.args[2].toString());
+    } catch {
+      // Ignore logs from other contracts
+    }
+  }
+  return null;
+}
+
+async function updateStarknetUri(args: {
+  provider: RpcProvider;
+  accountAddress: string;
+  privateKey: string;
+  registry: string;
+  agentId: string;
+  uri: string;
+  gasfree: boolean;
+  network: string;
+  paymasterApiKey?: string;
+  paymasterUrl?: string;
+}): Promise<string> {
+  const account = new Account({
+    provider: args.provider,
+    address: args.accountAddress,
+    signer: args.privateKey,
+    transactionVersion: ETransactionVersion.V3,
+  });
+
+  const call = {
+    contractAddress: args.registry,
+    entrypoint: "set_agent_uri",
+    calldata: CallData.compile({
+      agent_id: cairo.uint256(BigInt(args.agentId)),
+      new_uri: byteArray.byteArrayFromString(args.uri),
+    }),
+  };
+
+  if (!args.gasfree) {
+    const tx = await account.execute(call);
+    await args.provider.waitForTransaction(tx.transaction_hash);
+    return tx.transaction_hash;
+  }
+
+  if (!args.paymasterApiKey) {
+    throw new Error("--gasfree requires AVNU_PAYMASTER_API_KEY in .env");
+  }
+
+  const paymasterUrl =
+    args.paymasterUrl ||
+    (args.network === "sepolia"
+      ? "https://sepolia.paymaster.avnu.fi"
+      : "https://starknet.paymaster.avnu.fi");
+
+  const paymaster = new PaymasterRpc({
+    nodeUrl: paymasterUrl,
+    headers: {
+      "x-paymaster-api-key": args.paymasterApiKey,
+    },
+  });
+
+  const tx = await account.execute([call], {
+    paymaster: {
+      provider: paymaster,
+      params: {
+        version: "0x1",
+        feeMode: { mode: "sponsored" },
+      },
+    },
+  } as never);
+
+  await args.provider.waitForTransaction(tx.transaction_hash);
+  return tx.transaction_hash;
+}
+
+async function main() {
+  const args = parseArgs();
+  const evmConfig = EVM_NETWORKS[args.evmNetwork];
+  if (!evmConfig) {
+    throw new Error(
+      `Unknown EVM network "${args.evmNetwork}". Available: ${Object.keys(EVM_NETWORKS).join(", ")}`,
+    );
+  }
+
+  const evmRpcUrl = process.env.EVM_RPC_URL || evmConfig.rpc;
+  const evmPrivateKey = process.env.EVM_PRIVATE_KEY;
+  if (!evmPrivateKey) {
+    throw new Error("EVM_PRIVATE_KEY is required in examples/crosschain-demo/.env");
+  }
+
+  const starknetDeployerAddress = process.env.DEPLOYER_ADDRESS;
+  const starknetDeployerPrivateKey = process.env.DEPLOYER_PRIVATE_KEY;
+  if (!starknetDeployerAddress || !starknetDeployerPrivateKey) {
+    throw new Error("DEPLOYER_ADDRESS and DEPLOYER_PRIVATE_KEY are required in examples/crosschain-demo/.env");
+  }
+
+  const evmRegistry = process.env.EVM_IDENTITY_REGISTRY || evmConfig.identityRegistry;
+
+  console.log("=== ERC-8004 Cross-Chain Demo ===\n");
+  console.log(`Starknet network: ${args.starknetNetwork}`);
+  console.log(`EVM network:      ${args.evmNetwork}`);
+  console.log(`EVM registry:     ${evmRegistry}`);
+  console.log(`Gasfree:          ${args.gasfree}`);
+  console.log("");
+
+  // ---------- EVM preflight ----------
+  console.log("[1/6] EVM preflight...");
+  const evmProvider = new JsonRpcProvider(evmRpcUrl);
+  const evmNetwork = await evmProvider.getNetwork();
+  if (Number(evmNetwork.chainId) !== evmConfig.chainId) {
+    throw new Error(
+      `EVM chain mismatch: expected ${evmConfig.chainId}, got ${evmNetwork.chainId.toString()}`,
+    );
+  }
+
+  const code = await evmProvider.getCode(evmRegistry);
+  if (code === "0x") {
+    throw new Error(`No code at EVM identity registry ${evmRegistry}`);
+  }
+
+  const evmWallet = new Wallet(evmPrivateKey, evmProvider);
+  const evmIdentity = new Contract(evmRegistry, EVM_IDENTITY_ABI, evmWallet);
+  console.log(`  EVM signer: ${evmWallet.address}`);
+
+  // ---------- Starknet preflight ----------
+  console.log("[2/6] Starknet preflight...");
+  const starknetPreflight = await preflight({
+    network: args.starknetNetwork,
+    rpcUrl: process.env.STARKNET_RPC_URL,
+    accountAddress: starknetDeployerAddress,
+    privateKey: starknetDeployerPrivateKey,
+  });
+  console.log("  Starknet preflight passed");
+
+  // ---------- Starknet deploy ----------
+  console.log("[3/6] Deploying Starknet agent account...");
+  const starknetDeploy = await deployAccount({
+    provider: starknetPreflight.provider,
+    deployerAccount: starknetPreflight.account,
+    networkConfig: starknetPreflight.networkConfig,
+    network: args.starknetNetwork,
+    tokenUri: PLACEHOLDER_URI,
+    gasfree: args.gasfree,
+    paymasterUrl: process.env.AVNU_PAYMASTER_URL,
+    paymasterApiKey: process.env.AVNU_PAYMASTER_API_KEY,
+    salt: args.salt,
+  });
+  console.log(`  Starknet account: ${starknetDeploy.accountAddress}`);
+  console.log(`  Starknet agentId: ${starknetDeploy.agentId}`);
+
+  // ---------- EVM register ----------
+  console.log("[4/6] Registering EVM identity...");
+  const predictedEvmAgentId: bigint = await evmIdentity.register.staticCall(PLACEHOLDER_URI);
+  const registerTx = await evmIdentity.register(PLACEHOLDER_URI);
+  const registerReceipt = await registerTx.wait();
+  if (!registerReceipt) {
+    throw new Error("No receipt returned for EVM register tx");
+  }
+  const mintedTokenId = extractMintedTokenId(registerReceipt as { logs: Array<{ topics: string[]; data: string }> }, evmIdentity.interface);
+  const evmAgentId = mintedTokenId ?? predictedEvmAgentId;
+
+  console.log(`  EVM agentId: ${evmAgentId.toString()}`);
+  console.log(`  EVM register tx: ${registerTx.hash}`);
+
+  // ---------- Link via shared URI ----------
+  console.log("[5/6] Updating shared registration URI on both chains...");
+  const sharedUri =
+    args.sharedUri ||
+    createSharedUri({
+      name: args.name,
+      description: args.description,
+      evmAgentId: evmAgentId.toString(),
+      evmRegistry,
+      evmChainId: evmConfig.chainId,
+      starknetAgentId: starknetDeploy.agentId,
+      starknetRegistry: starknetPreflight.networkConfig.registry,
+      starknetNetwork: args.starknetNetwork,
+    });
+
+  const evmSetUriTx = await evmIdentity.setAgentURI(evmAgentId, sharedUri);
+  const evmSetUriReceipt = await evmSetUriTx.wait();
+  if (!evmSetUriReceipt) {
+    throw new Error("No receipt returned for EVM setAgentURI tx");
+  }
+
+  const starknetSetUriTxHash = await updateStarknetUri({
+    provider: starknetPreflight.provider,
+    accountAddress: starknetDeploy.accountAddress,
+    privateKey: starknetDeploy.privateKey,
+    registry: starknetPreflight.networkConfig.registry,
+    agentId: starknetDeploy.agentId,
+    uri: sharedUri,
+    gasfree: args.gasfree,
+    network: args.starknetNetwork,
+    paymasterApiKey: process.env.AVNU_PAYMASTER_API_KEY,
+    paymasterUrl: process.env.AVNU_PAYMASTER_URL,
+  });
+
+  // ---------- First action ----------
+  console.log("[6/6] Verifying Starknet account operations...");
+  const action = await firstAction({
+    provider: starknetPreflight.provider,
+    accountAddress: starknetDeploy.accountAddress,
+    privateKey: starknetDeploy.privateKey,
+    network: args.starknetNetwork,
+    verifyTx: args.verifyTx,
+  });
+
+  const receipt = {
+    version: "1",
+    generated_at: new Date().toISOString(),
+    starknet: {
+      network: args.starknetNetwork,
+      chain_id: starknetPreflight.chainId,
+      identity_registry: starknetPreflight.networkConfig.registry,
+      factory: starknetPreflight.networkConfig.factory,
+      account_address: starknetDeploy.accountAddress,
+      agent_id: starknetDeploy.agentId,
+      deploy_tx_hash: starknetDeploy.deployTxHash,
+      set_agent_uri_tx_hash: starknetSetUriTxHash,
+      first_action_tx_hash: action.verifyTxHash,
+      balances: action.balances,
+    },
+    evm: {
+      network: args.evmNetwork,
+      chain_id: evmConfig.chainId,
+      identity_registry: evmRegistry,
+      agent_id: evmAgentId.toString(),
+      register_tx_hash: registerTx.hash,
+      set_agent_uri_tx_hash: evmSetUriTx.hash,
+      signer: evmWallet.address,
+    },
+    shared_uri: sharedUri,
+  };
+
+  const receiptPath = path.join(__dirname, "crosschain_receipt.json");
+  fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2));
+
+  console.log("\n=== Cross-chain demo complete ===\n");
+  console.log(`Receipt: ${receiptPath}`);
+  console.log(`Base tx (register): ${evmConfig.explorer}/tx/${registerTx.hash}`);
+  console.log(`Base tx (set URI):  ${evmConfig.explorer}/tx/${evmSetUriTx.hash}`);
+  console.log(
+    `Starknet tx (deploy): ${starknetPreflight.networkConfig.explorer}/tx/${starknetDeploy.deployTxHash}`,
+  );
+  console.log(
+    `Starknet tx (set URI): ${starknetPreflight.networkConfig.explorer}/tx/${starknetSetUriTxHash}`,
+  );
+}
+
+main().catch((error) => {
+  console.error("\nCROSS-CHAIN DEMO FAILED\n");
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});
