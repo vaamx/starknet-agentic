@@ -18,18 +18,6 @@ Core infrastructure features required for v1.0 release. MVP definition: MCP serv
 
 ---
 
-### 1.0 ~~Upgrade starknet.js to v8 Across All Packages~~ DONE
-
-All TypeScript packages are already standardized on starknet.js ^8.9.1.
-
----
-
-### 1.1 ~~Enable and Write MCP Server Tests~~ DONE
-
-MCP server tests are fully implemented with 7 test files covering handlers, tools, services, providers, and utils. Vitest is configured with 80% coverage thresholds.
-
----
-
 ### 1.2 Publish Skills to Distribution Channels
 
 **Description**: Publish all complete skills to GitHub, ClawHub, and npm for maximum distribution.
@@ -69,27 +57,6 @@ MCP server tests are fully implemented with 7 test files covering handlers, tool
 - `packages/starknet-agent-passport/` already implements the client
 - Standardize on capability categories: `defi`, `trading`, `identity`, `messaging`, `payments`
 - Capability metadata stored in ERC-8004 IdentityRegistry via `setMetadata`
-
----
-
-### 1.4 Flagship DeFi Agent Documentation
-
-**Description**: Promote defi-agent as the flagship demo with comprehensive documentation and tutorials.
-
-**Requirements**:
-- [ ] Create detailed README.md for `examples/defi-agent/`
-- [ ] Add architecture diagram showing agent components
-- [ ] Document configuration options (trade size, profit thresholds, intervals)
-- [ ] Add step-by-step setup guide for beginners
-- [ ] Create video tutorial or GIF walkthrough
-- [ ] Link prominently from main README.md and website
-- [ ] Add production deployment guide (systemd, Docker, cloud)
-
-**Implementation Notes**:
-- defi-agent is ~337 lines demonstrating arbitrage patterns
-- Demonstrates triangular arbitrage with ETH/STRK
-- Includes risk management (spending limits, min profit thresholds)
-- Good showcase for Starknet's low fees enabling high-frequency strategies
 
 ---
 
@@ -253,7 +220,7 @@ Features that enhance the platform but are not required for v1.0 release.
 - [x] ~~Add snforge test execution to CI~~ — done in `ci.yml`
 - [x] ~~Add automated npm publishing on release~~ — done in `publish.yml`
 - [ ] Add starknet.js version consistency check
-- [ ] Add dependency vulnerability scanning
+- [x] ~~Add dependency vulnerability scanning~~
 - [ ] Add automated ClawHub publishing on release
 - [ ] Add test coverage reporting
 

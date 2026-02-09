@@ -59,6 +59,20 @@ pub struct MetadataSet {
 }
 ```
 
+### URIUpdated
+
+Emitted when the token URI is updated.
+
+```cairo
+pub struct URIUpdated {
+    #[key]
+    pub agent_id: u256,          // Agent token ID
+    #[key]
+    pub updater: ContractAddress, // Who updated the URI
+    pub new_uri: ByteArray,      // New token URI
+}
+```
+
 ## Interface
 
 ### IIdentityRegistry
@@ -78,10 +92,24 @@ pub trait IIdentityRegistry<TContractState> {
     // Metadata functions
     fn set_metadata(ref self: TContractState, agent_id: u256, key: ByteArray, value: ByteArray);
     fn get_metadata(self: @TContractState, agent_id: u256, key: ByteArray) -> ByteArray;
+    fn set_agent_uri(ref self: TContractState, agent_id: u256, new_uri: ByteArray);
+
+    // Wallet binding functions
+    fn set_agent_wallet(
+        ref self: TContractState,
+        agent_id: u256,
+        new_wallet: ContractAddress,
+        deadline: u64,
+        signature: Span<felt252>
+    );
+    fn unset_agent_wallet(ref self: TContractState, agent_id: u256);
+    fn get_agent_wallet(self: @TContractState, agent_id: u256) -> ContractAddress;
+    fn get_wallet_set_nonce(self: @TContractState, agent_id: u256) -> u64;
 
     // Query functions
     fn total_agents(self: @TContractState) -> u256;
     fn agent_exists(self: @TContractState, agent_id: u256) -> bool;
+    fn is_authorized_or_owner(self: @TContractState, spender: ContractAddress, agent_id: u256) -> bool;
 }
 ```
 
@@ -261,6 +289,139 @@ fn agent_exists(self: @TContractState, agent_id: u256) -> bool
 - `agent_id` - The agent's token ID to check
 
 **Returns:** `true` if the agent exists, `false` otherwise
+
+### set_agent_uri
+
+Update the token URI for an agent.
+
+```cairo
+fn set_agent_uri(ref self: TContractState, agent_id: u256, new_uri: ByteArray)
+```
+
+**Parameters:**
+- `agent_id` - The agent's token ID
+- `new_uri` - New token URI
+
+**Access Control:** Only the agent owner
+
+**Example:**
+
+```typescript
+await account.execute({
+  contractAddress: identityRegistryAddress,
+  entrypoint: "set_agent_uri",
+  calldata: CallData.compile({
+    agent_id: agentId,
+    new_uri: "ipfs://QmNewAgentSpec",
+  }),
+});
+```
+
+## Wallet Binding
+
+The IdentityRegistry supports binding an external wallet to an agent identity. This enables wallet-based authentication for agent operations.
+
+### set_agent_wallet
+
+Bind a wallet to an agent identity with signature verification.
+
+```cairo
+fn set_agent_wallet(
+    ref self: TContractState,
+    agent_id: u256,
+    new_wallet: ContractAddress,
+    deadline: u64,
+    signature: Span<felt252>
+)
+```
+
+**Parameters:**
+- `agent_id` - The agent's token ID
+- `new_wallet` - Wallet address to bind (must implement SNIP-6 `is_valid_signature`)
+- `deadline` - Unix timestamp when signature expires
+- `signature` - Wallet signature over the binding message
+
+**Access Control:** Only the agent owner
+
+**Validation:**
+- Agent must exist
+- Deadline must be within 5 minutes of current time
+- Signature must be valid from the wallet
+
+**Signature Hash Computation:**
+
+```cairo
+hash = poseidon_hash(agent_id, new_wallet, owner, deadline, nonce)
+```
+
+The wallet must sign this hash using SNIP-6 compliant signing.
+
+**Example:**
+
+```typescript
+import { hash, Account, CallData } from "starknet";
+
+// Compute the message hash
+const nonce = await identityRegistry.get_wallet_set_nonce(agentId);
+const deadline = Math.floor(Date.now() / 1000) + 300; // 5 minutes
+
+const messageHash = hash.computePoseidonHash(
+  agentId,
+  newWalletAddress,
+  ownerAddress,
+  deadline,
+  nonce
+);
+
+// Wallet signs the hash
+const signature = await walletAccount.signMessage({ hash: messageHash });
+
+// Owner calls set_agent_wallet
+await ownerAccount.execute({
+  contractAddress: identityRegistryAddress,
+  entrypoint: "set_agent_wallet",
+  calldata: CallData.compile({
+    agent_id: agentId,
+    new_wallet: newWalletAddress,
+    deadline: deadline,
+    signature: signature,
+  }),
+});
+```
+
+### unset_agent_wallet
+
+Clear the wallet binding for an agent.
+
+```cairo
+fn unset_agent_wallet(ref self: TContractState, agent_id: u256)
+```
+
+**Access Control:** Only the agent owner
+
+### get_agent_wallet
+
+Get the bound wallet address for an agent.
+
+```cairo
+fn get_agent_wallet(self: @TContractState, agent_id: u256) -> ContractAddress
+```
+
+**Returns:** Wallet address (zero if not set)
+
+### get_wallet_set_nonce
+
+Get the nonce for wallet binding operations (prevents replay attacks).
+
+```cairo
+fn get_wallet_set_nonce(self: @TContractState, agent_id: u256) -> u64
+```
+
+**Returns:** Current nonce (incremented on each successful `set_agent_wallet`)
+
+<Callout type="info" title="Auto-clearing on Transfer">
+When an agent NFT is transferred, the bound wallet is automatically cleared. This prevents the previous owner's wallet from remaining associated with the agent.
+</Callout>
 
 ## Metadata Schema
 

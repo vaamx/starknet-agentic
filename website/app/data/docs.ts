@@ -150,6 +150,11 @@ export const DOC_CATEGORIES: DocCategory[] = [
         description: "Smart contract account with session keys",
       },
       {
+        slug: "huginn-registry",
+        title: "Huginn Registry",
+        description: "Thought provenance and ZK proof verification",
+      },
+      {
         slug: "deployment",
         title: "Deployment Guide",
         description: "Deploy contracts to Sepolia and Mainnet",
