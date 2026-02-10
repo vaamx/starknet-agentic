@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Interface, ZeroAddress } from "ethers";
-import { createSharedUri, resolveEvmAgentId } from "./run.js";
+import { createSharedUri, parseFundingProvider, resolveEvmAgentId } from "./run.js";
 
 describe("crosschain-demo helpers", () => {
   it("builds a shared URI with both CAIP registrations", () => {
@@ -59,5 +59,12 @@ describe("crosschain-demo helpers", () => {
     });
 
     expect(result).toBe(42n);
+  });
+
+  it("parses funding provider with safe defaults", () => {
+    expect(parseFundingProvider(undefined)).toBe("auto");
+    expect(parseFundingProvider("mock")).toBe("mock");
+    expect(parseFundingProvider("skipped")).toBe("skipped");
+    expect(() => parseFundingProvider("starkgate")).toThrow("Invalid FUNDING_PROVIDER");
   });
 });
