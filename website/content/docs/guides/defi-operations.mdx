@@ -46,11 +46,27 @@ const result = await mcpClient.callTool({
 });
 ```
 
-### Gasless Swaps
+### Gasfree Swaps
 
-Pay gas in any supported token:
+Two gasfree modes are available:
 
+**Sponsored Mode** (dApp pays gas):
 ```typescript
+// Requires AVNU_PAYMASTER_API_KEY environment variable
+const result = await mcpClient.callTool({
+  name: "starknet_swap",
+  arguments: {
+    sellToken: "ETH",
+    buyToken: "STRK",
+    amount: "0.1",
+    gasfree: true,  // Gas is fully sponsored
+  }
+});
+```
+
+**Token Mode** (pay gas in ERC-20):
+```typescript
+// Without API key, specify gasToken
 const result = await mcpClient.callTool({
   name: "starknet_swap",
   arguments: {
@@ -62,6 +78,10 @@ const result = await mcpClient.callTool({
   }
 });
 ```
+
+<Callout type="info" title="Gasfree Configuration">
+  **Sponsored mode** requires `AVNU_PAYMASTER_API_KEY`. Without it, gasfree uses token mode where gas is paid in the specified `gasToken` (or the sell token by default).
+</Callout>
 
 <Callout type="tip" title="Best Price Routing">
 AVNU automatically finds the optimal route across Ekubo, JediSwap, and other DEXs. You don't need to specify which exchange to use.

@@ -7,7 +7,12 @@ import { Callout, Steps, Step } from "@/components/docs";
 
 # Quick Start
 
-Get your AI agent running on Starknet in **under 5 minutes**. This guide walks you through setup and connecting to an AI assistant.
+Get your AI agent running on Starknet in **under 5 minutes**. Choose your path:
+
+| Path | Best For |
+|------|----------|
+| **[Scaffold a new agent](#option-a-scaffold-a-new-agent)** | Starting a new project from scratch |
+| **[Clone the monorepo](#option-b-clone-the-monorepo)** | Contributing or exploring examples |
 
 ## Prerequisites
 
@@ -16,7 +21,44 @@ Before you begin, make sure you have:
 - **Node.js 18+** installed ([download](https://nodejs.org/))
 - **pnpm** package manager (`npm install -g pnpm`)
 
-## Step 1: Clone and Install
+## Option A: Scaffold a New Agent
+
+The fastest way to start is with `create-starknet-agent`:
+
+```bash
+npx create-starknet-agent@latest my-agent
+```
+
+This launches an interactive wizard that:
+1. Asks for your project name
+2. Lets you choose a template (minimal, defi, or full)
+3. Configures your network (Sepolia testnet by default)
+4. Installs dependencies automatically
+
+<Callout type="tip" title="Quick Setup">
+  Use `npx create-starknet-agent@latest my-agent -y` to accept all defaults and skip prompts.
+</Callout>
+
+### Templates
+
+| Template | Description |
+|----------|-------------|
+| **minimal** | Wallet + basic operations (balance, transfer) |
+| **defi** | Wallet + AVNU swaps and DeFi monitoring |
+| **full** | All features + ERC-8004 identity + A2A readiness |
+
+After scaffolding:
+
+```bash
+cd my-agent
+cp .env.example .env
+# Edit .env with your wallet credentials
+pnpm start
+```
+
+## Option B: Clone the Monorepo
+
+For exploring examples or contributing:
 
 <Steps>
 <Step number={1} title="Clone the repository">
@@ -45,15 +87,9 @@ pnpm build
 </Step>
 </Steps>
 
-## Step 2: Configure Environment
+## Configure Your Environment
 
-Create a `.env` file in the repository root:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your Starknet credentials:
+Edit your `.env` file with Starknet credentials:
 
 ```env
 # Starknet RPC endpoint (get a free key from Alchemy or Infura)
@@ -92,7 +128,7 @@ You'll need both a wallet and an RPC endpoint:
   We recommend [Ready Wallet](https://www.ready.co/download-ready-wallet) for beginners. Other popular options include [Braavos](https://braavos.app/) (advanced security features), [Bitget Wallet](https://web3.bitget.com/en/assets/starknet-wallet) (multi-chain), and [OKX Wallet](https://www.okx.com/web3) (mobile-first).
 </Callout>
 
-## Step 3: Connect to an AI Assistant
+## Connect to an AI Assistant
 
 The MCP server works with any AI assistant that supports the Model Context Protocol.
 
@@ -135,6 +171,7 @@ Now that you're set up, explore what you can build:
 | Guide | Description |
 |-------|-------------|
 | [MCP Server Setup](/docs/guides/mcp-server) | Full MCP integration guide |
+| [Agent Onboarding](/docs/guides/agent-onboarding) | Deploy new agent accounts with gasfree |
 | [Wallet Management](/docs/guides/wallet-management) | Transfers, multi-call, session keys |
 | [DeFi Operations](/docs/guides/defi-operations) | Swaps, quotes, gasless transactions |
 | [Agent Identity](/docs/guides/agent-identity) | Register your agent on-chain |
