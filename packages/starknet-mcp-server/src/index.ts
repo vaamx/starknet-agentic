@@ -35,6 +35,7 @@ import {
   cairo,
   byteArray,
   ETransactionVersion,
+  validateAndParseAddress,
   type Call,
 } from "starknet";
 import { randomBytes } from "node:crypto";
@@ -119,6 +120,21 @@ function parseFelt(name: string, value: string): bigint {
   }
   return parsed;
 }
+
+function parseAddress(name: string, value: string): string {
+  try {
+    return validateAndParseAddress(value);
+  } catch {
+    throw new Error(
+      `${name} is not a valid Starknet address: "${value}". ` +
+        "Expected a hex string starting with 0x."
+    );
+  }
+}
+
+// Transaction wait config: ~120 s total (40 retries x 3 s interval).
+const TX_WAIT_RETRIES = 40;
+const TX_WAIT_INTERVAL_MS = 3_000;
 
 function randomSaltFelt(): string {
   const random = BigInt(`0x${randomBytes(32).toString("hex")}`);
@@ -485,6 +501,12 @@ async function parseAmount(
   amount: string,
   tokenAddress: string
 ): Promise<bigint> {
+  if (!/^\d+(\.\d+)?$/.test(amount)) {
+    throw new Error(
+      `Invalid amount "${amount}". Expected a non-negative decimal number (e.g. "1.5", "100").`
+    );
+  }
+
   const tokenService = getTokenService();
   const decimals = await tokenService.getDecimalsAsync(tokenAddress);
 
@@ -571,6 +593,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           gasToken?: string;
         };
 
+        const validatedRecipient = parseAddress("recipient", recipient);
         const tokenAddress = await resolveTokenAddressAsync(token);
         const amountWei = await parseAmount(amount, tokenAddress);
         const gasTokenAddress = gasToken ? await resolveTokenAddressAsync(gasToken) : TOKENS.STRK;
@@ -579,13 +602,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           contractAddress: tokenAddress,
           entrypoint: "transfer",
           calldata: CallData.compile({
-            recipient,
+            recipient: validatedRecipient,
             amount: cairo.uint256(amountWei),
           }),
         };
 
         const transactionHash = await executeTransaction(transferCall, gasfree, gasTokenAddress);
-        await provider.waitForTransaction(transactionHash);
+        await provider.waitForTransaction(transactionHash, { retries: TX_WAIT_RETRIES, retryInterval: TX_WAIT_INTERVAL_MS });
 
         return {
           content: [
@@ -611,8 +634,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           calldata?: string[];
         };
 
+        const validatedContractAddress = parseAddress("contractAddress", contractAddress);
         const result = await provider.callContract({
-          contractAddress,
+          contractAddress: validatedContractAddress,
           entrypoint,
           calldata,
         });
@@ -640,11 +664,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           gasToken?: string;
         };
 
+        const validatedContractAddress = parseAddress("contractAddress", contractAddress);
         const gasTokenAddress = gasToken ? await resolveTokenAddressAsync(gasToken) : TOKENS.STRK;
-        const invokeCall: Call = { contractAddress, entrypoint, calldata };
+        const invokeCall: Call = { contractAddress: validatedContractAddress, entrypoint, calldata };
 
         const transactionHash = await executeTransaction(invokeCall, gasfree, gasTokenAddress);
-        await provider.waitForTransaction(transactionHash);
+        await provider.waitForTransaction(transactionHash, { retries: TX_WAIT_RETRIES, retryInterval: TX_WAIT_INTERVAL_MS });
 
         return {
           content: [
@@ -706,7 +731,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         const gasTokenAddress = gasToken ? await resolveTokenAddressAsync(gasToken) : sellTokenAddress;
         const transactionHash = await executeTransaction(calls, gasfree, gasTokenAddress);
-        await provider.waitForTransaction(transactionHash);
+        await provider.waitForTransaction(transactionHash, { retries: TX_WAIT_RETRIES, retryInterval: TX_WAIT_INTERVAL_MS });
 
         const tokenService = getTokenService();
         const buyDecimals = await tokenService.getDecimalsAsync(buyTokenAddress);
@@ -881,7 +906,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
 
         const transactionHash = await executeTransaction(deployCall, gasfree);
-        const receipt = await provider.waitForTransaction(transactionHash);
+        const receipt = await provider.waitForTransaction(transactionHash, { retries: TX_WAIT_RETRIES, retryInterval: TX_WAIT_INTERVAL_MS });
         const { accountAddress, agentId } = parseDeployResultFromReceipt(
           receipt,
           env.AGENT_ACCOUNT_FACTORY_ADDRESS
