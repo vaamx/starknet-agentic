@@ -7,7 +7,7 @@ import { Callout, Collapsible } from "@/components/docs";
 
 # MCP Tools Reference
 
-This page documents all 9 tools exposed by the Starknet MCP Server. Each tool includes its description, parameters, return values, and usage examples.
+This page documents all 10 tools exposed by the Starknet MCP Server (9 core + 1 conditional). Each tool includes its description, parameters, return values, and usage examples.
 
 <Callout type="info" title="Tool Invocation">
   These tools are invoked automatically by your AI assistant. You describe what you want in natural language, and the AI selects the appropriate tool and parameters.
@@ -26,6 +26,7 @@ This page documents all 9 tools exposed by the Starknet MCP Server. Each tool in
 | [`starknet_invoke_contract`](#starknet_invoke_contract) | Invoke contract function | Yes |
 | [`starknet_estimate_fee`](#starknet_estimate_fee) | Estimate transaction fee | No |
 | [`x402_starknet_sign_payment_required`](#x402_starknet_sign_payment_required) | Sign X-402 payment | No |
+| [`starknet_deploy_agent_account`](#starknet_deploy_agent_account) | Deploy agent account | Yes |
 
 ---
 
@@ -204,7 +205,7 @@ The server uses a **BalanceChecker contract** (`0x031ce64a666fbf9a2b1b2ca51c2af6
 
 ## starknet_transfer
 
-Transfer tokens to another address on Starknet. Supports gasfree mode where gas is paid in an ERC-20 token.
+Transfer tokens to another address on Starknet. Supports gasfree mode with two options: sponsored (dApp pays gas) or token-based (pay gas in ERC-20).
 
 **Parameters**
 
@@ -214,7 +215,13 @@ Transfer tokens to another address on Starknet. Supports gasfree mode where gas 
 | `token` | string | Yes | Token symbol or contract address |
 | `amount` | string | Yes | Amount in human-readable format (e.g., "1.5") |
 | `gasfree` | boolean | No | Enable gasfree mode (default: `false`) |
-| `gasToken` | string | No | Token to pay gas in (gasfree only, default: STRK) |
+| `gasToken` | string | No | Token to pay gas in (only used when gasfree=true without API key) |
+
+<Callout type="info" title="Gasfree Modes">
+  **Sponsored mode**: When `AVNU_PAYMASTER_API_KEY` is set, the dApp pays all gas fees.
+
+  **Token mode**: Without an API key, gas is paid in the specified `gasToken` (or the token being transferred).
+</Callout>
 
 **Returns**
 
@@ -807,6 +814,106 @@ Sign a base64-encoded PAYMENT-REQUIRED header containing Starknet typedData. Par
 <Callout type="info" title="X-402 Protocol">
   X-402 enables HTTP-based micropayments where servers return `402 Payment Required` responses. The client signs and returns a `PAYMENT-SIGNATURE` header to authorize payment.
 </Callout>
+
+---
+
+## starknet_deploy_agent_account
+
+Deploy a new agent account via the AgentAccountFactory with ERC-8004 identity binding. This is a conditional tool that only appears when `AGENT_ACCOUNT_FACTORY_ADDRESS` is configured.
+
+<Callout type="info" title="Conditional Tool">
+  This tool requires the `AGENT_ACCOUNT_FACTORY_ADDRESS` environment variable to be set. If not configured, the tool is not exposed.
+</Callout>
+
+**Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `public_key` | string | Yes | Stark public key (felt, 0x-prefixed) for the new account |
+| `token_uri` | string | Yes | Token URI for agent identity metadata (IPFS, Arweave, etc.) |
+| `salt` | string | No | Deploy salt (felt). Random if omitted for deterministic addresses |
+| `gasfree` | boolean | No | Enable sponsored gasfree mode (default: `false`) |
+
+**Returns**
+
+```json
+{
+  "success": true,
+  "transactionHash": "0x7f3a2bc1...",
+  "factoryAddress": "0x358301e1c530a6...",
+  "publicKey": "0x04a7b3c8d9e1f2...",
+  "salt": "0x1234567890abcdef...",
+  "deployedAccountAddress": "0x05e4f6a7b8c9d0...",
+  "agentId": "42"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `success` | boolean | Whether the deployment succeeded |
+| `transactionHash` | string | Transaction hash |
+| `factoryAddress` | string | AgentAccountFactory address used |
+| `publicKey` | string | Public key of the deployed account |
+| `salt` | string | Salt used for address derivation |
+| `deployedAccountAddress` | string | Address of the new agent account |
+| `agentId` | string | ERC-8004 agent ID (identity NFT token ID) |
+
+**Examples**
+
+<Collapsible title="Deploy new agent account" defaultOpen={true}>
+
+**Prompt:** "Deploy a new agent account with this public key: 0x04a7b3..."
+
+**Tool call:**
+```json
+{
+  "public_key": "0x04a7b3c8d9e1f2a6b5c4d3e2f1a0b9c8d7e6f5a4",
+  "token_uri": "ipfs://QmAgentMetadata123"
+}
+```
+
+</Collapsible>
+
+<Collapsible title="Gasfree deployment">
+
+**Prompt:** "Deploy an agent account using sponsored gas"
+
+**Tool call:**
+```json
+{
+  "public_key": "0x04a7b3c8d9e1f2a6b5c4d3e2f1a0b9c8d7e6f5a4",
+  "token_uri": "ipfs://QmAgentMetadata123",
+  "gasfree": true
+}
+```
+
+Requires `AVNU_PAYMASTER_API_KEY` for sponsored mode.
+
+</Collapsible>
+
+<Collapsible title="Deterministic address with salt">
+
+**Prompt:** "Deploy an agent account with a specific salt for a predictable address"
+
+**Tool call:**
+```json
+{
+  "public_key": "0x04a7b3c8d9e1f2a6b5c4d3e2f1a0b9c8d7e6f5a4",
+  "token_uri": "ipfs://QmAgentMetadata123",
+  "salt": "0x123456789"
+}
+```
+
+</Collapsible>
+
+**Error Codes**
+
+| Error | Cause | Recovery |
+|-------|-------|----------|
+| `FACTORY_NOT_CONFIGURED` | `AGENT_ACCOUNT_FACTORY_ADDRESS` not set | Configure the environment variable |
+| `INVALID_PUBLIC_KEY` | Public key format invalid | Use 0x-prefixed hex felt |
+| `DEPLOYMENT_FAILED` | Factory transaction reverted | Check deployer has sufficient funds |
+| `EVENT_NOT_FOUND` | AccountDeployed event missing | Check transaction on explorer |
 
 ---
 

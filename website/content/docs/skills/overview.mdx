@@ -3,6 +3,8 @@ title: Skills Overview
 description: Introduction to agent skills and how to install them
 ---
 
+import { Callout, Steps, Step } from "@/components/docs";
+
 # Skills Overview
 
 Skills are **reusable capability packages** that extend what AI agents can do on Starknet. Each skill provides a focused set of tools, code examples, and documentation for a specific domain.
@@ -22,7 +24,16 @@ Skills follow the [AgentSkills specification](/docs/skills/writing-skills) - a s
 
 ## Available Skills
 
-Starknet Agentic provides five official skills. Use the search and filter controls to explore:
+Starknet Agentic provides six official skills:
+
+| Skill | Description |
+|-------|-------------|
+| [starknet-wallet](/docs/skills/starknet-wallet) | Wallet management, transfers, balances |
+| [starknet-defi](/docs/skills/starknet-defi) | Token swaps, DCA, staking via AVNU |
+| [starknet-identity](/docs/skills/starknet-identity) | ERC-8004 on-chain agent identity |
+| [starknet-mini-pay](/docs/skills/starknet-mini-pay) | P2P payments, Telegram bot |
+| [starknet-anonymous-wallet](/docs/skills/starknet-anonymous-wallet) | Privacy wallets via Typhoon |
+| huginn-onboard | Bridge to Starknet + Huginn registration |
 
 <SkillsGrid />
 
@@ -30,13 +41,26 @@ Starknet Agentic provides five official skills. Use the search and filter contro
 
 Skills are designed to be loaded by AI agents at runtime. The agent reads the skill documentation and uses the provided code patterns to accomplish tasks.
 
-### For Claude Code / Cursor
-
-Add skills to your project by referencing them in your configuration:
+### Method 1: GitHub (Recommended)
 
 ```bash
-# Clone the skills into your project
-git clone https://github.com/starkware/starknet-agentic
+# Install all skills from the repo
+npx skills add keep-starknet-strange/starknet-agentic
+
+# Or install a specific skill
+npx skills add keep-starknet-strange/starknet-agentic/skills/starknet-wallet
+```
+
+### Method 2: Claude Code Plugins
+
+```bash
+/plugin install starknet-wallet@keep-starknet-strange-starknet-agentic
+```
+
+### Method 3: Direct Clone
+
+```bash
+git clone https://github.com/keep-starknet-strange/starknet-agentic.git
 cp -r starknet-agentic/skills ./skills
 ```
 
@@ -46,12 +70,12 @@ The agent will automatically discover skills in the `skills/` directory.
 
 The MCP server provides tools that implement skill functionality directly. See the [MCP Server Guide](/docs/guides/mcp-server) for setup.
 
-### Using ClawHub
+### Using ClawHub (Coming Soon)
 
 Browse and install community skills from [ClawHub](https://clawhub.com):
 
 ```bash
-# Install a skill from ClawHub (coming soon)
+# Install a skill from ClawHub
 claw install starknet-wallet
 ```
 

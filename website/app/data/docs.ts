@@ -37,6 +37,11 @@ export const DOC_CATEGORIES: DocCategory[] = [
         description: "Set up the Model Context Protocol server",
       },
       {
+        slug: "agent-onboarding",
+        title: "Agent Onboarding",
+        description: "Deploy new agent accounts with gasfree support",
+      },
+      {
         slug: "agent-identity",
         title: "Agent Identity",
         description: "Create and manage agent identities with ERC-8004",

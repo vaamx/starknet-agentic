@@ -20,9 +20,33 @@ This guide covers all installation options for Starknet Agentic, from quick repo
 
 ## Installation Methods
 
-### Method 1: Clone Full Repository
+### Method 1: Scaffold with CLI (Recommended)
 
-Best for exploring examples and contributing.
+Best for starting a new agent project. No cloning required.
+
+```bash
+npx create-starknet-agent@latest my-agent
+```
+
+The CLI guides you through:
+1. **Template selection** - minimal (wallet), defi (swaps), or full (identity + A2A)
+2. **Network configuration** - Sepolia (testnet) or Mainnet
+3. **Dependency installation** - Automatic with your package manager
+
+After scaffolding:
+
+```bash
+cd my-agent
+cp .env.example .env
+# Add your credentials to .env
+pnpm start
+```
+
+See the [create-starknet-agent documentation](https://github.com/keep-starknet-strange/starknet-agentic/tree/main/packages/create-starknet-agent) for all CLI options.
+
+### Method 2: Clone Full Repository
+
+Best for exploring examples and contributing to the project.
 
 <Steps>
 <Step number={1} title="Clone the repository">
@@ -63,7 +87,7 @@ All tests should pass.
 </Step>
 </Steps>
 
-### Method 2: Install Individual Packages
+### Method 3: Install Individual Packages
 
 Best for using Starknet Agentic in your own project.
 
@@ -87,7 +111,7 @@ npm install @starknet-agentic/a2a
   Individual npm packages will be available after the v1.0 release. For now, use the monorepo installation method.
 </Callout>
 
-### Method 3: Use as Git Submodule
+### Method 4: Use as Git Submodule
 
 For embedding in larger projects:
 
@@ -104,7 +128,10 @@ After installation, you'll have access to these packages:
 ```text
 starknet-agentic/
 |-- packages/
-|   |-- starknet-mcp-server/     # MCP tools for AI agents (9 tools)
+|   |-- create-starknet-agent/   # CLI scaffolding tool
+|   |   +-- package.json
+|   |
+|   |-- starknet-mcp-server/     # MCP tools for AI agents (10 tools)
 |   |   |-- src/                 # Source code
 |   |   |-- dist/                # Built output (after pnpm build)
 |   |   +-- package.json
@@ -136,7 +163,8 @@ starknet-agentic/
 |
 +-- examples/                    # Example implementations
     |-- hello-agent/             # Minimal E2E proof
-    +-- defi-agent/              # Arbitrage bot example
+    |-- defi-agent/              # Arbitrage bot example
+    +-- onboard-agent/           # Agent deployment with gasfree
 ```
 
 ## Installing Cairo Contracts (Optional)
