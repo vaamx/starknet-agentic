@@ -114,6 +114,11 @@ export const DOC_CATEGORIES: DocCategory[] = [
         description: "Privacy-preserving wallets via Typhoon",
       },
       {
+        slug: "huginn-onboard",
+        title: "Huginn Onboard Skill",
+        description: "Bridge to Starknet and register with Huginn",
+      },
+      {
         slug: "writing-skills",
         title: "Writing Your Own Skill",
         description: "Guide to creating custom agent skills",
