@@ -15,8 +15,10 @@ import {
 import { Contract, Interface, JsonRpcProvider, Wallet, ZeroAddress } from "ethers";
 import { preflight } from "./steps/preflight.js";
 import { deployAccount } from "./steps/deploy-account.js";
+import { fundDeployer } from "./steps/fund-deployer.js";
 import { firstAction } from "./steps/first-action.js";
 import { EVM_NETWORKS, PLACEHOLDER_URI, STARKNET_NAMESPACE } from "./config.js";
+import type { FundingProviderSelection } from "./funding/types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -156,6 +158,30 @@ function formatEthWei(wei: bigint): string {
   return fracStr ? `${whole.toString()}.${fracStr}` : `${whole.toString()}.0`;
 }
 
+export function parseFundingProvider(value: string | undefined): FundingProviderSelection {
+  const parsed = (value || "auto").toLowerCase();
+  if (parsed === "auto" || parsed === "mock" || parsed === "skipped") {
+    return parsed;
+  }
+  throw new Error(`Invalid FUNDING_PROVIDER "${value}". Expected one of: auto, mock, skipped.`);
+}
+
+export function parseMinStarknetDeployerBalanceWei(value: string | undefined): bigint {
+  const raw = value || "5000000000000000";
+  let parsed: bigint;
+  try {
+    parsed = BigInt(raw);
+  } catch {
+    throw new Error(
+      `Invalid MIN_STARKNET_DEPLOYER_BALANCE_WEI "${raw}". Expected non-negative integer wei value.`,
+    );
+  }
+  if (parsed < 0n) {
+    throw new Error("MIN_STARKNET_DEPLOYER_BALANCE_WEI must be non-negative.");
+  }
+  return parsed;
+}
+
 async function updateStarknetUri(args: {
   provider: RpcProvider;
   accountAddress: string;
@@ -243,12 +269,17 @@ async function main() {
   }
 
   const evmRegistry = process.env.EVM_IDENTITY_REGISTRY || evmConfig.identityRegistry;
+  const minStarknetDeployerBalanceWei = parseMinStarknetDeployerBalanceWei(
+    process.env.MIN_STARKNET_DEPLOYER_BALANCE_WEI,
+  );
+  const fundingProvider = parseFundingProvider(process.env.FUNDING_PROVIDER);
 
   console.log("=== ERC-8004 Cross-Chain Demo ===\n");
   console.log(`Starknet network: ${args.starknetNetwork}`);
   console.log(`EVM network:      ${args.evmNetwork}`);
   console.log(`EVM registry:     ${evmRegistry}`);
   console.log(`Gasfree:          ${args.gasfree}`);
+  console.log(`Funding provider: ${fundingProvider}`);
   console.log("");
 
   // ---------- EVM preflight ----------
@@ -291,8 +322,25 @@ async function main() {
   });
   console.log("  Starknet preflight passed");
 
+  // ---------- Funding pre-step ----------
+  console.log("[3/7] Funding pre-step...");
+  const fundingStage = await fundDeployer({
+    provider: starknetPreflight.provider,
+    network: args.starknetNetwork,
+    deployerAddress: starknetDeployerAddress,
+    providerSelection: fundingProvider,
+    config: {
+      minDeployerBalanceWei: minStarknetDeployerBalanceWei,
+    },
+  });
+  console.log(
+    `  Funding status: ${fundingStage.funding.status} (provider=${fundingStage.funding.provider}, deployer_balance=${formatEthWei(
+      fundingStage.balanceWei,
+    )} ETH)`,
+  );
+
   // ---------- EVM register ----------
-  console.log("[3/6] Registering EVM identity...");
+  console.log("[4/7] Registering EVM identity...");
   const predictedEvmAgentId: bigint = await evmIdentity.register.staticCall(PLACEHOLDER_URI);
   const registerTx = await evmIdentity.register(PLACEHOLDER_URI);
   const registerReceipt = await registerTx.wait();
@@ -320,7 +368,7 @@ async function main() {
   const predictedStarknetAgentId = (currentTotalAgents + 1n).toString();
 
   // ---------- Link via shared URI ----------
-  console.log("[4/6] Deploying Starknet account with shared URI...");
+  console.log("[5/7] Deploying Starknet account with shared URI...");
   const sharedUri =
     args.sharedUri ||
     createSharedUri({
@@ -355,7 +403,7 @@ async function main() {
     );
   }
 
-  console.log("[5/6] Updating shared registration URI on EVM...");
+  console.log("[6/7] Updating shared registration URI on EVM...");
 
   const evmSetUriTx = await evmIdentity.setAgentURI(evmAgentId, sharedUri);
   const evmSetUriReceipt = await evmSetUriTx.wait();
@@ -364,7 +412,7 @@ async function main() {
   }
 
   // ---------- First action ----------
-  console.log("[6/6] Verifying Starknet account operations...");
+  console.log("[7/7] Verifying Starknet account operations...");
   const action = await firstAction({
     provider: starknetPreflight.provider,
     accountAddress: starknetDeploy.accountAddress,
@@ -374,8 +422,9 @@ async function main() {
   });
 
   const receipt = {
-    version: "1",
+    version: "2",
     generated_at: new Date().toISOString(),
+    funding: fundingStage.funding,
     starknet: {
       network: args.starknetNetwork,
       chain_id: starknetPreflight.chainId,

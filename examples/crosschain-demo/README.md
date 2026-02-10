@@ -7,6 +7,11 @@ This example demonstrates one end-to-end flow:
 3. Write a shared `agentURI` (data URI) on both registries with both registrations
 4. Emit a single `crosschain_receipt.json`
 
+For v2 scaffolding, the flow also includes a pre-onboarding funding decision stage:
+- if deployer balance is above threshold, funding is skipped;
+- if below threshold and `FUNDING_PROVIDER=mock`, the mock provider path is used in PR1;
+- if below threshold and `FUNDING_PROVIDER=auto`, the script fails closed (no fake funding success).
+
 ## Prerequisites
 
 - Node.js 20+
@@ -21,6 +26,10 @@ cd examples/crosschain-demo
 cp .env.example .env
 # fill required keys
 ```
+
+Funding-related vars (PR1 scaffolding):
+- `MIN_STARKNET_DEPLOYER_BALANCE_WEI` (default `0.005 ETH`)
+- `FUNDING_PROVIDER` (`auto`, `mock`, or `skipped`)
 
 ## Run
 
@@ -39,6 +48,7 @@ pnpm demo:verify
 
 The script writes `crosschain_receipt.json` with:
 
+- Top-level `funding` object (`version: "2"`)
 - Starknet: account address, agent id, deploy tx hash, URI update tx hash
 - Base: agent id, register tx hash, URI update tx hash
 - Shared URI used on both chains
