@@ -2,7 +2,7 @@
 name: cairo-security
 description: Use when reviewing Cairo contracts for security — common vulnerabilities, audit patterns, production hardening, Cairo-specific pitfalls, L1/L2 bridging safety, session key security, precision/rounding bugs, static analysis tooling. Sourced from 30+ public audits and the Cairo Book.
 license: Apache-2.0
-metadata: {"author":"omarespejel","version":"3.0.0","org":"keep-starknet-strange","github":"https://github.com/omarespejel","x":"https://x.com/omarespejel"}
+metadata: {"author":"omarespejel","version":"3.1.0","last_updated":"2026-02-11","org":"keep-starknet-strange","github":"https://github.com/omarespejel","x":"https://x.com/omarespejel"}
 keywords: [cairo, security, audit, vulnerabilities, access-control, reentrancy, starknet, production, hardening, l1-l2, session-keys, precision, rounding, static-analysis, snip-12, snip-9, outside-execution, governance, pausable, paymaster, account-abstraction, storage-node, vec, map, felt252, erc4626, erc20-permit]
 allowed-tools: [Bash, Read, Write, Glob, Grep, Task]
 user-invocable: true
