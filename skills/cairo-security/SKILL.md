@@ -1,8 +1,8 @@
 ---
 name: cairo-security
-description: Use when reviewing Cairo contracts for security — common vulnerabilities, audit patterns, production hardening, Cairo-specific pitfalls, L1/L2 bridging safety, session key security, precision/rounding bugs, static analysis tooling. Sourced from 30+ public audits and the Cairo Book.
+description: Use when reviewing Cairo contracts for security — common vulnerabilities, audit patterns, production hardening, Cairo-specific pitfalls, L1/L2 bridging safety, session key security, precision/rounding bugs, static analysis tooling. Sourced from 50+ public audits and the Cairo Book.
 license: Apache-2.0
-metadata: {"author":"omarespejel","version":"3.1.0","last_updated":"2026-02-11","org":"keep-starknet-strange","github":"https://github.com/omarespejel","x":"https://x.com/omarespejel"}
+metadata: {"author":"omarespejel","version":"3.2.0","last_updated":"2026-02-11","org":"keep-starknet-strange","github":"https://github.com/omarespejel","x":"https://x.com/omarespejel"}
 keywords: [cairo, security, audit, vulnerabilities, access-control, reentrancy, starknet, production, hardening, l1-l2, session-keys, precision, rounding, static-analysis, snip-12, snip-9, outside-execution, governance, pausable, paymaster, account-abstraction, storage-node, vec, map, felt252, erc4626, erc20-permit]
 allowed-tools: [Bash, Read, Write, Glob, Grep, Task]
 user-invocable: true
@@ -10,7 +10,7 @@ user-invocable: true
 
 # Cairo Security
 
-Security patterns and common vulnerabilities for Cairo smart contracts on Starknet. Sourced from 30+ public audit reports including Nethermind, ConsenSys Diligence, Code4rena, and Nethermind AuditAgent, plus the [Cairo Book security chapter](https://book.cairo-lang.org/ch104-01-general-recommendations.html), [Crytic's Not So Smart Contracts](https://github.com/crytic/building-secure-contracts/tree/master/not-so-smart-contracts/cairo), [Oxor.io Cairo Security Flaws](https://oxor.io/blog/2024-08-16-cairo-security-flaws/), and [FuzzingLabs Top 4 Vulnerabilities](https://fuzzinglabs.com/top-4-vulnerability-cairo-starknet-smart-contract/).
+Security patterns and common vulnerabilities for Cairo smart contracts on Starknet. Sourced from 50+ public audit reports including Nethermind, ConsenSys Diligence, Code4rena, ChainSecurity, Cairo Security Clan, Zellic, and Nethermind AuditAgent, plus the [Cairo Book security chapter](https://book.cairo-lang.org/ch104-01-general-recommendations.html), [Crytic's Not So Smart Contracts](https://github.com/crytic/building-secure-contracts/tree/master/not-so-smart-contracts/cairo), [Oxor.io Cairo Security Flaws](https://oxor.io/blog/2024-08-16-cairo-security-flaws/), and [FuzzingLabs Top 4 Vulnerabilities](https://fuzzinglabs.com/top-4-vulnerability-cairo-starknet-smart-contract/).
 
 > **Versions:** This skill targets **Cairo 2.12.4** (latest stable tagged on GitHub; v2.15.0 exists but 2.12.4 carries the "Latest" tag), **Scarb 2.15.1**, **Starknet Foundry 0.56.0**, **OpenZeppelin Contracts for Cairo 3.0.0** (v4.0.0-alpha.0 is pre-release, uses Scarb 2.15.1 / snforge 0.55.0), and **Starknet v0.14.1** (mainnet Dec 2025). All code examples and import paths are verified against these versions.
 
@@ -1570,9 +1570,15 @@ Provide:
 
 ### Audit Reports
 - [Code4rena — Starknet Perpetual (2025), 2H/3M/14L](https://code4rena.com/reports/2025-03-starknet-perpetual)
+- [Code4rena — Opus (Jan 2024), 4H/9M — first major Cairo DeFi audit](https://code4rena.com/reports/2024-01-opus)
+- [ChainSecurity — Starknet Perpetual (2025)](https://www.chainsecurity.com/security-audit/starkware-starknet-perpetual)
+- [ChainSecurity — MakerDAO StarkNet-DAI-Bridge (2021), 1 Critical](https://chainsecurity.com/wp-content/uploads/2021/12/ChainSecurity_MakerDAO_StarkNet-DAI-Bridge_audit.pdf)
 - [ConsenSys Diligence — Argent Account V3 (Jan 2024)](https://diligence.consensys.io/audits/2024/01/argent-account-argent-multisig-starknet-transaction-v3-updates/)
 - [Nethermind — 25+ Cairo/Starknet Audit Reports](https://github.com/NethermindEth/PublicAuditReports)
 - [chipi-pay — Session Key Contract + SNIP Draft + 4 Nethermind AuditAgent scans](https://github.com/chipi-pay/sessions-smart-contract)
+- [Code4rena — LayerZero Starknet Endpoint (Oct 2025), 0H/0M/6L](https://code4rena.com/reports/2025-10-layerzero-starknet-endpoint)
+- [Cairo Security Clan — 30+ Cairo Audit Reports (Ekubo, Vesu, Opus, Paradex, etc.)](https://github.com/Cairo-Security-Clan/Audit-Portfolio)
+- [ChainSecurity — Vesu Protocol Smart Contracts](https://www.chainsecurity.com/security-audit/vesu-protocol-smart-contracts)
 
 ### Exploit Post-Mortems
 - [BlockSec — zkLend $10M Exploit Post-Mortem (Feb 2025)](https://blocksec.com/blog/zklend-exploit-post-mortem)
@@ -1600,6 +1606,12 @@ Provide:
 ### Account Abstraction & Paymasters
 - [Starknet Docs — Account Abstraction](https://docs.starknet.io/build/starknet-by-example/advanced/account-abstraction)
 - [Starknet Docs — Paymaster](https://docs.starknet.io/build/applications/paymaster)
+
+### Protocol Security Disclosures
+- [Zellic — Sequencer-Prover Inconsistency in Cairo VM (Starknet Community Forum)](https://community.starknet.io/t/remediating-a-potential-sequencer-prover-inconsistency-in-the-cairo-vm/115313)
+
+### Formal Verification
+- [StarkWare — Cairo VM Formal Proofs (Lean)](https://github.com/starkware-libs/formal-proofs) — formal verification of Cairo VM semantics, AIR encoding correctness, and elliptic curve operations (secp256k1/r1)
 
 ### Protocol Changes
 - [Starknet Version Notes (official, all versions)](https://docs.starknet.io/learn/cheatsheets/version-notes)
