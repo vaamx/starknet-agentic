@@ -90,7 +90,7 @@ Before any mainnet deployment:
 - [ ] Paymaster interactions rate-limited and allowlisted
 - [ ] `NoncesComponent` from OZ used for replay protection (not hand-rolled nonces)
 - [ ] V3 transaction resource bounds handled (STRK-only fees since v0.14.0)
-- [ ] ERC-4626 vault first-depositor protection applied (minimum liquidity lock) if applicable
+- [ ] ERC-4626 vault first-depositor protection applied (minimum liquidity lock or virtual shares/assets) if applicable
 - [ ] `PausableComponent` integrated with exclusions for liquidation/risk functions
 - [ ] Public key inputs validated to lie on the STARK curve
 - [ ] No legacy v0/v1/v2 transaction assumptions (deprecated since v0.14.0)
@@ -264,7 +264,14 @@ fn test_deposit_withdraw_invariant(deposit_amount: u256) {
 
 ### ERC-4626 Vault Share Manipulation
 
-The same accumulator/precision attack from the zkLend exploit applies directly to ERC-4626 tokenized vaults (`ERC4626Component` in OZ Cairo 3.x). The first depositor can manipulate the share price by donating assets to inflate the exchange rate, causing subsequent depositors to receive fewer shares than expected. Apply the same minimum liquidity lock defense described above.
+The same accumulator/precision attack from the zkLend exploit applies directly to ERC-4626 tokenized vaults (`ERC4626Component` in OZ Cairo 3.x). The first depositor can manipulate the share price by donating assets to inflate the exchange rate, causing subsequent depositors to receive fewer shares than expected.
+
+**Two defense approaches:**
+
+1. **Minimum liquidity lock** (described above) — the first depositor burns a small amount of shares to a dead address, establishing a baseline exchange rate that cannot be trivially inflated.
+2. **Virtual shares/assets** — add 1 (or a small constant) to both the numerator and denominator in share calculations: `shares = (assets + 1) / (totalAssets + 1) * totalShares`. This eliminates the zero-denominator edge case and makes share price manipulation economically infeasible without requiring a liquidity lock. This is the approach used by OpenZeppelin's Solidity ERC-4626 implementation.
+
+Both are valid; choose based on your protocol's constraints. Minimum liquidity lock is simpler but requires a one-time setup cost. Virtual shares are more elegant but require modifying the conversion math throughout.
 
 ### Wad Precision Truncation for Low-Decimal Tokens
 
@@ -633,7 +640,7 @@ Starknet storage is a flat key-value space of 2^251 slots, each holding one `fel
 
 ### `LegacyMap` → `Map` Migration (Cairo 2.7+)
 
-Cairo 2.7.0 introduced `Map<K, V>` (from `core::starknet::storage::Map`) to replace `LegacyMap<K, V>`. The storage layout is identical, so migration is safe for upgradeable contracts. `LegacyMap` is deprecated.
+Cairo 2.7.0 introduced `Map<K, V>` (from `core::starknet::storage::Map`) to replace `LegacyMap<K, V>`. The storage layout is identical, so migration is safe for upgradeable contracts. `LegacyMap` is deprecated but still compiles on current Cairo versions — it emits a deprecation warning, not an error. Projects on older Scarb versions that cannot upgrade immediately can defer this migration, but should plan for it: `LegacyMap` may be removed in a future Cairo edition.
 
 ```cairo
 // DEPRECATED — LegacyMap (Cairo < 2.7)
@@ -895,7 +902,7 @@ Starknet's native account abstraction means every account is a smart contract wi
 `__validate__` runs before `__execute__` and has strict constraints:
 - **Limited gas** — cannot perform expensive computation
 - **Cannot modify storage** (except the nonce)
-- **If `__validate__` fails, the sequencer loses gas** — no fee is charged to the account
+- **If `__validate__` fails, the sequencer loses gas** — no fee is charged to the account, but the sequencer still consumed resources for the validation attempt. This is a practical gotcha when testing custom accounts: failed validations cost the network real gas but produce no state changes or receipts.
 - Must return `VALID` (felt252 value of `'VALID'`) or the transaction is rejected
 
 ### Sequencer DoS via `__validate__`
