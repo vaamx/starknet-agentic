@@ -1139,6 +1139,31 @@ OZ Cairo Contracts before v0.16.0: `renounce_ownership` could be used to transfe
 
 **Pattern:** Storage reads that return default values (zero) on missing keys are a Cairo-specific footgun. Always explicitly check that a storage read returned a non-default value.
 
+### Code4rena Opus (Jan 2024) — 4 High, 9 Medium
+
+*Source: [Code4rena Opus Report](https://code4rena.com/reports/2024-01-opus), 15 Cairo contracts, 4,056 lines*
+
+The first major Cairo DeFi competitive audit on Code4rena. Key findings:
+
+- **H-02 — Wad precision truncation for low-decimal tokens:** `convert_to_yang_helper()` lost precision for tokens with < 18 decimals due to intermediate Wad multiplication truncating to zero. A BTC deposit worth $36 resulted in 0 shares. (See Section 3, "Wad Precision Truncation.")
+- **H-03 — Redistribution array index mismatch:** `redistribute_helper` maintained two arrays (`updated_trove_yang_balances` and `new_yang_totals`) but a `continue` statement caused them to go out of sync. Attacker could keep collateral while having debt redistributed away — debt zeroed, yangs kept.
+- **H-04 — Recovery mode manipulation within single transaction:** Attacker opens a large enough position to push the system into recovery mode, which lowers liquidation thresholds, then liquidates healthy troves — all in one tx. Flash-loan amplifiable.
+- **M-03 — ERC-4626 inflate mitigation insufficient:** The first-depositor share inflation attack was not fully mitigated, reinforcing the need for minimum liquidity locks.
+
+**Pattern:** DeFi protocols using custom fixed-point types (Wad, Ray) must test with tokens of varying decimals. Array synchronization bugs in loop-with-continue are a Cairo-specific code smell. Recovery mode / global state changes must not be triggerable and exploitable within a single transaction.
+
+### ChainSecurity — Starknet Perpetual (2025)
+
+*Source: [ChainSecurity Report](https://www.chainsecurity.com/security-audit/starkware-starknet-perpetual)*
+
+Independent audit alongside Code4rena. Key findings:
+
+- **Rounding Is Not Always in Favor of the System:** Arithmetic rounding in settlement/funding calculations sometimes favored the user instead of the protocol, allowing slow value extraction over many transactions.
+- **Insurance Fund Cannot Always Be the Deleverager:** Edge cases where the insurance fund could not fulfill its role as deleverager for insolvent positions.
+- **Loosely Restricted Liquidations:** Operator had more latitude than documented to execute liquidations.
+
+**Pattern:** Always round in favor of the protocol/pool/system, never the user. Verify this direction for every division in financial math. Insurance fund/backstop logic must handle edge cases (zero balance, concurrent liquidations).
+
 ### chipi-pay Session Contract — 18 Findings, 4 Nethermind Scans
 
 *Source: [chipi-pay/sessions-smart-contract](https://github.com/chipi-pay/sessions-smart-contract)*
@@ -1178,6 +1203,46 @@ Nethermind has published 25+ Cairo/Starknet-specific audit reports covering core
 | NM0544A, NM0544B | Piltover, Token Bridge | Core Starknet bridge |
 
 **Use these as reference when building similar protocol types.** Each report PDF is available at the Nethermind repo.
+
+### Code4rena LayerZero Starknet Endpoint (Oct–Nov 2025) — 0 High, 0 Medium, 6 Low
+
+*Source: [Code4rena Report](https://code4rena.com/reports/2025-10-layerzero-starknet-endpoint), 46 Cairo files*
+
+Cross-chain messaging endpoint in Cairo. No H/M findings, but Low findings contain useful patterns:
+
+- **L-02 — Allowance-sweeping refund DoS:** `_refund_native()` tried to refund `allowance - fee` instead of `min(allowance - fee, balance)`. Users with standard large ERC20 approvals couldn't send messages. **Pattern:** When refunding excess tokens via `transferFrom`, cap the refund to `min(excess, sender_balance)`. Never assume `balance >= allowance`.
+- **L-03 — Nilified messages re-committable:** `commit()` could overwrite `NIL_PAYLOAD_HASH` because `_has_payload_hash()` only checked `!= EMPTY_PAYLOAD_HASH`. **Pattern:** State invalidation (nilification/burning/blacklisting) must be checked explicitly before any state overwrite. Don't rely on "not empty" as a proxy for "valid."
+
+### Cairo Security Clan — 30+ Cairo Audit Reports
+
+*Source: [Cairo-Security-Clan/Audit-Portfolio](https://github.com/Cairo-Security-Clan/Audit-Portfolio)*
+
+Starknet-native audit firm with 30+ public Cairo audit PDFs covering major ecosystem protocols:
+
+| Protocol | Report |
+|----------|--------|
+| Ekubo | `Ekubo_Audit_Report.pdf` |
+| Vesu | 7 reports (Core, Extensions, Liquidate, Multiply, Periphery, Updates) |
+| Opus | `Opus_Audit_Report.pdf` |
+| Paradex | `Paradex_Audit_Report.pdf` |
+| Hyperlane | `Hyperlane_Audit_Report.pdf` + update |
+| Clober | `Clober_Audit_Report.pdf` |
+| Layer Akira | `Layer_Akira_Audit_Report.pdf` |
+| Nimbora | `Nimbora Audit Report.pdf` |
+| Nostra Pools | `Nostra Pools Security Review by 0xerim.pdf` |
+| AVNU DCA | `Avnu_DCA_Audit_Report.pdf` |
+| Argent Gifting | `Argent_Gifting_Audit_Report.pdf` |
+| Starknet ID | `Starknet_ID_Audit_Report.pdf` |
+
+**Use these as reference when building similar protocol types.** All PDFs are in the GitHub repo.
+
+### ChainSecurity — Vesu Protocol (2024)
+
+*Source: [ChainSecurity Report](https://www.chainsecurity.com/security-audit/vesu-protocol-smart-contracts)*
+
+Permissionless DeFi lending protocol audit. All issues were fixed, but ChainSecurity noted **elevated residual risk** due to project complexity and limited internal QA (single developer). Key covered areas: pool isolation, asset solvency, oracle security, access control.
+
+**Pattern:** For complex DeFi protocols, a single audit is not sufficient. ChainSecurity explicitly flagged that novel issues and regressions appeared during the last review cycle despite earlier fixes. Budget for multiple audit cycles and invest in internal security-focused QA (thorough unit/regression testing).
 
 ---
 
