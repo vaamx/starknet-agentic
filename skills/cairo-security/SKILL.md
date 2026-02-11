@@ -804,6 +804,22 @@ L1 (Ethereum) addresses are 20 bytes. Starknet addresses are felt252. Incorrect 
 
 Cross-chain messages need nonces or unique identifiers to prevent replay. If a message can be re-consumed, an attacker can double-credit.
 
+### Bridge Withdrawal Limits (StarkGate Pattern)
+
+*Source: [StarkGate 2.0 `token_bridge.cairo`](https://github.com/starknet-io/starkgate-contracts), [Starknet Docs — StarkGate](https://docs.starknet.io/learn/protocol/starkgate)*
+
+StarkGate implements a daily withdrawal limit of 5% TVL per token (`DEFAULT_DAILY_WITHDRAW_LIMIT_PCT = 5`). A `SECURITY_AGENT` role can freeze withdrawals; lifting the freeze requires a quorum of `SECURITY_ADMIN` signers. This pattern limits damage from exploits to a single day's quota.
+
+**Rule:** Any bridge or high-TVL vault should implement per-token daily withdrawal caps, a security freeze role (single key, fast response), and a multi-sig requirement to unfreeze. Do not let a single key both freeze and unfreeze.
+
+### Unprotected Escrow Funds (MakerDAO DAI Bridge)
+
+*Source: [ChainSecurity — MakerDAO StarkNet-DAI-Bridge Audit (2021)](https://chainsecurity.com/wp-content/uploads/2021/12/ChainSecurity_MakerDAO_StarkNet-DAI-Bridge_audit.pdf)*
+
+ChainSecurity found a Critical finding in the MakerDAO StarkNet-DAI-Bridge: escrow funds on L1 were unprotected, allowing unauthorized access. The audit covered both Solidity L1 contracts and the Cairo L2 `dai.cairo` contract. Additional findings included 1 High, 5 Medium, and 5 Low — all fixed.
+
+**Pattern:** L1/L2 bridges must protect escrowed funds on both sides. The L1 escrow is only as safe as the L2 handler validation, and vice versa.
+
 ---
 
 ## 11. Economic / DoS Patterns
@@ -1050,6 +1066,14 @@ Grinta introduced multi-sequencer architecture (three independent sequencers wit
 - **MEV risk** — with a mempool and multiple sequencers, transaction ordering is no longer deterministic. Contracts sensitive to execution ordering (DEXes, liquidations) must implement slippage protection and deadline checks
 - **Sequencer reorgs** — the Sep 2, 2025 incident showed reorgs are possible when sequencers diverge. Design for idempotent operations where possible
 - **L1 handler failures** — failed L1 handlers are now included as `REVERTED` in blocks (bounded execution resources). Contracts relying on L1 handlers must handle reverts gracefully
+
+### Sequencer-Prover Inconsistency (Zellic/Starknet OS Audit)
+
+*Source: [Starknet Community Forum — Remediating a potential sequencer-prover inconsistency](https://community.starknet.io/t/remediating-a-potential-sequencer-prover-inconsistency-in-the-cairo-vm/115313)*
+
+Zellic auditor @fcremo discovered an opcode with different validation logic between the RustVM (sequencer) and the Cairo AIR (prover). A transaction that passed sequencer validation could fail proof verification, or vice versa. StarkWare patched this as an immediate fix in v0.13.3. LambdaClass confirmed the impact on their VM implementation.
+
+**This is a novel vulnerability class unique to STARK-based systems.** Contracts themselves cannot cause or prevent it, but developers should know: the trust model assumes sequencer and prover agree on all execution semantics. If they diverge, valid-looking transactions can fail at proof time, or invalid ones could pass sequencing. This is why Cairo VM formal verification (see Sources) matters.
 
 ### Starknet v0.14.1 (Dec 2025) — BLAKE Hash Migration
 
