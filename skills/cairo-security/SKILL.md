@@ -266,6 +266,14 @@ fn test_deposit_withdraw_invariant(deposit_amount: u256) {
 
 The same accumulator/precision attack from the zkLend exploit applies directly to ERC-4626 tokenized vaults (`ERC4626Component` in OZ Cairo 3.x). The first depositor can manipulate the share price by donating assets to inflate the exchange rate, causing subsequent depositors to receive fewer shares than expected. Apply the same minimum liquidity lock defense described above.
 
+### Wad Precision Truncation for Low-Decimal Tokens
+
+*Source: [Code4rena Opus H-02 (Jan 2024)](https://code4rena.com/reports/2024-01-opus)*
+
+Cairo's fixed-point `Wad` type (18 decimals) silently truncates when multiplied with tokens that have fewer decimals. In the Opus audit, `convert_to_yang_helper()` computed `(asset_amt * total_yang) / total_assets` — but because `Wad` multiplication divides by 1e18 internally, tokens with 8 decimals (like BTC) lost precision. A deposit of 0.0009 BTC ($36 at BTC=40K) resulted in **zero** shares.
+
+**Rule:** When doing fixed-point math with tokens that have < 18 decimals, compute the numerator fully as `u256` before dividing. Never let intermediate `Wad` multiplication truncate low-decimal amounts to zero.
+
 ---
 
 ## 4. Cairo-Specific Pitfalls
@@ -555,17 +563,34 @@ fn wrapping_add(a: u128, b: u128) -> u128 {
 }
 ```
 
+### CRITICAL: `felt252` Division Is Field Division, NOT Floor Division
+
+`felt252_div(a, b)` computes the **modular inverse**: it returns `n` such that `n * b ≡ a (mod P)`. This is NOT integer floor division. `felt252_div(10, 3)` does NOT return `3` — it returns a huge field element that, multiplied by 3 modulo P, equals 10.
+
+```cairo
+// BAD — gives completely wrong result for financial math
+let price_per_unit: felt252 = felt252_div(total_cost, quantity);
+// This is modular inverse, NOT 10/3 = 3
+
+// GOOD — use integer division
+let price_per_unit: u256 = total_cost / quantity;  // Floor division, panics on zero
+```
+
+**Rule:** NEVER use `felt252` for any division in financial calculations. Always use `u128`, `u256`, or `u64` which perform actual integer floor division. `felt252` division is only correct for cryptographic operations where you explicitly need modular arithmetic.
+
 ### When felt252 Is Acceptable
 
 - **Hash computations** (pedersen, poseidon) — these are inherently modular arithmetic
 - **Selectors and class hashes** — these are field elements by design
 - **Storage keys** — addresses are felt252
+- **Cryptographic operations** — signature verification, curve arithmetic
 
 ### When felt252 Is Dangerous
 
 - **Balances, amounts, prices, fees** — always use `u256` or `u128`
 - **Counters, indices, timestamps** — use `u64` or `u32`
 - **Any user-controlled arithmetic** — never use felt252
+- **Division** — `felt252_div` is modular inverse, not floor division
 - **Comparisons** (`<`, `>`, `>=`) — felt252 comparisons work but can produce unexpected results near the field boundary
 
 ### Detecting felt252 Issues
