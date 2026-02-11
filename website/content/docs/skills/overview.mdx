@@ -24,7 +24,7 @@ Skills follow the [AgentSkills specification](/docs/skills/writing-skills) - a s
 
 ## Available Skills
 
-Starknet Agentic provides six official skills:
+Starknet Agentic provides eight official skills:
 
 | Skill | Description |
 |-------|-------------|
@@ -33,7 +33,9 @@ Starknet Agentic provides six official skills:
 | [starknet-identity](/docs/skills/starknet-identity) | ERC-8004 on-chain agent identity |
 | [starknet-mini-pay](/docs/skills/starknet-mini-pay) | P2P payments, Telegram bot |
 | [starknet-anonymous-wallet](/docs/skills/starknet-anonymous-wallet) | Privacy wallets via Typhoon |
-| huginn-onboard | Bridge to Starknet + Huginn registration |
+| [huginn-onboard](/docs/skills/huginn-onboard) | Bridge to Starknet + Huginn registration |
+| [cairo-coding](/docs/skills/cairo-coding) | Cairo optimization patterns and gas efficiency |
+| [starknet-js](/docs/skills/starknet-js) | starknet.js v9.x SDK patterns and examples |
 
 <SkillsGrid />
 
@@ -41,7 +43,9 @@ Starknet Agentic provides six official skills:
 
 Skills are designed to be loaded by AI agents at runtime. The agent reads the skill documentation and uses the provided code patterns to accomplish tasks.
 
-### Method 1: GitHub (Recommended)
+### Method 1: NPX Skills Add (Recommended)
+
+Uses the [Vercel Skills CLI](https://github.com/vercel-labs/skills) to install skills directly into your agent's context.
 
 ```bash
 # Install all skills from the repo
@@ -57,7 +61,7 @@ npx skills add keep-starknet-strange/starknet-agentic/skills/starknet-wallet
 /plugin install starknet-wallet@keep-starknet-strange-starknet-agentic
 ```
 
-### Method 3: Direct Clone
+### Method 3: Direct GitHub Clone
 
 ```bash
 git clone https://github.com/keep-starknet-strange/starknet-agentic.git
