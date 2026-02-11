@@ -3,12 +3,44 @@
   "repo": "keep-starknet-strange/starknet-agentic",
   "skills": [
     {
-      "description": "Use when writing or optimizing Cairo functions \u2014 fixing slow loops, expensive arithmetic, integer splitting or limb assembly, modular reduction, storage slot packing, or BoundedInt type bounds.",
-      "install": "npx skills add keep-starknet-strange/starknet-agentic/skills/cairo-coding",
-      "name": "cairo-coding",
-      "raw_skill_md_url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/cairo-coding/SKILL.md",
-      "repo_path": "skills/cairo-coding",
-      "skill_md_path": "skills/cairo-coding/SKILL.md"
+      "description": "Use when writing Cairo smart contracts on Starknet \u2014 contract structure, storage, events, interfaces, components, OpenZeppelin v3 patterns.",
+      "install": "npx skills add keep-starknet-strange/starknet-agentic/skills/cairo-contracts",
+      "name": "cairo-contracts",
+      "raw_skill_md_url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/cairo-contracts/SKILL.md",
+      "repo_path": "skills/cairo-contracts",
+      "skill_md_path": "skills/cairo-contracts/SKILL.md"
+    },
+    {
+      "description": "Use when deploying Cairo contracts to Starknet \u2014 sncast commands, account setup, declare/deploy workflow, network configuration.",
+      "install": "npx skills add keep-starknet-strange/starknet-agentic/skills/cairo-deploy",
+      "name": "cairo-deploy",
+      "raw_skill_md_url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/cairo-deploy/SKILL.md",
+      "repo_path": "skills/cairo-deploy",
+      "skill_md_path": "skills/cairo-deploy/SKILL.md"
+    },
+    {
+      "description": "Use as an explicit post-test optimization pass \u2014 fixing slow loops, expensive arithmetic, integer splitting, storage slot packing, or BoundedInt type bounds.",
+      "install": "npx skills add keep-starknet-strange/starknet-agentic/skills/cairo-optimization",
+      "name": "cairo-optimization",
+      "raw_skill_md_url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/cairo-optimization/SKILL.md",
+      "repo_path": "skills/cairo-optimization",
+      "skill_md_path": "skills/cairo-optimization/SKILL.md"
+    },
+    {
+      "description": "Use when reviewing Cairo contracts for security \u2014 common vulnerabilities, audit patterns, production hardening, session key safety.",
+      "install": "npx skills add keep-starknet-strange/starknet-agentic/skills/cairo-security",
+      "name": "cairo-security",
+      "raw_skill_md_url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/cairo-security/SKILL.md",
+      "repo_path": "skills/cairo-security",
+      "skill_md_path": "skills/cairo-security/SKILL.md"
+    },
+    {
+      "description": "Use when writing tests for Cairo smart contracts \u2014 snforge test structure, contract deployment in tests, cheatcodes, event testing, fuzzing.",
+      "install": "npx skills add keep-starknet-strange/starknet-agentic/skills/cairo-testing",
+      "name": "cairo-testing",
+      "raw_skill_md_url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/cairo-testing/SKILL.md",
+      "repo_path": "skills/cairo-testing",
+      "skill_md_path": "skills/cairo-testing/SKILL.md"
     },
     {
       "description": "Bridge to Starknet from any EVM chain and register with Huginn agent registry. Enables cross-chain agent onboarding with AVNU bridge integration.",

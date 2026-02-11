@@ -12,7 +12,11 @@ Production-ready skills for AI agents operating on Starknet. Built for the Agent
 | [starknet-mini-pay](./starknet-mini-pay/) | P2P payments, QR codes, Telegram bot | Complete |
 | [starknet-anonymous-wallet](./starknet-anonymous-wallet/) | Anonymous wallet creation via Typhoon | Complete |
 | [huginn-onboard](./huginn-onboard/) | Bridge to Starknet and register with Huginn | Complete |
-| [cairo-coding](./cairo-coding/) | Cairo optimization rules, BoundedInt patterns, gas-efficient arithmetic | Complete |
+| [cairo-contracts](./cairo-contracts/) | Contract structure, components, OZ v3, storage, events, interfaces | Complete |
+| [cairo-testing](./cairo-testing/) | snforge test patterns, cheatcodes, fuzzing, fork testing | Complete |
+| [cairo-deploy](./cairo-deploy/) | sncast deployment, account setup, network config, verification | Complete |
+| [cairo-optimization](./cairo-optimization/) | Cairo optimization rules, BoundedInt patterns, gas-efficient arithmetic (post-test pass) | Complete |
+| [cairo-security](./cairo-security/) | Security patterns, audit checklist, common vulnerabilities, session key safety | Complete |
 
 ## Installation
 
@@ -32,7 +36,8 @@ npx skills add keep-starknet-strange/starknet-agentic
 # Install specific skill
 npx skills add keep-starknet-strange/starknet-agentic/skills/starknet-wallet
 npx skills add keep-starknet-strange/starknet-agentic/skills/starknet-defi
-npx skills add keep-starknet-strange/starknet-agentic/skills/cairo-coding
+npx skills add keep-starknet-strange/starknet-agentic/skills/cairo-contracts
+npx skills add keep-starknet-strange/starknet-agentic/skills/cairo-optimization
 ```
 
 ### Option 2: Claude Code Plugin Marketplace
@@ -105,8 +110,8 @@ npm install starknet@^8.9.1 @avnu/avnu-sdk@^4.0.1
 # Python skills (mini-pay)
 pip install starknet-py qrcode[pil] python-telegram-bot
 
-# Cairo coding skill (BoundedInt calculator — no external deps, stdlib only)
-# python3 skills/cairo-coding/bounded_int_calc.py --help
+# Cairo optimization skill (BoundedInt calculator — no external deps, stdlib only)
+# python3 skills/cairo-optimization/bounded_int_calc.py --help
 
 # Anonymous wallet skill
 npm install starknet@^9.2.1 typhoon-sdk@^1.1.13
