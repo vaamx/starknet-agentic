@@ -29,6 +29,32 @@ Security patterns and common vulnerabilities for Cairo smart contracts on Starkn
 
 **Not for:** Writing contracts (use cairo-contracts), testing (use cairo-testing), gas optimization (use cairo-optimization)
 
+## Critical Patterns — Read These First
+
+These are the highest-impact Cairo/Starknet security patterns. Each has caused real losses or was flagged in multiple audits. If you read nothing else, read these.
+
+1. **`felt252` division is modular inverse, not floor division.** `felt252_div(10, 3)` does NOT return 3. It returns a huge field element. Never use `felt252` for financial math — use `u256` or `u128`. (Section 7)
+
+2. **`Map.read()` returns zero on missing keys — no panic.** An attacker bypassed oracle validation by reading a non-existent key that returned zero, then signed over zeroed data. Always assert non-zero/non-default after reading from storage Maps. (Section 4, Section 16 C4 Perpetual H-01)
+
+3. **`felt252` arithmetic wraps silently.** `balance - amount` where `amount > balance` wraps to a huge number with no error. Use `u256`/`u128` for all balances, amounts, prices. (Section 7)
+
+4. **Floor division always favors the actor.** When burning/withdrawing, round UP against the user. When minting/depositing, round DOWN against the user. The zkLend $10M exploit chained precision loss with accumulator manipulation. (Section 3)
+
+5. **Empty market initialization + flash loan = catastrophic.** First depositor controls the exchange rate. Lock minimum liquidity on first deposit. Applies to lending pools and ERC-4626 vaults. (Section 3)
+
+6. **OZ embedded impls leak privileged selectors to session keys.** Every OZ version exposes new selectors (`set_public_key`, `setPublicKey`, `upgrade`). Block self-calls from session keys: `assert(call.to != get_contract_address())`. (Section 13)
+
+7. **SNIP-9 `execute_from_outside` needs nonce + caller + time bounds.** Missing any one enables replay attacks. Signature must be validated via SNIP-12 over the full `OutsideExecution` struct. (Section 14)
+
+8. **Starknet v0.14.0 killed v0/v1/v2 transactions and cut blocks to ~6s.** Time-dependent logic calibrated for 30s blocks is now wrong by 5x. STRK-only fees. (Section 15)
+
+9. **`__validate__` in custom accounts must be lightweight.** No storage writes (except nonce), no external calls, bounded gas. Expensive validation griefs the sequencer. (Section 12)
+
+10. **Checks-effects-interactions is not optional.** C4 Starknet Perpetual H-02: state diff applied before validation caused double-application. C4 Opus H-01: `charge()` called after computing withdrawal amount overwrote the result. (Section 2, Section 16)
+
+---
+
 ## Pre-Deployment Checklist
 
 Before any mainnet deployment:
