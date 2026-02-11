@@ -256,6 +256,8 @@ Verify source code on Voyager or Starkscan:
 # https://app.walnut.dev
 ```
 
+> **Note:** `sncast verify` currently only supports the Walnut verification backend. Voyager and Starkscan verification must be done through their respective web UIs.
+
 ## Upgradeable Contracts
 
 For contracts using OZ UpgradeableComponent:

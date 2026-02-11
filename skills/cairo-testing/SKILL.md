@@ -44,15 +44,20 @@ casm = true
 # Run all tests
 snforge test
 
-# Run specific test
+# Run specific test by name
 snforge test test_transfer
 
 # Run tests matching a pattern
 snforge test test_erc20
 
+# Filter to a single test function (exact match)
+snforge test --exact test_erc20_transfer
+
 # Run with gas reporting
 snforge test --detailed-resources
 ```
+
+> **Tip:** Use `snforge test --filter <pattern>` or `snforge test <pattern>` to run a subset of tests during development. `--exact` matches the full test name when you need precision.
 
 ## Basic Test Structure
 

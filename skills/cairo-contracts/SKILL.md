@@ -170,6 +170,8 @@ Components are reusable contract modules. This is the standard pattern in Cairo 
 
 ### Using a Component
 
+The **Mixin pattern** is the most common approach in OZ v3 — it exposes all standard interface methods (e.g., `balance_of`, `transfer`, `approve`) in a single `impl` block:
+
 ```cairo
 #[starknet::contract]
 mod MyToken {
