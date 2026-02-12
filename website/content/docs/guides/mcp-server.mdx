@@ -332,7 +332,7 @@ Open the AI chat and ask:
 
 ## Available Tools
 
-The MCP server exposes 9 core tools plus 2 conditional tools:
+The MCP server exposes 10 core tools plus 4 conditional tools:
 
 | Tool | Description |
 |------|-------------|
@@ -344,13 +344,16 @@ The MCP server exposes 9 core tools plus 2 conditional tools:
 | `starknet_call_contract` | Call read-only contract function |
 | `starknet_invoke_contract` | Execute state-changing contract function |
 | `starknet_estimate_fee` | Estimate transaction fee |
+| `starknet_build_calls` | Build unsigned calls for external signing |
 | `x402_starknet_sign_payment_required` | Sign X-402 payment header |
 | `starknet_register_agent` | Register ERC-8004 identity (conditional) |
+| `starknet_set_agent_metadata` | Set agent metadata (conditional) |
+| `starknet_get_agent_metadata` | Read agent metadata (conditional) |
 | `starknet_deploy_agent_account` | Deploy agent account (conditional) |
 
 <Callout type="info" title="Conditional Tools">
-  The last two tools require additional environment variables:
-  - `starknet_register_agent` requires `ERC8004_IDENTITY_REGISTRY_ADDRESS`
+  The identity and deployment tools require environment variables:
+  - `starknet_register_agent`, `starknet_set_agent_metadata`, `starknet_get_agent_metadata` require `ERC8004_IDENTITY_REGISTRY_ADDRESS`
   - `starknet_deploy_agent_account` requires `AGENT_ACCOUNT_FACTORY_ADDRESS`
 </Callout>
 

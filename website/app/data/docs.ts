@@ -120,8 +120,8 @@ export const DOC_CATEGORIES: DocCategory[] = [
       },
       {
         slug: "cairo-coding",
-        title: "Cairo Coding Skill",
-        description: "Cairo optimization patterns and gas efficiency",
+        title: "Cairo Development Skills",
+        description: "Contracts, testing, security, optimization, and deployment",
       },
       {
         slug: "starknet-js",
