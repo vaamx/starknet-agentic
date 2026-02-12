@@ -27,7 +27,7 @@
       "skill_md_path": "skills/cairo-optimization/SKILL.md"
     },
     {
-      "description": "Use when reviewing Cairo contracts for security \u2014 common vulnerabilities, audit patterns, production hardening, Cairo-specific pitfalls, L1/L2 bridging safety, session key security. Sourced from public audits and the Cairo Book.",
+      "description": "Use when reviewing Cairo contracts for security \u2014 common vulnerabilities, audit patterns, production hardening, Cairo-specific pitfalls, L1/L2 bridging safety, session key security, precision/rounding bugs, static analysis tooling. Sourced from 50+ public audits and the Cairo Book.",
       "install": "npx skills add keep-starknet-strange/starknet-agentic/skills/cairo-security",
       "name": "cairo-security",
       "raw_skill_md_url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/cairo-security/SKILL.md",
