@@ -2,7 +2,7 @@
 name = "session_account"
 version = "0.1.0"
 edition = "2024_07"
-description = "Session key account contract for AI agents. Forked from chipi-pay/sessions-smart-contract (MIT, 4 Nethermind audits) with ERC-8004 identity binding."
+description = "Session key account contract for AI agents. Forked from chipi-pay/sessions-smart-contract (MIT) with ERC-8004 identity binding."
 license = "MIT"
 
 [dependencies]

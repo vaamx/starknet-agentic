@@ -27,6 +27,7 @@ export class SessionKeySigner extends SignerInterface {
   private sessionPrivateKey: string;
   private sessionPublicKey: string;
   private validUntil: number;
+  private innerSigner: Signer;
 
   /**
    * @param sessionPrivateKey - Private key for the session key pair (hex string)
@@ -38,6 +39,7 @@ export class SessionKeySigner extends SignerInterface {
     this.sessionPrivateKey = sessionPrivateKey;
     this.sessionPublicKey = sessionPublicKey;
     this.validUntil = validUntil;
+    this.innerSigner = new Signer(sessionPrivateKey);
   }
 
   async getPubKey(): Promise<string> {
@@ -46,8 +48,7 @@ export class SessionKeySigner extends SignerInterface {
 
   async signMessage(typedData: TypedData, accountAddress: string): Promise<Signature> {
     // For SNIP-9 outside execution, delegate to inner signer
-    const inner = new Signer(this.sessionPrivateKey);
-    return inner.signMessage(typedData, accountAddress);
+    return this.innerSigner.signMessage(typedData, accountAddress);
   }
 
   /**
@@ -64,10 +65,16 @@ export class SessionKeySigner extends SignerInterface {
     // [account_address, chain_id, nonce, valid_until, ...for each call: to, selector, calldata_len, ...calldata]
     const hashData: bigint[] = [];
 
-    // Account address
-    const accountAddress = "accountAddress" in transactionsDetail
-      ? (transactionsDetail as any).accountAddress
-      : (transactionsDetail as any).walletAddress;
+    const accountAddress =
+      "accountAddress" in transactionsDetail
+        ? (transactionsDetail as Record<string, unknown>).accountAddress as string | undefined
+        : (transactionsDetail as Record<string, unknown>).walletAddress as string | undefined;
+    if (!accountAddress) {
+      throw new Error(
+        "SessionKeySigner: cannot determine account address from transaction details. " +
+          "Ensure the Account object is correctly configured.",
+      );
+    }
     hashData.push(BigInt(accountAddress));
 
     // Chain ID
@@ -105,8 +112,8 @@ export class SessionKeySigner extends SignerInterface {
 
     // ECDSA sign with session private key
     const signature = ec.starkCurve.sign(
-      BigInt(msgHash),
-      BigInt(this.sessionPrivateKey),
+      msgHash,
+      this.sessionPrivateKey,
     );
 
     return [

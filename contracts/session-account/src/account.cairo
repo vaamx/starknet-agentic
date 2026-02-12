@@ -1,19 +1,14 @@
 // SPDX-License-Identifier: MIT
 //
 // Forked from chipi-pay/sessions-smart-contract (v32)
-// Original: https://github.com/chipi-pay/sessions-smart-contract
-// License: MIT
-// Audits: 4 rounds by Nethermind, 0 findings
+// https://github.com/chipi-pay/sessions-smart-contract
 //
-// Modifications by keep-starknet-strange/starknet-agentic:
-//   - Added ERC-8004 agent identity binding (agent_id storage + registration)
-//   - Adapted imports for OpenZeppelin Cairo Contracts v3.0.0
-//   - Added IAgentIdentity interface with SRC-5 registration
-//
-// Credit: Session key logic, SNIP-9 v2 outside execution, and security patterns
-// are entirely from chipi-pay's audited implementation.
+// Modifications:
+//   - ERC-8004 agent identity binding
+//   - OpenZeppelin Cairo Contracts v3.0.0 imports
+//   - IAgentIdentity interface with SRC-5 registration
 
-/// Session data — exposed for tests and external consumers.
+/// Session data.
 #[derive(Drop, Copy, Serde, starknet::Store)]
 pub struct SessionData {
     pub valid_until: u64,
@@ -22,7 +17,7 @@ pub struct SessionData {
     pub allowed_entrypoints_len: u32,
 }
 
-/// Session key management interface (from chipi-pay).
+/// Session key management interface.
 #[starknet::interface]
 pub trait ISessionKeyManager<TContractState> {
     fn add_or_update_session_key(
@@ -72,9 +67,7 @@ mod SessionAccount {
     use core::traits::Into;
     use core::num::traits::Zero;
 
-    // ── SNIP-12 type hashes (from chipi-pay) ──────────────────────────────
-    // Primary path uses OZ standard (u128 timestamps via SNIP-12 Rev 1).
-    // Fallback path uses felt timestamps for older paymaster versions.
+    // ── SNIP-12 type hashes ──────────────────────────────────────────────
     const OUTSIDE_EXECUTION_TYPE_HASH_REV1: felt252 =
         0x5a4b49e17039355cd95d1f0981d75901191d1319b1f4b05a9a791d218d7e0c;
     const CALL_TYPE_HASH_REV1: felt252 =
@@ -97,14 +90,11 @@ mod SessionAccount {
     impl SRC5Impl = SRC5Component::SRC5Impl<ContractState>;
     impl AccountInternalImpl = AccountComponent::InternalImpl<ContractState>;
     impl SRC5InternalImpl = SRC5Component::InternalImpl<ContractState>;
-    // DO NOT embed AccountComponent::SRC6Impl — we implement our own __validate__
-    // DO NOT embed SRC9Component::SRC6Impl — we implement our own __validate__
+    // Custom __validate__ — do not embed AccountComponent::SRC6Impl or SRC9Component::SRC6Impl
 
     impl UpgradeableInternalImpl = UpgradeableComponent::InternalImpl<ContractState>;
 
-    // SRC9 (Outside Execution) — custom impl with session whitelist enforcement.
-    // NOTE: We do NOT embed SRC9Component::OutsideExecutionV2Impl because we
-    // enforce session key whitelist and consume calls only AFTER signature validation.
+    // Custom SRC9 impl — enforces session whitelist before execution.
     impl SRC9InternalImpl = SRC9Component::InternalImpl<ContractState>;
 
     impl SNIP12MetadataImpl of SNIP12Metadata {
@@ -117,12 +107,10 @@ mod SessionAccount {
     }
 
     // ── SRC-5 interface IDs ───────────────────────────────────────────────
-    /// ISessionKeyManager SRC-5 interface ID (from chipi-pay).
     const SESSION_KEY_MANAGER_ID: felt252 =
         0x037ab4f01106526662a612eaa2926df2aa314c4144b964f183805880bbcfa55d;
 
-    /// IAgentIdentity SRC-5 interface ID (ERC-8004 addition).
-    /// Computed as: starknetKeccak("set_agent_id") ^ starknetKeccak("get_agent_id")
+    /// starknetKeccak("set_agent_id") ^ starknetKeccak("get_agent_id")
     const AGENT_IDENTITY_ID: felt252 =
         0x02d7c1413db950e74e13e7b1e5b64a7a69a35e081c15f9a09d7cd3a2a4e739f8;
 
@@ -137,10 +125,8 @@ mod SessionAccount {
         src9: SRC9Component::Storage,
         #[substorage(v0)]
         upgradeable: UpgradeableComponent::Storage,
-        // Session key storage (from chipi-pay)
         session_keys: Map<felt252, SessionData>,
         session_entrypoints: Map<(felt252, u32), felt252>,
-        // ERC-8004 agent identity (starknet-agentic addition)
         agent_id: felt252,
     }
 
@@ -184,14 +170,13 @@ mod SessionAccount {
     // ── Constructor ───────────────────────────────────────────────────────
     #[constructor]
     fn constructor(ref self: ContractState, public_key: felt252) {
-        self.account.initializer(public_key); // registers ISRC6
-        self.src9.initializer(); // registers ISRC9_V2
+        self.account.initializer(public_key);
+        self.src9.initializer();
         self.src5.register_interface(SESSION_KEY_MANAGER_ID);
         self.src5.register_interface(AGENT_IDENTITY_ID);
     }
 
-    // ── SRC-6 (custom __validate__ with session keys) ─────────────────────
-    // From chipi-pay: dual-path validation (session 4-felt / owner 2-felt).
+    // ── SRC-6 ──────────────────────────────────────────────────────────────
     #[abi(per_item)]
     #[generate_trait]
     impl SRC6Impl of SRC6Trait {
@@ -206,7 +191,7 @@ mod SessionAccount {
             let signature = tx_info.signature;
             let caller = get_caller_address();
 
-            // Self-calls routed via __execute__ carry no tx signature
+            // Self-calls via __execute__ carry no tx signature
             if signature.len() == 0 {
                 if caller == get_contract_address() {
                     return starknet::VALIDATED;
@@ -220,7 +205,6 @@ mod SessionAccount {
                 let session_pubkey = *signature.at(0);
                 let r = *signature.at(1);
                 let s = *signature.at(2);
-                // SECURITY: Safe type conversion (audit fix #9)
                 let valid_until: u64 = match (*signature.at(3)).try_into() {
                     Option::Some(v) => v,
                     Option::None => { return 0; },
@@ -230,7 +214,6 @@ mod SessionAccount {
                     return 0;
                 }
 
-                // SECURITY: Check session permissions (audit fix #2, #4)
                 if !self._is_session_allowed_for_calls(session_pubkey, calls.span()) {
                     return 0;
                 }
@@ -330,7 +313,7 @@ mod SessionAccount {
         }
     }
 
-    // ── SNIP-9 v2 (custom, from chipi-pay) ────────────────────────────────
+    // ── SNIP-9 v2 ──────────────────────────────────────────────────────────
     #[abi(embed_v0)]
     impl CustomSRC9V2Impl of ISRC9_V2<ContractState> {
         fn execute_from_outside_v2(
@@ -358,14 +341,14 @@ mod SessionAccount {
             );
             self.src9.SRC9_nonces.write(outside_execution.nonce, true);
 
-            // 4. SECURITY: For session sigs, enforce whitelist BEFORE signature validation
+            // 4. For session sigs, enforce whitelist before signature validation
             let mut is_session_sig = false;
             let mut session_pubkey: felt252 = 0;
             if signature.len() == 4 {
                 is_session_sig = true;
                 session_pubkey = *signature.at(0);
 
-                // SECURITY (audit 3 fix #5): Bind valid_until to stored session value
+                // Bind valid_until to stored session value
                 let sig_valid_until: u64 = match (*signature.at(3)).try_into() {
                     Option::Some(v) => v,
                     Option::None => {
@@ -430,7 +413,7 @@ mod SessionAccount {
         }
     }
 
-    // ── Session Key Management (from chipi-pay) ───────────────────────────
+    // ── Session Key Management ─────────────────────────────────────────────
     impl SessionKeyManagerImpl of super::ISessionKeyManager<ContractState> {
         fn add_or_update_session_key(
             ref self: ContractState,
@@ -440,8 +423,11 @@ mod SessionAccount {
             allowed_entrypoints: Array<felt252>,
         ) {
             self.account.assert_only_self();
+            assert(session_key != 0, 'Session: zero key');
+            assert(valid_until > 0, 'Session: zero valid_until');
+            assert(max_calls > 0, 'Session: zero max_calls');
 
-            // SECURITY: Clear stale entrypoints first (audit fix #10)
+            // Clear stale entrypoints before writing new ones
             let old_session = self.session_keys.read(session_key);
             let mut i = 0;
             loop {
@@ -471,8 +457,10 @@ mod SessionAccount {
 
         fn revoke_session_key(ref self: ContractState, session_key: felt252) {
             self.account.assert_only_self();
+            assert(session_key != 0, 'Session: zero key');
 
             let current_session = self.session_keys.read(session_key);
+            assert(current_session.valid_until != 0, 'Session: key not found');
             let entrypoints_to_clear = current_session.allowed_entrypoints_len;
 
             let mut i = 0;
@@ -496,10 +484,11 @@ mod SessionAccount {
         }
     }
 
-    // ── ERC-8004 Agent Identity (starknet-agentic addition) ───────────────
+    // ── ERC-8004 Agent Identity ─────────────────────────────────────────────
     impl AgentIdentityImpl of super::IAgentIdentity<ContractState> {
         fn set_agent_id(ref self: ContractState, agent_id: felt252) {
             self.account.assert_only_self();
+            assert(agent_id != 0, 'Agent: zero agent_id');
             self.agent_id.write(agent_id);
             self.emit(AgentIdSet { agent_id });
         }
@@ -562,10 +551,12 @@ mod SessionAccount {
         2
     }
 
+    /// Compute session message hash. Owner-only.
     #[external(v0)]
     fn compute_session_message_hash(
-        self: @ContractState, calls: Array<Call>, valid_until: u64,
+        ref self: ContractState, calls: Array<Call>, valid_until: u64,
     ) -> felt252 {
+        self.account.assert_only_self();
         self._session_message_hash(calls.span(), valid_until)
     }
 
@@ -602,11 +593,8 @@ mod SessionAccount {
             self.session_entrypoints.read((session_key, index))
         }
 
-        /// Session validation check (no mutations).
-        ///
-        /// SECURITY: Two layers of protection (from chipi-pay audits):
-        /// Layer 1 — Admin selector blocklist (defense-in-depth)
-        /// Layer 2 — Self-call block for empty whitelist (primary protection)
+        /// Returns true if the session key is allowed to execute the given calls.
+        /// Two layers: (1) admin selector blocklist, (2) self-call block for empty whitelist.
         fn _is_session_allowed_for_calls(
             self: @ContractState, session_key: felt252, calls: Span<Call>,
         ) -> bool {
@@ -621,7 +609,7 @@ mod SessionAccount {
                 return false;
             }
 
-            // Layer 1: Admin selector blocklist
+            // Admin selector blocklist
             let UPGRADE_SELECTOR: felt252 = selector!("upgrade");
             let ADD_SESSION_SELECTOR: felt252 = selector!("add_or_update_session_key");
             let REVOKE_SESSION_SELECTOR: felt252 = selector!("revoke_session_key");
@@ -631,8 +619,12 @@ mod SessionAccount {
             let EXECUTE_FROM_OUTSIDE_V2_SELECTOR: felt252 = selector!(
                 "execute_from_outside_v2",
             );
-            // ERC-8004 addition: block session keys from changing agent identity
             let SET_AGENT_ID_SELECTOR: felt252 = selector!("set_agent_id");
+            let REGISTER_INTERFACES_SELECTOR: felt252 = selector!("register_interfaces");
+            let COMPUTE_HASH_SELECTOR: felt252 = selector!("compute_session_message_hash");
+            let VALIDATE_SELECTOR: felt252 = selector!("__validate__");
+            let VALIDATE_DECLARE_SELECTOR: felt252 = selector!("__validate_declare__");
+            let VALIDATE_DEPLOY_SELECTOR: felt252 = selector!("__validate_deploy__");
 
             let mut i = 0;
             loop {
@@ -649,13 +641,18 @@ mod SessionAccount {
                     || sel == SET_PUBLIC_KEY_SELECTOR
                     || sel == SET_PUBLIC_KEY_CAMEL_SELECTOR
                     || sel == EXECUTE_FROM_OUTSIDE_V2_SELECTOR
-                    || sel == SET_AGENT_ID_SELECTOR {
+                    || sel == SET_AGENT_ID_SELECTOR
+                    || sel == REGISTER_INTERFACES_SELECTOR
+                    || sel == COMPUTE_HASH_SELECTOR
+                    || sel == VALIDATE_SELECTOR
+                    || sel == VALIDATE_DECLARE_SELECTOR
+                    || sel == VALIDATE_DEPLOY_SELECTOR {
                     return false;
                 }
                 i += 1;
             };
 
-            // Layer 2: Self-call block for empty whitelist
+            // Empty whitelist: block calls targeting this account
             if session.allowed_entrypoints_len == 0 {
                 let account_address = get_contract_address();
                 let mut i = 0;
@@ -708,8 +705,7 @@ mod SessionAccount {
             self.session_keys.write(session_key, session);
         }
 
-        /// Poseidon message hash for session signature verification.
-        /// Binds: account address, chain_id, nonce, valid_until, and all call data.
+        /// Poseidon message hash binding account address, chain_id, nonce, valid_until, and call data.
         fn _session_message_hash(
             self: @ContractState, calls: Span<Call>, valid_until: u64,
         ) -> felt252 {
@@ -745,7 +741,7 @@ mod SessionAccount {
             poseidon_hash_span(hash_data.span())
         }
 
-        /// SNIP-12 message hash for OutsideExecution with felt timestamps (legacy fallback).
+        /// SNIP-12 message hash for OutsideExecution with felt timestamps (legacy paymaster fallback).
         fn _compute_outside_execution_hash(
             self: @ContractState, outside_execution: @OutsideExecution,
         ) -> felt252 {
@@ -804,6 +800,7 @@ mod SessionAccount {
             )
         }
 
+        /// Execute calls. Reverts on any sub-call failure.
         fn _execute_calls(
             ref self: ContractState, mut calls: Array<Call>,
         ) -> Array<Span<felt252>> {
@@ -815,7 +812,9 @@ mod SessionAccount {
                             call.to, call.selector, call.calldata,
                         ) {
                             Result::Ok(ret) => res.append(ret),
-                            Result::Err(_) => res.append(array![].span()),
+                            Result::Err(err) => {
+                                panic(err)
+                            },
                         }
                     },
                     Option::None => { break; },

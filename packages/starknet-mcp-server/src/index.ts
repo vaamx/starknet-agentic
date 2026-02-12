@@ -44,6 +44,7 @@ import {
   byteArray,
   ETransactionVersion,
   hash,
+  ec,
   validateAndParseAddress,
   type Call,
 } from "starknet";
@@ -65,6 +66,7 @@ import {
 import { z } from "zod";
 import { createStarknetPaymentSignatureHeader } from "@starknet-agentic/x402-starknet";
 import { formatAmount, formatQuoteFields, formatErrorMessage } from "./utils/formatter.js";
+import { parseDecimalToBigInt } from "./helpers/parseDecimal.js";
 
 // Environment validation
 const envSchema = z.object({
@@ -177,6 +179,8 @@ function parseCalldata(name: string, calldata: string[]): string[] {
 // Transaction wait config: ~120 s total (40 retries x 3 s interval).
 const TX_WAIT_RETRIES = 40;
 const TX_WAIT_INTERVAL_MS = 3_000;
+
+// parseDecimalToBigInt imported from ./helpers/parseDecimal.js
 
 function randomSaltFelt(): string {
   const random = BigInt(`0x${randomBytes(32).toString("hex")}`);
@@ -1236,11 +1240,41 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const sessionAccountAddr = parseAddress("accountAddress", rawAccountAddr);
         const sessionKey = parseFelt("sessionPublicKey", rawSessionKey);
 
-        if (validUntil <= Math.floor(Date.now() / 1000)) {
+        const configuredAccount = parseAddress("STARKNET_ACCOUNT_ADDRESS", env.STARKNET_ACCOUNT_ADDRESS);
+        if (sessionAccountAddr.toLowerCase() !== configuredAccount.toLowerCase()) {
+          throw new Error(
+            `accountAddress (${sessionAccountAddr}) does not match the configured MCP server account (${configuredAccount}). ` +
+            `Session key operations can only target the server's own account.`
+          );
+        }
+
+        const nowSec = Math.floor(Date.now() / 1000);
+        if (validUntil <= nowSec) {
           throw new Error("validUntil must be in the future");
+        }
+        const MAX_SESSION_DURATION_SECS = 30 * 24 * 60 * 60; // 30 days
+        if (validUntil > nowSec + MAX_SESSION_DURATION_SECS) {
+          throw new Error(
+            `validUntil is too far in the future (max 30 days from now). ` +
+            `Max allowed: ${nowSec + MAX_SESSION_DURATION_SECS}, got: ${validUntil}`
+          );
         }
         if (maxCalls <= 0 || maxCalls > 1_000_000) {
           throw new Error("maxCalls must be between 1 and 1,000,000");
+        }
+
+        // Validate session public key is non-zero and in valid range
+        if (sessionKey === 0n) {
+          throw new Error(
+            "sessionPublicKey must be non-zero. A zero key creates an unusable session."
+          );
+        }
+        // Stark curve order: keys must be < CURVE_ORDER
+        const STARK_CURVE_ORDER = BigInt("0x800000000000010ffffffffffffffffb781126dcae7b2321e66a241adc64d2f");
+        if (sessionKey >= STARK_CURVE_ORDER) {
+          throw new Error(
+            "sessionPublicKey exceeds Stark curve order. This is not a valid public key."
+          );
         }
 
         // Validate entrypoints (optional: function selectors as felt strings)
@@ -1309,6 +1343,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const sessionAccountAddr = parseAddress("accountAddress", rawAccountAddr);
         const sessionKey = parseFelt("sessionPublicKey", rawSessionKey);
 
+        const configuredAccountRevoke = parseAddress("STARKNET_ACCOUNT_ADDRESS", env.STARKNET_ACCOUNT_ADDRESS);
+        if (sessionAccountAddr.toLowerCase() !== configuredAccountRevoke.toLowerCase()) {
+          throw new Error(
+            `accountAddress (${sessionAccountAddr}) does not match the configured MCP server account (${configuredAccountRevoke}). ` +
+            `Session key operations can only target the server's own account.`
+          );
+        }
+
         const revokeCall: Call = {
           contractAddress: sessionAccountAddr,
           entrypoint: "revoke_session_key",
@@ -1366,10 +1408,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         });
 
         // SessionData struct: valid_until (u64), max_calls (u32), calls_used (u32), allowed_entrypoints_len (u32)
-        const validUntil = Number(BigInt(sessionData[0]));
-        const maxCalls = Number(BigInt(sessionData[1]));
-        const callsUsed = Number(BigInt(sessionData[2]));
-        const allowedEntrypointsLen = Number(BigInt(sessionData[3]));
+        // SessionData struct: valid_until (u64), max_calls (u32), calls_used (u32), allowed_entrypoints_len (u32)
+        const validUntil = Number(sessionData[0]);
+        const maxCalls = Number(sessionData[1]);
+        const callsUsed = Number(sessionData[2]);
+        const allowedEntrypointsLen = Number(sessionData[3]);
 
         const isActive = validUntil > 0 && validUntil > Math.floor(Date.now() / 1000) && callsUsed < maxCalls;
 
@@ -1423,9 +1466,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           (t) => t.address.toLowerCase() === tokenAddress.toLowerCase()
         )?.symbol ?? tokenAddress;
 
-        const amountBigInt = BigInt(
-          Math.round(parseFloat(rawAmount) * 10 ** decimals)
-        );
+        const amountBigInt = parseDecimalToBigInt(rawAmount, decimals);
 
         // ERC-20 transfer: transfer(recipient, amount_u256_low, amount_u256_high)
         const calls: Call[] = [
@@ -1487,9 +1528,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         const swapTokenService = getTokenService();
         const sellDecimals = await swapTokenService.getDecimalsAsync(sellTokenAddress);
-        const sellAmountBigInt = BigInt(
-          Math.round(parseFloat(rawSellAmount) * 10 ** sellDecimals)
-        );
+        const sellAmountBigInt = parseDecimalToBigInt(rawSellAmount, sellDecimals);
 
         // Get quote from AVNU
         const quoteRequest: QuoteRequest = {
