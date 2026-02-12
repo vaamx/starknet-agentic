@@ -1,8 +1,8 @@
 ---
-name: cairo-coding
-description: Use when writing or optimizing Cairo functions — fixing slow loops, expensive arithmetic, integer splitting or limb assembly, modular reduction, storage slot packing, or BoundedInt type bounds.
+name: cairo-optimization
+description: Use as an explicit post-test optimization pass — fixing slow loops, expensive arithmetic, integer splitting or limb assembly, modular reduction, storage slot packing, or BoundedInt type bounds. Invoke after implementation and tests pass.
 license: Apache-2.0
-metadata: {"author":"feltroidprime","contributors":["starknet-agentic"],"version":"1.0.0","org":"keep-starknet-strange","upstream":"https://github.com/feltroidprime/cairo-skills/tree/main/skills/cairo-coding"}
+metadata: {"author":"feltroidprime","contributors":["starknet-agentic"],"version":"1.1.0","org":"keep-starknet-strange","upstream":"https://github.com/feltroidprime/cairo-skills/tree/main/skills/cairo-coding"}
 keywords: [cairo, optimization, gas, bounded-int, storage-packing, arithmetic, starknet, smart-contracts, performance, garaga]
 allowed-tools: [Bash, Read, Write, Glob, Grep, Task]
 user-invocable: true
@@ -255,7 +255,7 @@ let (hash, _, _) = hades_permutation(x, y, 2);
 
 - **DRY:** Extract repeated validation into helper functions. If two functions validate-then-write the same struct, extract a shared `_set_config()`.
 - **`scarb fmt`:** Run before every commit.
-- **`.tool-versions`:** Pin Scarb and Starknet Foundry versions with ASDF for reproducible builds.
+- **`.tool-versions`:** Pin Scarb (2.15.1) and Starknet Foundry (0.56.0) versions with ASDF for reproducible builds.
 - **Keep dependencies updated:** Newer Scarb/Foundry versions include gas optimizations and compiler improvements.
 
 ---
