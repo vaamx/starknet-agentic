@@ -23,7 +23,7 @@ type KeyringProxySignerConfig = {
 };
 
 type KeyringSignResponse = {
-  signature: string[];
+  signature: unknown[];
   sessionPublicKey?: string;
   requestId?: string;
   messageHash?: string;
@@ -64,6 +64,10 @@ function formatProxyError(status: number, rawText: string): string {
     // Fall through to raw string.
   }
   return `Keyring proxy error (${status}): ${rawText}`;
+}
+
+function isHexFelt(value: unknown): value is string {
+  return typeof value === "string" && /^0x[0-9a-fA-F]+$/.test(value);
 }
 
 export class KeyringProxySigner extends SignerInterface {
@@ -147,11 +151,23 @@ export class KeyringProxySigner extends SignerInterface {
       }
 
       const parsed = (await response.json()) as KeyringSignResponse;
-      if (!Array.isArray(parsed.signature) || parsed.signature.length < 2) {
-        throw new Error("Invalid signature response from keyring proxy");
+      if (!Array.isArray(parsed.signature) || parsed.signature.length !== 4) {
+        throw new Error(
+          "Invalid signature response from keyring proxy: expected [pubkey, r, s, valid_until]"
+        );
+      }
+      if (!parsed.signature.every(isHexFelt)) {
+        throw new Error("Invalid signature response from keyring proxy: signature felts must be hex");
+      }
+      if (parsed.sessionPublicKey && parsed.sessionPublicKey !== parsed.signature[0]) {
+        throw new Error(
+          "Invalid signature response from keyring proxy: sessionPublicKey does not match signature pubkey"
+        );
       }
       if (parsed.sessionPublicKey) {
         this.cachedSessionPublicKey = parsed.sessionPublicKey;
+      } else {
+        this.cachedSessionPublicKey = parsed.signature[0];
       }
 
       return parsed.signature;
