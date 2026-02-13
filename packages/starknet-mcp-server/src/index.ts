@@ -142,7 +142,8 @@ if (signerMode === "proxy") {
     const isLoopback =
       proxyUrl.hostname === "127.0.0.1" ||
       proxyUrl.hostname === "localhost" ||
-      proxyUrl.hostname === "::1";
+      proxyUrl.hostname === "::1" ||
+      proxyUrl.hostname === "[::1]";
     if (proxyUrl.protocol !== "https:" && !isLoopback) {
       throw new Error(
         "Production proxy mode requires KEYRING_PROXY_URL to use https unless loopback is used"
