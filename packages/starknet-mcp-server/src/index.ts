@@ -137,6 +137,18 @@ if (signerMode === "proxy") {
       "Missing keyring proxy configuration for STARKNET_SIGNER_MODE=proxy (KEYRING_PROXY_URL, KEYRING_HMAC_SECRET)"
     );
   }
+  if (isProductionRuntime) {
+    const proxyUrl = new URL(env.KEYRING_PROXY_URL);
+    const isLoopback =
+      proxyUrl.hostname === "127.0.0.1" ||
+      proxyUrl.hostname === "localhost" ||
+      proxyUrl.hostname === "::1";
+    if (proxyUrl.protocol !== "https:" && !isLoopback) {
+      throw new Error(
+        "Production proxy mode requires KEYRING_PROXY_URL to use https unless loopback is used"
+      );
+    }
+  }
   if (isProductionRuntime && env.STARKNET_PRIVATE_KEY) {
     throw new Error(
       "STARKNET_PRIVATE_KEY must not be set in production when STARKNET_SIGNER_MODE=proxy"

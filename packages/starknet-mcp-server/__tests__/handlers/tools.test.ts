@@ -1390,6 +1390,21 @@ describe("MCP Startup Guardrails", () => {
       "STARKNET_PRIVATE_KEY must not be set in production when STARKNET_SIGNER_MODE=proxy"
     );
   });
+
+  it("fails startup in production proxy mode when proxy URL is non-https and non-loopback", async () => {
+    for (const [key, value] of Object.entries(mockEnv)) {
+      process.env[key] = value;
+    }
+    process.env.NODE_ENV = "production";
+    process.env.STARKNET_SIGNER_MODE = "proxy";
+    process.env.KEYRING_PROXY_URL = "http://signer.internal:8545";
+    delete process.env.STARKNET_PRIVATE_KEY;
+
+    vi.resetModules();
+    await expect(import("../../src/index.js")).rejects.toThrow(
+      "Production proxy mode requires KEYRING_PROXY_URL to use https unless loopback is used"
+    );
+  });
 });
 
 describe("Tool list", () => {

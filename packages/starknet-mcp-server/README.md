@@ -41,7 +41,7 @@ Proxy signer mode (recommended for production):
 STARKNET_RPC_URL=https://starknet-mainnet.g.alchemy.com/v2/YOUR_KEY
 STARKNET_ACCOUNT_ADDRESS=0x...
 STARKNET_SIGNER_MODE=proxy
-KEYRING_PROXY_URL=http://127.0.0.1:8545
+KEYRING_PROXY_URL=https://signer.internal:8545
 KEYRING_HMAC_SECRET=replace-with-long-random-secret
 # Optional:
 # KEYRING_CLIENT_ID=starknet-mcp-server
@@ -49,6 +49,8 @@ KEYRING_HMAC_SECRET=replace-with-long-random-secret
 # KEYRING_REQUEST_TIMEOUT_MS=5000
 # KEYRING_SESSION_VALIDITY_SECONDS=300
 ```
+
+Production startup guard: `KEYRING_PROXY_URL` must use `https://` unless loopback is used (`http://127.0.0.1`, `http://localhost`, or `http://[::1]`).
 
 ## Usage
 

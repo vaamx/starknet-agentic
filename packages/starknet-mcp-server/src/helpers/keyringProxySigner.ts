@@ -70,6 +70,14 @@ function isHexFelt(value: unknown): value is string {
   return typeof value === "string" && /^0x[0-9a-fA-F]+$/.test(value);
 }
 
+function feltEqualsHex(a: string, b: string): boolean {
+  try {
+    return BigInt(a) === BigInt(b);
+  } catch {
+    return false;
+  }
+}
+
 export class KeyringProxySigner extends SignerInterface {
   private readonly endpointPath = "/v1/sign/session-transaction";
   private readonly config: KeyringProxySignerConfig;
@@ -96,6 +104,7 @@ export class KeyringProxySigner extends SignerInterface {
     transactionsDetail: InvocationsSignerDetails
   ): Promise<Signature> {
     const validUntil = Math.floor(Date.now() / 1000) + this.config.sessionValiditySeconds;
+    const requestedValidUntilHex = num.toHex(validUntil);
     const requestPayload = {
       accountAddress: this.config.accountAddress,
       keyId: this.config.keyId,
@@ -159,18 +168,34 @@ export class KeyringProxySigner extends SignerInterface {
       if (!parsed.signature.every(isHexFelt)) {
         throw new Error("Invalid signature response from keyring proxy: signature felts must be hex");
       }
-      if (parsed.sessionPublicKey && parsed.sessionPublicKey !== parsed.signature[0]) {
+      const normalizedSignature = parsed.signature.map((felt) => num.toHex(BigInt(felt)));
+      const signaturePubKey = normalizedSignature[0];
+      const signatureValidUntil = normalizedSignature[3];
+      const resolvedSessionPublicKey = parsed.sessionPublicKey
+        ? num.toHex(BigInt(parsed.sessionPublicKey))
+        : signaturePubKey;
+
+      if (parsed.sessionPublicKey && !feltEqualsHex(parsed.sessionPublicKey, signaturePubKey)) {
         throw new Error(
           "Invalid signature response from keyring proxy: sessionPublicKey does not match signature pubkey"
         );
       }
-      if (parsed.sessionPublicKey) {
-        this.cachedSessionPublicKey = parsed.sessionPublicKey;
-      } else {
-        this.cachedSessionPublicKey = parsed.signature[0];
+      if (!feltEqualsHex(signatureValidUntil, requestedValidUntilHex)) {
+        throw new Error(
+          "Invalid signature response from keyring proxy: signature valid_until does not match requested window"
+        );
       }
+      if (
+        this.cachedSessionPublicKey &&
+        !feltEqualsHex(this.cachedSessionPublicKey, resolvedSessionPublicKey)
+      ) {
+        throw new Error(
+          "Invalid signature response from keyring proxy: session public key changed unexpectedly"
+        );
+      }
+      this.cachedSessionPublicKey = resolvedSessionPublicKey;
 
-      return parsed.signature;
+      return normalizedSignature;
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         throw new Error("Keyring proxy request timed out");

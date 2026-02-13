@@ -21,7 +21,7 @@ describe("KeyringProxySigner", () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        signature: ["0x123", "0xaaa", "0xbbb", "0xccc"],
+        signature: ["0x123", "0xaaa", "0xbbb", "0x698f136c"],
         sessionPublicKey: "0x123",
       }),
     });
@@ -51,7 +51,7 @@ describe("KeyringProxySigner", () => {
       } as any
     );
 
-    expect(signature).toEqual(["0x123", "0xaaa", "0xbbb", "0xccc"]);
+    expect(signature).toEqual(["0x123", "0xaaa", "0xbbb", "0x698f136c"]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     const [url, requestInit] = fetchMock.mock.calls[0] as [URL, RequestInit];
@@ -179,5 +179,73 @@ describe("KeyringProxySigner", () => {
         { chainId: "0x1", nonce: "0x1" } as any
       )
     ).rejects.toThrow("sessionPublicKey does not match signature pubkey");
+  });
+
+  it("rejects proxy signatures when valid_until does not match requested window", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        signature: ["0x123", "0xaaa", "0xbbb", "0x99999999"],
+        sessionPublicKey: "0x123",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const signer = new KeyringProxySigner({
+      proxyUrl: "http://127.0.0.1:8545",
+      hmacSecret: "test-secret",
+      clientId: "mcp-tests",
+      accountAddress: "0xabc",
+      requestTimeoutMs: 5_000,
+      sessionValiditySeconds: 300,
+    });
+
+    await expect(
+      signer.signTransaction(
+        [{ contractAddress: "0x111", entrypoint: "transfer", calldata: ["0x1"] }],
+        { chainId: "0x1", nonce: "0x1" } as any
+      )
+    ).rejects.toThrow("signature valid_until does not match requested window");
+  });
+
+  it("rejects unexpected session pubkey changes across requests", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          signature: ["0x123", "0xaaa", "0xbbb", "0x698f136c"],
+          sessionPublicKey: "0x123",
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          signature: ["0x456", "0xaaa", "0xbbb", "0x698f136c"],
+          sessionPublicKey: "0x456",
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const signer = new KeyringProxySigner({
+      proxyUrl: "http://127.0.0.1:8545",
+      hmacSecret: "test-secret",
+      clientId: "mcp-tests",
+      accountAddress: "0xabc",
+      requestTimeoutMs: 5_000,
+      sessionValiditySeconds: 300,
+    });
+
+    await signer.signTransaction(
+      [{ contractAddress: "0x111", entrypoint: "transfer", calldata: ["0x1"] }],
+      { chainId: "0x1", nonce: "0x1" } as any
+    );
+
+    await expect(
+      signer.signTransaction(
+        [{ contractAddress: "0x111", entrypoint: "transfer", calldata: ["0x2"] }],
+        { chainId: "0x1", nonce: "0x2" } as any
+      )
+    ).rejects.toThrow("session public key changed unexpectedly");
   });
 });
