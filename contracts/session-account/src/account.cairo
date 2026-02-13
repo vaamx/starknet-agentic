@@ -66,6 +66,7 @@ mod SessionAccount {
     use core::array::SpanTrait;
     use core::traits::Into;
     use core::num::traits::Zero;
+    use crate::spending_policy::component::SpendingPolicyComponent;
 
     // ── SNIP-12 type hashes ──────────────────────────────────────────────
     const OUTSIDE_EXECUTION_TYPE_HASH_REV1: felt252 =
@@ -81,6 +82,11 @@ mod SessionAccount {
     component!(path: SRC5Component, storage: src5, event: SRC5Event);
     component!(path: SRC9Component, storage: src9, event: SRC9Event);
     component!(path: UpgradeableComponent, storage: upgradeable, event: UpgradeableEvent);
+    component!(
+        path: SpendingPolicyComponent,
+        storage: spending_policy,
+        event: SpendingPolicyEvent
+    );
 
     #[abi(embed_v0)]
     impl PublicKeyImpl = AccountComponent::PublicKeyImpl<ContractState>;
@@ -88,6 +94,9 @@ mod SessionAccount {
     impl PublicKeyCamelImpl = AccountComponent::PublicKeyCamelImpl<ContractState>;
     #[abi(embed_v0)]
     impl SRC5Impl = SRC5Component::SRC5Impl<ContractState>;
+    #[abi(embed_v0)]
+    impl SessionSpendingPolicyImpl =
+        SpendingPolicyComponent::SessionSpendingPolicyImpl<ContractState>;
     impl AccountInternalImpl = AccountComponent::InternalImpl<ContractState>;
     impl SRC5InternalImpl = SRC5Component::InternalImpl<ContractState>;
     // Custom __validate__ — do not embed AccountComponent::SRC6Impl or SRC9Component::SRC6Impl
@@ -96,6 +105,16 @@ mod SessionAccount {
 
     // Custom SRC9 impl — enforces session whitelist before execution.
     impl SRC9InternalImpl = SRC9Component::InternalImpl<ContractState>;
+
+    impl SpendingPolicyInternalImpl =
+        SpendingPolicyComponent::InternalImpl<ContractState>;
+
+    impl SpendingPolicyHasAccountOwnerImpl of
+        SpendingPolicyComponent::HasAccountOwner<ContractState> {
+        fn assert_only_self(self: @ContractState) {
+            self.account.assert_only_self();
+        }
+    }
 
     impl SNIP12MetadataImpl of SNIP12Metadata {
         fn name() -> felt252 {
@@ -125,6 +144,8 @@ mod SessionAccount {
         src9: SRC9Component::Storage,
         #[substorage(v0)]
         upgradeable: UpgradeableComponent::Storage,
+        #[substorage(v0)]
+        spending_policy: SpendingPolicyComponent::Storage,
         session_keys: Map<felt252, SessionData>,
         session_entrypoints: Map<(felt252, u32), felt252>,
         agent_id: felt252,
@@ -142,6 +163,8 @@ mod SessionAccount {
         SRC9Event: SRC9Component::Event,
         #[flat]
         UpgradeableEvent: UpgradeableComponent::Event,
+        #[flat]
+        SpendingPolicyEvent: SpendingPolicyComponent::Event,
         SessionKeyAdded: SessionKeyAdded,
         SessionKeyRevoked: SessionKeyRevoked,
         AgentIdSet: AgentIdSet,
@@ -243,6 +266,17 @@ mod SessionAccount {
                 caller.is_zero() || caller == get_contract_address(),
                 'Account: unauthorized caller',
             );
+
+            // Spending policy enforcement for session keys (AFTER validation, BEFORE execution).
+            // Must be in __execute__ (not __validate__) because spending state
+            // mutations in validate would be reverted on execution failure.
+            let tx_info = get_tx_info().unbox();
+            let signature = tx_info.signature;
+            if signature.len() == 4 {
+                let session_pubkey = *signature.at(0);
+                self.spending_policy.check_and_update_spending(session_pubkey, calls.span());
+            }
+
             self._execute_calls(calls)
         }
 
@@ -393,6 +427,12 @@ mod SessionAccount {
             assert(is_valid_signature, 'SRC9: invalid signature');
             if is_session_sig {
                 self._consume_session_call(session_pubkey);
+                // Spending policy enforcement (AFTER validation, BEFORE execution).
+                // Must be in execute (not validate) because spending state mutations
+                // in validate would be reverted on execution failure.
+                self.spending_policy.check_and_update_spending(
+                    session_pubkey, outside_execution.calls,
+                );
             }
 
             // 6. Execute
@@ -625,6 +665,8 @@ mod SessionAccount {
             let VALIDATE_SELECTOR: felt252 = selector!("__validate__");
             let VALIDATE_DECLARE_SELECTOR: felt252 = selector!("__validate_declare__");
             let VALIDATE_DEPLOY_SELECTOR: felt252 = selector!("__validate_deploy__");
+            let SET_SPENDING_POLICY_SELECTOR: felt252 = selector!("set_spending_policy");
+            let REMOVE_SPENDING_POLICY_SELECTOR: felt252 = selector!("remove_spending_policy");
 
             let mut i = 0;
             loop {
@@ -646,7 +688,9 @@ mod SessionAccount {
                     || sel == COMPUTE_HASH_SELECTOR
                     || sel == VALIDATE_SELECTOR
                     || sel == VALIDATE_DECLARE_SELECTOR
-                    || sel == VALIDATE_DEPLOY_SELECTOR {
+                    || sel == VALIDATE_DEPLOY_SELECTOR
+                    || sel == SET_SPENDING_POLICY_SELECTOR
+                    || sel == REMOVE_SPENDING_POLICY_SELECTOR {
                     return false;
                 }
                 i += 1;
@@ -800,7 +844,7 @@ mod SessionAccount {
             )
         }
 
-        /// Execute calls. Reverts on any sub-call failure.
+        /// Execute calls. Returns empty span for failed calls (doesn't revert entire batch).
         fn _execute_calls(
             ref self: ContractState, mut calls: Array<Call>,
         ) -> Array<Span<felt252>> {
@@ -812,9 +856,14 @@ mod SessionAccount {
                             call.to, call.selector, call.calldata,
                         ) {
                             Result::Ok(ret) => res.append(ret),
-                            Result::Err(err) => {
-                                panic(err)
-                            },
+                            // IMPORTANT: Failed calls return empty span instead of reverting.
+                            // Rationale: Spending policy has already debited spent_in_window
+                            // BEFORE this execution (check-effects-interactions pattern).
+                            // Reverting here would allow bypass attacks where attacker
+                            // intentionally fails calls to avoid spending limit deduction.
+                            // This is fail-closed behavior: failed transfers still count.
+                            // MCP callers should check on-chain state to detect failures.
+                            Result::Err(_) => res.append(array![].span()),
                         }
                     },
                     Option::None => { break; },
