@@ -60,6 +60,7 @@ import {
 import { z } from "zod";
 import { createStarknetPaymentSignatureHeader } from "@starknet-agentic/x402-starknet";
 import { formatAmount, formatQuoteFields, formatErrorMessage } from "./utils/formatter.js";
+import { PolicyGuard, loadPolicyConfig } from "./middleware/policyGuard.js";
 
 // Environment validation
 const envSchema = z.object({
@@ -115,6 +116,10 @@ const account = new Account({
 // Initialize TokenService with avnu base URL and RPC provider for on-chain fallback
 getTokenService(env.AVNU_BASE_URL);
 configureTokenServiceProvider(provider);
+
+// Initialize preflight policy guard
+const policyConfig = loadPolicyConfig();
+const policyGuard = new PolicyGuard(policyConfig);
 
 function parseFelt(name: string, value: string): bigint {
   let parsed: bigint;
@@ -703,6 +708,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
+
+  // Preflight policy check (defense-in-depth, before any tool execution)
+  const policyResult = policyGuard.evaluate(name, args as Record<string, unknown>);
+  if (!policyResult.allowed) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            error: true,
+            message: `Policy violation: ${policyResult.reason}`,
+            tool: name,
+          }, null, 2),
+        },
+      ],
+      isError: true,
+    };
+  }
 
   try {
     switch (name) {
