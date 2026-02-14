@@ -154,8 +154,8 @@ function parseResponse(response: any) {
   return text ? JSON.parse(text) : null;
 }
 
-// Suppress server startup messages globally for this test file
-const originalConsoleError = console.error;
+// Structured log output (process.stderr.write) is suppressed during module
+// imports in beforeEach blocks to keep test output clean.
 
 describe("MCP Tool Handlers", () => {
   beforeEach(async () => {
@@ -171,8 +171,8 @@ describe("MCP Tool Handlers", () => {
       process.env[key] = value;
     }
 
-    // Suppress server startup message
-    console.error = vi.fn();
+    // Suppress server startup log output
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     // Reset module cache and re-import to capture handlers
     vi.resetModules();
@@ -180,8 +180,8 @@ describe("MCP Tool Handlers", () => {
     // Import the server module to trigger handler registration
     await import("../../src/index.js");
 
-    // Restore console.error for test assertions
-    console.error = originalConsoleError;
+    // Restore stderr for test assertions
+    stderrSpy.mockRestore();
   });
 
   afterEach(() => {
@@ -1436,14 +1436,13 @@ describe("Tool list", () => {
       process.env[key] = value;
     }
 
-    // Suppress server startup message
-    console.error = vi.fn();
+    // Suppress structured log output
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     vi.resetModules();
     await import("../../src/index.js");
 
-    // Restore console.error
-    console.error = originalConsoleError;
+    stderrSpy.mockRestore();
   });
 
   afterEach(() => {
@@ -1485,10 +1484,10 @@ describe("Tool list", () => {
     process.env.AGENT_ACCOUNT_FACTORY_ADDRESS =
       "0x0fabcde01234567890abcdef01234567890abcdef01234567890abcdef01234";
 
-    console.error = vi.fn();
+    let spy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.resetModules();
     await import("../../src/index.js");
-    console.error = originalConsoleError;
+    spy.mockRestore();
 
     if (!capturedListHandler) {
       throw new Error("List handler not captured");
@@ -1506,10 +1505,10 @@ describe("Tool list", () => {
     process.env.STARKNET_SIGNER_MODE = "proxy";
     delete process.env.STARKNET_PRIVATE_KEY;
 
-    console.error = vi.fn();
+    let spy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.resetModules();
     await import("../../src/index.js");
-    console.error = originalConsoleError;
+    spy.mockRestore();
 
     if (!capturedListHandler) {
       throw new Error("List handler not captured");

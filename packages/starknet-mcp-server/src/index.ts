@@ -69,6 +69,7 @@ import { createStarknetPaymentSignatureHeader } from "@starknet-agentic/x402-sta
 import { formatAmount, formatQuoteFields, formatErrorMessage } from "./utils/formatter.js";
 import { KeyringProxySigner } from "./helpers/keyringProxySigner.js";
 import { parseDecimalToBigInt } from "./helpers/parseDecimal.js";
+import { log } from "./logger.js";
 
 // Environment validation
 const envSchema = z.object({
@@ -2074,7 +2075,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const userMessage = formatErrorMessage(errorMessage);
 
     // Log the full error to stderr for operators; never expose to the agent.
-    console.error(`[MCP] tool=${name} error:`, errorMessage);
+    log({ level: "error", event: "tool.error", tool: name, details: { error: errorMessage } });
 
     return {
       content: [
@@ -2096,10 +2097,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Starknet MCP Server running on stdio");
+  log({ level: "info", event: "server.started", details: { transport: "stdio" } });
 }
 
 main().catch((error) => {
-  console.error("Server error:", error);
+  log({
+    level: "error",
+    event: "server.fatal",
+    details: { error: error instanceof Error ? error.message : String(error) },
+  });
   process.exit(1);
 });
