@@ -174,6 +174,22 @@ if (signerMode === "proxy") {
   }
 }
 
+// Enforce HTTPS for RPC URL in production to prevent eavesdropping on
+// account balances, transaction details, and nonce values.
+if (isProductionRuntime) {
+  const rpcUrl = new URL(env.STARKNET_RPC_URL);
+  const isLoopback =
+    rpcUrl.hostname === "127.0.0.1" ||
+    rpcUrl.hostname === "localhost" ||
+    rpcUrl.hostname === "::1" ||
+    rpcUrl.hostname === "[::1]";
+  if (rpcUrl.protocol !== "https:" && !isLoopback) {
+    throw new Error(
+      "Production mode requires STARKNET_RPC_URL to use HTTPS to protect transaction data in transit."
+    );
+  }
+}
+
 // Initialize Starknet provider and account
 const provider = new RpcProvider({ nodeUrl: env.STARKNET_RPC_URL, batch: 0 });
 
@@ -289,6 +305,23 @@ function validateEntrypoint(name: string, value: string): string {
 // Transaction wait config: ~120 s total (40 retries x 3 s interval).
 const TX_WAIT_RETRIES = 40;
 const TX_WAIT_INTERVAL_MS = 3_000;
+
+/**
+ * Reject an AVNU quote whose server-provided expiry has already passed.
+ * The `expiry` field is a Unix-seconds timestamp set by the AVNU router;
+ * executing an expired quote will fail on-chain and waste gas.
+ */
+function assertQuoteNotExpired(quote: { expiry?: number | null }): void {
+  if (quote.expiry != null && quote.expiry > 0) {
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (nowSec >= quote.expiry) {
+      throw new Error(
+        `Swap quote has expired (expiry=${quote.expiry}, now=${nowSec}). ` +
+          "Please request a fresh quote and retry."
+      );
+    }
+  }
+}
 
 // parseDecimalToBigInt imported from ./helpers/parseDecimal.js
 
@@ -1171,6 +1204,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         const bestQuote = quotes[0];
+        assertQuoteNotExpired(bestQuote);
 
         const { calls } = await quoteToCalls({
           quoteId: bestQuote.quoteId,
@@ -1326,6 +1360,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         });
 
+        // Detect exact-duplicate calls — likely an LLM hallucination or copy-paste error.
+        const callKeys = validatedCalls.map(
+          (c) => `${c.contractAddress}:${c.entrypoint}:${c.calldata.join(",")}`
+        );
+        const seen = new Set<string>();
+        const duplicateIndices: number[] = [];
+        for (let idx = 0; idx < callKeys.length; idx++) {
+          if (seen.has(callKeys[idx])) duplicateIndices.push(idx);
+          seen.add(callKeys[idx]);
+        }
+
+        const warning =
+          duplicateIndices.length > 0
+            ? `WARNING: Identical calls detected at indices [${duplicateIndices.join(", ")}]. ` +
+              "This may indicate a duplicate request. Review carefully before signing."
+            : undefined;
+
         return {
           content: [
             {
@@ -1334,6 +1385,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 {
                   calls: validatedCalls,
                   callCount: validatedCalls.length,
+                  ...(warning ? { warning } : {}),
                   note: "Unsigned calls. Pass to account.execute(calls) or write to calls.json for external signing.",
                 },
                 null,
@@ -1676,6 +1728,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         const bestQuote = quotes[0];
+        assertQuoteNotExpired(bestQuote);
         const slippage = slippageBps / 10000;
 
         const { calls: swapCalls } = await quoteToCalls({
