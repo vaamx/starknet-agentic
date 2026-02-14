@@ -1127,8 +1127,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
 
         // Validate slippage is within reasonable bounds
-        if (slippage < 0 || slippage > 0.5) {
-          throw new Error("Slippage must be between 0 and 0.5 (50%). Recommended: 0.005-0.03.");
+        if (slippage < 0 || slippage > 0.15) {
+          throw new Error("Slippage must be between 0 and 0.15 (15%). Recommended: 0.005-0.03.");
         }
 
         const [sellTokenAddress, buyTokenAddress] = await Promise.all([
@@ -1286,6 +1286,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           if (!call.entrypoint) {
             throw new Error(`calls[${i}].entrypoint is required`);
           }
+          if (call.calldata && call.calldata.length > MAX_CALLDATA_LEN) {
+            throw new Error(`calls[${i}].calldata too large (${call.calldata.length} items, max ${MAX_CALLDATA_LEN})`);
+          }
           const validatedAddress = parseAddress(`calls[${i}].contractAddress`, call.contractAddress);
           const validatedCalldata = call.calldata && call.calldata.length > 0
             ? parseCalldata(`calls[${i}].calldata`, call.calldata)
@@ -1401,6 +1404,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         const result = await executeFn();
         await provider.waitForTransaction(result.transaction_hash, {
+          retries: TX_WAIT_RETRIES,
           retryInterval: TX_WAIT_INTERVAL_MS,
         });
 
@@ -1462,6 +1466,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         const result = await executeFn();
         await provider.waitForTransaction(result.transaction_hash, {
+          retries: TX_WAIT_RETRIES,
           retryInterval: TX_WAIT_INTERVAL_MS,
         });
 
@@ -1967,6 +1972,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const userMessage = formatErrorMessage(errorMessage);
 
+    // Log the full error to stderr for operators; never expose to the agent.
+    console.error(`[MCP] tool=${name} error:`, errorMessage);
+
     return {
       content: [
         {
@@ -1974,7 +1982,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           text: JSON.stringify({
             error: true,
             message: userMessage,
-            originalError: errorMessage !== userMessage ? errorMessage : undefined,
             tool: name,
           }, null, 2),
         },
