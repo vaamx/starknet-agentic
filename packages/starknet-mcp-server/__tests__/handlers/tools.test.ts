@@ -920,11 +920,12 @@ describe("MCP Tool Handlers", () => {
         calldata: ["0x1", "0x2"],
       });
 
-      expect(mockEstimateInvokeFee).toHaveBeenCalledWith({
-        contractAddress: "0x555",
-        entrypoint: "call_with_args",
-        calldata: ["0x1", "0x2"],
-      });
+      expect(mockEstimateInvokeFee).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entrypoint: "call_with_args",
+          calldata: ["0x1", "0x2"],
+        }),
+      );
     });
   });
 

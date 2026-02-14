@@ -235,8 +235,17 @@ function parseFelt(name: string, value: string): bigint {
 
 function parseAddress(name: string, value: string): string {
   try {
-    return validateAndParseAddress(value);
-  } catch {
+    const parsed = validateAndParseAddress(value);
+    // Reject the zero address — it's never a valid target for transfers or calls.
+    if (/^0x0+$/.test(parsed)) {
+      throw new Error("zero address");
+    }
+    return parsed;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (msg === "zero address") {
+      throw new Error(`${name} cannot be the zero address.`);
+    }
     throw new Error(
       `${name} is not a valid Starknet address: "${value}". ` +
         "Expected a hex string starting with 0x."
@@ -265,6 +274,16 @@ function parseCalldata(name: string, calldata: string[]): string[] {
     const felt = parseFelt(`${name}[${i}]`, trimmed);
     return `0x${felt.toString(16)}`;
   });
+}
+
+function validateEntrypoint(name: string, value: string): string {
+  if (!value || value.trim().length === 0) {
+    throw new Error(`${name} is required and must be non-empty`);
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throw new Error(`${name} contains invalid control characters`);
+  }
+  return value.trim();
 }
 
 // Transaction wait config: ~120 s total (40 retries x 3 s interval).
@@ -1058,10 +1077,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
 
         const validatedContractAddress = parseAddress("contractAddress", contractAddress);
+        const validatedEntrypoint = validateEntrypoint("entrypoint", entrypoint);
         const validatedCalldata = parseCalldata("calldata", calldata);
         const result = await provider.callContract({
           contractAddress: validatedContractAddress,
-          entrypoint,
+          entrypoint: validatedEntrypoint,
           calldata: validatedCalldata,
         });
 
@@ -1089,11 +1109,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
 
         const validatedContractAddress = parseAddress("contractAddress", contractAddress);
+        const validatedEntrypoint = validateEntrypoint("entrypoint", entrypoint);
         const validatedCalldata = parseCalldata("calldata", calldata);
         const gasTokenAddress = gasToken ? await resolveTokenAddressAsync(gasToken) : TOKENS.STRK;
         const invokeCall: Call = {
           contractAddress: validatedContractAddress,
-          entrypoint,
+          entrypoint: validatedEntrypoint,
           calldata: validatedCalldata,
         };
 
@@ -1242,10 +1263,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           calldata?: string[];
         };
 
+        const validatedContractAddress = parseAddress("contractAddress", contractAddress);
+        const validatedEntrypoint = validateEntrypoint("entrypoint", entrypoint);
+        const validatedCalldata = parseCalldata("calldata", calldata);
         const fee = await account.estimateInvokeFee({
-          contractAddress,
-          entrypoint,
-          calldata,
+          contractAddress: validatedContractAddress,
+          entrypoint: validatedEntrypoint,
+          calldata: validatedCalldata,
         });
 
         return {
@@ -1290,13 +1314,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             throw new Error(`calls[${i}].calldata too large (${call.calldata.length} items, max ${MAX_CALLDATA_LEN})`);
           }
           const validatedAddress = parseAddress(`calls[${i}].contractAddress`, call.contractAddress);
+          const validatedEntrypoint = validateEntrypoint(`calls[${i}].entrypoint`, call.entrypoint);
           const validatedCalldata = call.calldata && call.calldata.length > 0
             ? parseCalldata(`calls[${i}].calldata`, call.calldata)
             : [];
 
           return {
             contractAddress: validatedAddress,
-            entrypoint: call.entrypoint,
+            entrypoint: validatedEntrypoint,
             calldata: validatedCalldata,
           };
         });
