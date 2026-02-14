@@ -29,6 +29,24 @@ export function setLogLevel(level: LogLevel): void {
   minLevel = level;
 }
 
+function safeStringify(value: unknown): string {
+  // Defensive: JSON.stringify throws on BigInt and can blow up on circular refs.
+  // Logging must never take down the MCP process.
+  const seen = new WeakSet<object>();
+
+  return JSON.stringify(value, (_key, v) => {
+    if (typeof v === "bigint") return v.toString(10);
+    if (v instanceof Error) {
+      return { name: v.name, message: v.message };
+    }
+    if (typeof v === "object" && v !== null) {
+      if (seen.has(v)) return "[Circular]";
+      seen.add(v);
+    }
+    return v;
+  });
+}
+
 export function log(entry: LogEntry): void {
   if (LEVEL_RANK[entry.level] < LEVEL_RANK[minLevel]) {
     return;
@@ -44,5 +62,9 @@ export function log(entry: LogEntry): void {
       : {}),
   };
 
-  process.stderr.write(`${JSON.stringify(line)}\n`);
+  try {
+    process.stderr.write(`${safeStringify(line)}\n`);
+  } catch {
+    // Absolute last resort: keep running even if stderr is broken.
+  }
 }
