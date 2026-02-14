@@ -323,6 +323,19 @@ function assertQuoteNotExpired(quote: { expiry?: number | null }): void {
   }
 }
 
+/** Threshold (5%) above which we flag high price impact to the AI agent. */
+const HIGH_PRICE_IMPACT_THRESHOLD = 5;
+
+function priceImpactWarning(priceImpact?: number): string | undefined {
+  if (priceImpact != null && Math.abs(priceImpact) >= HIGH_PRICE_IMPACT_THRESHOLD) {
+    return (
+      `WARNING: Price impact is ${priceImpact.toFixed(2)}% which exceeds the ${HIGH_PRICE_IMPACT_THRESHOLD}% threshold. ` +
+      "This swap may result in significant value loss. Consider reducing the amount or using a more liquid pair."
+    );
+  }
+  return undefined;
+}
+
 // parseDecimalToBigInt imported from ./helpers/parseDecimal.js
 
 function randomSaltFelt(): string {
@@ -1221,6 +1234,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const buyDecimals = await tokenService.getDecimalsAsync(buyTokenAddress);
         const quoteFields = formatQuoteFields(bestQuote, buyDecimals);
 
+        const swapPriceWarning = priceImpactWarning(bestQuote.priceImpact);
+
         return {
           content: [
             {
@@ -1235,6 +1250,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 buyAmountInUsd: bestQuote.buyAmountInUsd?.toFixed(2),
                 slippage,
                 gasfree,
+                ...(swapPriceWarning ? { warning: swapPriceWarning } : {}),
               }, null, 2),
             },
           ],
@@ -1271,6 +1287,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const tokenService = getTokenService();
         const buyDecimals = await tokenService.getDecimalsAsync(buyTokenAddress);
         const quoteFields = formatQuoteFields(bestQuote, buyDecimals);
+        const quotePriceWarning = priceImpactWarning(bestQuote.priceImpact);
 
         return {
           content: [
@@ -1284,6 +1301,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 sellAmountInUsd: bestQuote.sellAmountInUsd?.toFixed(2),
                 buyAmountInUsd: bestQuote.buyAmountInUsd?.toFixed(2),
                 quoteId: bestQuote.quoteId,
+                ...(quotePriceWarning ? { warning: quotePriceWarning } : {}),
               }, null, 2),
             },
           ],
