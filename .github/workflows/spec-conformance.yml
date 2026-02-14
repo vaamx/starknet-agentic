@@ -90,9 +90,9 @@ jobs:
       - name: Validate boundary invariants
         run: |
           set -euo pipefail
-          rg -n "if signature\.len\(\) == 4" contracts/session-account/src/account.cairo
-          rg -n "signature\.at\(3\)" contracts/session-account/src/account.cairo
-          rg -n "parsed\.signature\.length !== 4" /tmp/starkclaw/apps/mobile/lib/signer/keyring-proxy-signer.ts
-          rg -n "name: X-Keyring-Signature" /tmp/SISNA/docs/api-spec.yaml
-          rg -n "validUntil:" /tmp/SISNA/docs/api-spec.yaml
-          rg -n "/v1/sign/session-transaction:" /tmp/SISNA/docs/api-spec.yaml
+          grep -nE "if signature\\.len\\(\\) == 4" contracts/session-account/src/account.cairo
+          grep -nE "signature\\.at\\(3\\)" contracts/session-account/src/account.cairo
+          grep -nE "parsed\\.signature\\.length !== 4" /tmp/starkclaw/apps/mobile/lib/signer/keyring-proxy-signer.ts
+          grep -nE "name: X-Keyring-Signature" /tmp/SISNA/docs/api-spec.yaml
+          grep -nE "validUntil:" /tmp/SISNA/docs/api-spec.yaml
+          grep -nE "/v1/sign/session-transaction:" /tmp/SISNA/docs/api-spec.yaml
