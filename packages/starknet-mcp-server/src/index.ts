@@ -1643,6 +1643,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           slippageBps?: number;
         };
 
+        // Validate slippage bounds (1500 bps = 15% max)
+        if (slippageBps < 0 || slippageBps > 1500) {
+          throw new Error("slippageBps must be between 0 and 1500 (15%). Recommended: 50-300.");
+        }
+
         const sellTokenAddress = rawSellToken.startsWith("0x")
           ? parseAddress("sellTokenAddress", rawSellToken)
           : await resolveTokenAddressAsync(rawSellToken);
