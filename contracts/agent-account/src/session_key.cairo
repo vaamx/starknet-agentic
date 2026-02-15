@@ -73,10 +73,15 @@ pub mod SessionKeyComponent {
                 'Invalid spending config',
             );
 
+            // Clear stale spending state from the previous lifecycle/policy token.
+            let old_policy = self.session_keys.entry(key).read();
+            self.spending_used.entry((key, old_policy.spending_token)).write(0);
+            self.spending_period_start.entry((key, old_policy.spending_token)).write(0);
+
             self.session_keys.entry(key).write(policy);
             self.session_key_active.entry(key).write(true);
 
-            // Clear any stale spending state from a previous lifecycle of this key
+            // Initialize fresh spending state for the current policy token.
             self.spending_used.entry((key, policy.spending_token)).write(0);
             self.spending_period_start.entry((key, policy.spending_token)).write(0);
 
@@ -88,6 +93,10 @@ pub mod SessionKeyComponent {
         }
 
         fn revoke(ref self: ComponentState<TContractState>, key: felt252) {
+            // Revoke and clear current policy token spending state.
+            let policy = self.session_keys.entry(key).read();
+            self.spending_used.entry((key, policy.spending_token)).write(0);
+            self.spending_period_start.entry((key, policy.spending_token)).write(0);
             self.session_key_active.entry(key).write(false);
             self.emit(SessionKeyRevoked { key });
         }

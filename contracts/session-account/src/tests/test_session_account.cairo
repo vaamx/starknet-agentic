@@ -7,7 +7,7 @@ use snforge_std::{
 };
 use snforge_std::signature::KeyPairTrait;
 use snforge_std::signature::stark_curve::{StarkCurveKeyPairImpl, StarkCurveSignerImpl};
-use starknet::ContractAddress;
+use starknet::{ClassHash, ContractAddress};
 use starknet::account::Call;
 use core::poseidon::poseidon_hash_span;
 use session_account::account::{
@@ -36,6 +36,15 @@ trait IContractInfo<TState> {
     fn get_session_allowed_entrypoint_at(
         self: @TState, session_key: felt252, index: u32,
     ) -> felt252;
+}
+
+#[starknet::interface]
+trait IUpgradeTimelock<TState> {
+    fn upgrade(ref self: TState, new_class_hash: starknet::ClassHash);
+    fn execute_upgrade(ref self: TState);
+    fn cancel_upgrade(ref self: TState);
+    fn set_upgrade_delay(ref self: TState, new_delay: u64);
+    fn get_upgrade_info(self: @TState) -> (starknet::ClassHash, u64, u64, u64);
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -83,6 +92,10 @@ fn src5_dispatcher(addr: ContractAddress) -> ISRC5Dispatcher {
 
 fn info_dispatcher(addr: ContractAddress) -> IContractInfoDispatcher {
     IContractInfoDispatcher { contract_address: addr }
+}
+
+fn timelock_dispatcher(addr: ContractAddress) -> IUpgradeTimelockDispatcher {
+    IUpgradeTimelockDispatcher { contract_address: addr }
 }
 
 fn zero_addr() -> ContractAddress {
@@ -760,6 +773,21 @@ fn test_blocklist_upgrade() {
 }
 
 #[test]
+fn test_blocklist_execute_upgrade() {
+    assert_selector_blocked(selector!("execute_upgrade"));
+}
+
+#[test]
+fn test_blocklist_cancel_upgrade() {
+    assert_selector_blocked(selector!("cancel_upgrade"));
+}
+
+#[test]
+fn test_blocklist_set_upgrade_delay() {
+    assert_selector_blocked(selector!("set_upgrade_delay"));
+}
+
+#[test]
 fn test_blocklist_set_public_key() {
     assert_selector_blocked(selector!("set_public_key"));
 }
@@ -1265,7 +1293,7 @@ fn test_validate_sig_len_0_non_self_returns_zero() {
 }
 
 #[test]
-fn test_validate_sig_len_0_self_returns_validated() {
+fn test_validate_sig_len_0_self_outside_execution_context_returns_zero() {
     let owner_kp = KeyPairTrait::from_secret_key(0x1234_felt252);
     let account_addr = deploy_with_key(owner_kp.public_key);
     let account = src6_dispatcher(account_addr);
@@ -1273,12 +1301,12 @@ fn test_validate_sig_len_0_self_returns_validated() {
     let target: ContractAddress = 0xAAA.try_into().unwrap();
     let calls = array![external_call(target, selector!("transfer"))];
 
-    // Empty signature from self caller → VALIDATED (self-call path)
+    // Empty signature from self caller but without execution context should fail.
     start_cheat_signature_global(array![].span());
     start_cheat_caller_address(account_addr, account_addr);
 
     let result = account.__validate__(calls);
-    assert(result == starknet::VALIDATED, 'sig 0 self = VALIDATED');
+    assert(result == 0, 'sig 0 self outside context = 0');
 
     stop_cheat_signature_global();
     stop_cheat_caller_address(account_addr);
@@ -2079,4 +2107,71 @@ fn test_session_key_sig_with_tampered_calldata_fails() {
     let result = account.__validate__(submitted_calls);
     assert(result == 0, 'tampered calldata fails');
     cleanup_session_cheats(account_addr);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SECTION 18: UPGRADE TIMELOCK
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_upgrade_schedules_pending_upgrade() {
+    let owner_kp = KeyPairTrait::from_secret_key(0x1234_felt252);
+    let account_addr = deploy_with_key(owner_kp.public_key);
+    let timelock = timelock_dispatcher(account_addr);
+
+    start_cheat_block_timestamp(account_addr, 1_000);
+    start_cheat_caller_address(account_addr, account_addr);
+
+    let new_class_hash: ClassHash = 0x123.try_into().unwrap();
+    timelock.upgrade(new_class_hash);
+
+    let (pending, scheduled_at, delay, now) = timelock.get_upgrade_info();
+    assert(pending == new_class_hash, 'pending set');
+    assert(scheduled_at == 1_000, 'scheduled timestamp');
+    assert(delay == 3600, 'default delay');
+    assert(now == 1_000, 'now should match cheat');
+
+    stop_cheat_caller_address(account_addr);
+    stop_cheat_block_timestamp(account_addr);
+}
+
+#[test]
+#[should_panic(expected: 'Session: upgrade timelock')]
+fn test_execute_upgrade_before_delay_panics() {
+    let owner_kp = KeyPairTrait::from_secret_key(0x1234_felt252);
+    let account_addr = deploy_with_key(owner_kp.public_key);
+    let timelock = timelock_dispatcher(account_addr);
+
+    start_cheat_caller_address(account_addr, account_addr);
+    timelock.set_upgrade_delay(120);
+
+    start_cheat_block_timestamp(account_addr, 1_000);
+    let new_class_hash: ClassHash = 0x123.try_into().unwrap();
+    timelock.upgrade(new_class_hash);
+
+    // 1119 < 1000 + 120, so execution must fail on timelock check.
+    start_cheat_block_timestamp(account_addr, 1_119);
+    timelock.execute_upgrade();
+}
+
+#[test]
+fn test_cancel_upgrade_clears_pending() {
+    let owner_kp = KeyPairTrait::from_secret_key(0x1234_felt252);
+    let account_addr = deploy_with_key(owner_kp.public_key);
+    let timelock = timelock_dispatcher(account_addr);
+
+    start_cheat_block_timestamp(account_addr, 1_000);
+    start_cheat_caller_address(account_addr, account_addr);
+
+    let new_class_hash: ClassHash = 0x123.try_into().unwrap();
+    timelock.upgrade(new_class_hash);
+    timelock.cancel_upgrade();
+
+    let (pending, scheduled_at, _delay, _now) = timelock.get_upgrade_info();
+    let zero_class: ClassHash = 0.try_into().unwrap();
+    assert(pending == zero_class, 'pending cleared');
+    assert(scheduled_at == 0, 'scheduled cleared');
+
+    stop_cheat_caller_address(account_addr);
+    stop_cheat_block_timestamp(account_addr);
 }
