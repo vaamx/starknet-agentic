@@ -15,17 +15,20 @@ If you are integrating agents, this repo gives you contract primitives + runtime
 
 ## What Works Today
 
-Snapshot at time of this README update:
+Snapshot as of 2026-02-10:
 
 | Area | Path | Status |
 |---|---|---|
 | Agent Account contract | `contracts/agent-account` | Active, tested (110 Cairo tests) |
 | ERC-8004 Cairo contracts | `contracts/erc8004-cairo` | Active, tested (131+ unit + 47 E2E tests) |
 | Huginn registry contract | `contracts/huginn-registry` | Active, tested (6 Cairo tests) |
-| MCP package | `packages/starknet-mcp-server` | Active |
+| MCP package | `packages/starknet-mcp-server` | Active (9 tools, input validation) |
 | A2A package | `packages/starknet-a2a` | Active |
+| CLI scaffolding | `packages/create-starknet-agent` | Complete (npm publish pending) |
 | Additional packages | `packages/*` | Active/MVP by package |
-| Skills | `skills/*` | Mixed (complete + template) |
+| Skills | `skills/*` | 3 complete + 2 template + 1 onboarding |
+| Onboarding examples | `examples/onboard-agent`, `crosschain-demo` | Working (with CI smoke tests) |
+| CI/CD | `.github/workflows/` | 11 jobs + daily health check |
 
 ## Architecture (Current)
 
@@ -55,13 +58,17 @@ Snapshot at time of this README update:
 | [A2A](https://a2a-protocol.org/) | Agent-to-agent workflows | `packages/starknet-a2a` |
 | [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) | Agent identity, reputation, validation | `contracts/erc8004-cairo` |
 
-## Cross-Chain Interop Strategy
+## ERC-8004: Parity + Starknet Extensions
 
-We are implementing a parity-core approach for ERC-8004 so integrations can be reused across EVM networks and Starknet, while keeping Starknet-native capabilities as opt-in extensions.
+All three ERC-8004 registries (Identity, Reputation, Validation) are implemented in Cairo with API-level parity to the [Solidity reference](https://eips.ethereum.org/EIPS/eip-8004). On top of parity, Starknet's native account abstraction enables extensions that EVM deployments cannot offer:
 
-- Goal: portability of agent integrations without giving up Starknet strengths (native account abstraction, Cairo-native patterns, lower execution cost).
-- Scope: API semantics align by default; chain-local state (reputation/validation history) remains chain-scoped unless explicitly aggregated off-chain.
-- Tracking plan: `#78` in this repository.
+- **Session keys**: Agents operate with scoped, revocable credentials -- spending cap per token, expiry, contract/selector restrictions -- instead of raw private keys. If a session key leaks, the attacker gets a bounded credential that the owner can revoke instantly. The master key never leaves the owner.
+- **Domain-separated wallet binding**: `set_agent_wallet` includes chain_id + contract_address + nonce in the signature hash, preventing cross-chain and cross-registry replay.
+- **Bounded reads**: Paginated summary APIs for production-scale reputation and validation queries.
+
+Full compatibility matrix, session key details, and cross-chain notes: **[docs/ERC8004-PARITY.md](docs/ERC8004-PARITY.md)**
+
+Tracking issue: [#78](https://github.com/keep-starknet-strange/starknet-agentic/issues/78)
 
 ## Skills At A Glance
 
@@ -72,7 +79,7 @@ We are implementing a parity-core approach for ERC-8004 so integrations can be r
 | `starknet-anonymous-wallet` | Privacy-focused wallet operations | Complete |
 | `starknet-defi` | DeFi actions (swaps/staking/lending/LP) | Template |
 | `starknet-identity` | ERC-8004 identity/reputation/validation workflows | Template |
-| `huginn-onboard` | Huginn onboarding flow | In Progress |
+| `huginn-onboard` | Cross-chain onboarding and Huginn registry integration | Complete |
 
 Full definitions and usage are in `skills/*/SKILL.md`.
 
@@ -92,24 +99,37 @@ Example:
 npx skills add keep-starknet-strange/starknet-agentic/skills/starknet-wallet
 ```
 
+## Examples
+
+| Example | Description | Path |
+|---------|-------------|------|
+| [DeFi Agent](./examples/defi-agent/) | Autonomous triangular arbitrage agent with risk management | `examples/defi-agent/` |
+| Hello Agent | Minimal E2E proof of concept | `examples/hello-agent/` |
+| [Onboard Agent](./examples/onboard-agent/) | E2E agent onboarding: deploy account, register identity, first action | `examples/onboard-agent/` |
+| [Full Stack Swarm](./examples/full-stack-swarm/) | SessionAccount + SISNA signer boundary + MCP tools + AVNU gasless + ERC-8004 (5-agent demo) | `examples/full-stack-swarm/` |
+| [Crosschain Demo](./examples/crosschain-demo/) | Base Sepolia ↔ Starknet ERC-8004 cross-chain registration flow | `examples/crosschain-demo/` |
+
+The **DeFi Agent** is the flagship example demonstrating how to build production-ready autonomous agents on Starknet. The **Onboard Agent** shows the full lifecycle from account deployment to identity registration with AVNU gasfree support.
+
 ## Repository Layout
 
 ```text
 starknet-agentic/
 ├── contracts/
-│   ├── agent-account/
-│   ├── erc8004-cairo/
-│   └── huginn-registry/
+│   ├── agent-account/                    # Agent account with session keys (110 tests)
+│   ├── erc8004-cairo/                    # Identity, reputation, validation (131+ unit + 47 E2E)
+│   └── huginn-registry/                  # Thought provenance registry
 ├── packages/
-│   ├── starknet-mcp-server/
-│   ├── starknet-a2a/
-│   ├── starknet-agent-passport/
-│   ├── x402-starknet/
-│   └── prediction-arb-scanner/
-├── skills/
-├── examples/
-├── docs/
-└── website/
+│   ├── create-starknet-agent/            # CLI scaffolding tool
+│   ├── starknet-mcp-server/              # MCP server (9 tools)
+│   ├── starknet-a2a/                     # A2A protocol adapter
+│   ├── starknet-agent-passport/          # Capability metadata client
+│   ├── x402-starknet/                    # X-402 payment protocol
+│   └── prediction-arb-scanner/           # Cross-venue arb detection
+├── skills/                               # 6 skills (3 complete, 2 template, 1 onboarding)
+├── examples/                             # 4 examples + scaffold reference
+├── docs/                                 # Roadmap, spec, getting started, troubleshooting
+└── website/                              # Next.js documentation site
 ```
 
 ## Quick Start
@@ -181,3 +201,5 @@ For contract-specific behavior and deployment addresses:
 - Start with `CONTRIBUTING.md`
 - Roadmap: `docs/ROADMAP.md`
 - Good first tasks: `docs/GOOD_FIRST_ISSUES.md`
+
+Validation: dependency-review live run check (2026-02-14).
