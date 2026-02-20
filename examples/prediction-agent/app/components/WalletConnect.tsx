@@ -55,37 +55,22 @@ export default function WalletConnect() {
     );
   }
 
-  const hasConnectors = connectors.length > 0;
-
   return (
     <div className="relative">
       <button
         onClick={() => {
-          if (!hasConnectors) return;
           if (connectors.length === 1) {
             connect({ connector: connectors[0] });
           } else {
             setShowDropdown(!showDropdown);
           }
         }}
-        disabled={isPending || !hasConnectors}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 text-xs font-mono bg-white/5 transition-colors ${
-          !hasConnectors
-            ? "opacity-50 cursor-not-allowed"
-            : "hover:bg-white/10"
-        } ${isPending ? "opacity-50 cursor-not-allowed" : ""}`}
+        disabled={isPending}
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 text-xs font-mono bg-white/5 transition-colors hover:bg-white/10 ${isPending ? "opacity-50 cursor-not-allowed" : ""}`}
       >
         <span className="w-2 h-2 rounded-full bg-white/30" />
-        {isPending ? "Connecting..." : hasConnectors ? "Connect Wallet" : "No Wallet Detected"}
+        {isPending ? "Connecting..." : "Connect Wallet"}
       </button>
-
-      {!hasConnectors && (
-        <div className="absolute right-0 top-full mt-2 z-50 border border-white/10 bg-neo-dark/90 backdrop-blur shadow-neo min-w-[200px] px-3 py-2 rounded-lg">
-          <p className="text-[10px] font-mono text-white/50">
-            Install ArgentX or Braavos to connect.
-          </p>
-        </div>
-      )}
 
       {showDropdown && connectors.length > 1 && (
         <>
