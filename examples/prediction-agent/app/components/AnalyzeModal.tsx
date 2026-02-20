@@ -41,9 +41,9 @@ export default function AnalyzeModal({
       />
 
       {/* Modal */}
-      <div className="relative z-10 w-full max-w-4xl max-h-[85vh] flex flex-col neo-card border-2 border-black bg-white shadow-neo-lg animate-modal-in">
+      <div className="relative z-10 w-full max-w-sm sm:max-w-2xl md:max-w-4xl max-h-[85vh] flex flex-col neo-card shadow-neo-lg animate-modal-in">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 bg-neo-dark border-b-2 border-black shrink-0">
+        <div className="flex items-center justify-between px-5 py-3.5 bg-white/5 border-b border-white/10 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <span className="font-heading font-bold text-sm text-neo-green uppercase tracking-wider shrink-0">
               Analyze
@@ -54,7 +54,7 @@ export default function AnalyzeModal({
           </div>
           <button
             onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center border-2 border-white/30 text-white hover:bg-white/10 text-xs font-mono transition-colors shrink-0 ml-3"
+            className="w-7 h-7 flex items-center justify-center border border-white/20 text-white hover:bg-white/10 text-xs font-mono transition-colors shrink-0 ml-3 rounded-md"
           >
             ESC
           </button>

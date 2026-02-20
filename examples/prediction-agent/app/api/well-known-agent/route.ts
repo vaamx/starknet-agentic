@@ -14,7 +14,7 @@ export async function GET() {
     schema_version: "1.0",
     name: "BitSage Prediction Oracle",
     description:
-      "On-chain prediction market agent ensemble on Starknet Sepolia. 5 AI personas with distinct methodologies forecast Super Bowl LX and crypto markets, execute real STRK bets, and track accuracy via Brier scores.",
+      "On-chain prediction market agent swarm on Starknet Sepolia. Multiple AI personas research live sources, forecast probabilities, execute real STRK bets, and track accuracy via Brier scores.",
     url: baseUrl,
     version: "1.0.0",
     author: {
@@ -47,7 +47,7 @@ export async function GET() {
         id: "alpha",
         name: "AlphaForecaster",
         type: "superforecaster",
-        model: "claude-sonnet-4.5",
+        model: "claude-sonnet-4-5",
         description:
           "Calibrated superforecaster using Good Judgment Project methodology",
       },
@@ -55,7 +55,7 @@ export async function GET() {
         id: "beta",
         name: "BetaAnalyst",
         type: "quant-forecaster",
-        model: "claude-sonnet-4.5",
+        model: "claude-sonnet-4-5",
         description:
           "Quantitative analyst focused on on-chain metrics and technicals",
       },
@@ -63,7 +63,7 @@ export async function GET() {
         id: "gamma",
         name: "GammaTrader",
         type: "market-maker",
-        model: "gpt-4o",
+        model: "claude-sonnet-4-5",
         description:
           "Market-making agent analyzing liquidity, flow, and cross-venue data",
       },
@@ -71,7 +71,7 @@ export async function GET() {
         id: "delta",
         name: "DeltaScout",
         type: "data-analyst",
-        model: "claude-haiku-4.5",
+        model: "claude-sonnet-4-5",
         description:
           "Data-driven agent prioritizing primary sources and developer activity",
       },
@@ -79,7 +79,7 @@ export async function GET() {
         id: "epsilon",
         name: "EpsilonOracle",
         type: "news-analyst",
-        model: "gemini-pro",
+        model: "claude-sonnet-4-5",
         description:
           "News and sentiment analyst tracking narrative shifts and institutional signals",
       },
@@ -87,9 +87,9 @@ export async function GET() {
     dataSources: [
       "polymarket",
       "coingecko",
-      "brave-news",
-      "social-trends",
-      "espn-live",
+      "news",
+      "social",
+      "espn",
     ],
     endpoints: {
       predict: `${baseUrl}/api/predict`,
@@ -112,10 +112,11 @@ export async function GET() {
     features: [
       "multi-agent-debate",
       "reputation-weighted-consensus",
-      "real-time-espn-data",
+      "research-lab",
       "on-chain-brier-scores",
       "autonomous-betting",
       "sse-streaming",
+      "on-chain-activity-indexer",
     ],
   };
 

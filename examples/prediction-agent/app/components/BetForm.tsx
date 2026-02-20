@@ -1,10 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useAccount, useSendTransaction } from "@starknet-react/core";
 import { computePayout } from "@/lib/accuracy";
+import { buildBetCalls } from "@/lib/contracts";
 
 interface BetFormProps {
   marketId: number;
+  marketAddress: string;
   question: string;
   yesPool: string;
   noPool: string;
@@ -16,6 +19,7 @@ interface BetFormProps {
 
 export default function BetForm({
   marketId,
+  marketAddress,
   question,
   yesPool,
   noPool,
@@ -24,9 +28,11 @@ export default function BetForm({
   impliedProbYes,
   onClose,
 }: BetFormProps) {
+  const { address, isConnected } = useAccount();
+  const { sendAsync, isPending } = useSendTransaction({});
+
   const [outcome, setOutcome] = useState<0 | 1>(1);
   const [amount, setAmount] = useState("");
-  const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
     status: string;
     txHash?: string;
@@ -81,27 +87,24 @@ export default function BetForm({
 
   const probShift = Math.round((newImpliedYes - impliedProbYes) * 100);
 
+  const shortWallet = address
+    ? `${address.slice(0, 6)}...${address.slice(-4)}`
+    : null;
+
   async function handleSubmit() {
-    if (amountBigInt <= 0n) return;
-    setLoading(true);
+    if (amountBigInt <= 0n || !isConnected) return;
     setResult(null);
 
     try {
-      const resp = await fetch("/api/bet", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          marketId,
-          outcome,
-          amount: amountBigInt.toString(),
-        }),
+      const calls = buildBetCalls(marketAddress, outcome, amountBigInt);
+      const response = await sendAsync(calls);
+      setResult({
+        status: "success",
+        txHash: response.transaction_hash,
       });
-      const data = await resp.json();
-      setResult(data);
     } catch (err: any) {
       setResult({ status: "error", error: err.message });
     }
-    setLoading(false);
   }
 
   const presets = ["10", "50", "100", "500"];
@@ -115,44 +118,74 @@ export default function BetForm({
       />
 
       {/* Modal */}
-      <div className="relative z-10 w-full max-w-md mx-4 neo-card border-2 border-black bg-white shadow-neo-lg animate-modal-in">
+      <div className="relative z-10 w-full max-w-md mx-4 neo-card shadow-neo-lg animate-modal-in">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 bg-neo-yellow border-b-2 border-black">
-          <h3 className="font-heading font-bold text-sm uppercase tracking-wider">
+        <div className="flex items-center justify-between px-5 py-3.5 bg-white/5 border-b border-white/10">
+          <h3 className="font-heading font-bold text-sm uppercase tracking-wider text-white">
             Place Bet
           </h3>
           <button
             onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center border-2 border-black/30 hover:bg-black/10 text-xs font-mono transition-colors"
+            className="w-7 h-7 flex items-center justify-center border border-white/20 hover:bg-white/10 text-xs font-mono transition-colors rounded-md"
           >
             ESC
           </button>
         </div>
 
         <div className="p-5">
-          <p className="text-xs text-gray-500 mb-4 line-clamp-2 leading-relaxed">
+          <p className="text-xs text-white/50 mb-3 line-clamp-2 leading-relaxed">
             {question}
           </p>
 
+          {/* Account Info */}
+          <div className="border border-dashed border-white/10 p-2.5 mb-4 bg-white/5 rounded-lg">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono uppercase text-white/40">
+                Betting from
+              </span>
+              {isConnected && shortWallet ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-neo-green" />
+                  <span className="font-mono text-xs font-medium text-white/80">
+                    {shortWallet}
+                  </span>
+                  <span className="text-[9px] text-white/40">(your wallet)</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-white/30" />
+                  <span className="font-mono text-xs text-white/50">
+                    Not connected
+                  </span>
+                </div>
+              )}
+            </div>
+            {!isConnected && (
+              <p className="text-[9px] text-white/40 mt-1">
+                Connect your wallet to place bets
+              </p>
+            )}
+          </div>
+
           {/* Outcome Toggle */}
-          <div className="flex border-2 border-black mb-4">
+          <div className="flex border border-white/10 mb-4 rounded-lg overflow-hidden">
             <button
               onClick={() => setOutcome(1)}
-              className={`flex-1 py-2.5 font-heading font-bold text-sm transition-all ${
+              className={`flex-1 py-2.5 font-heading font-semibold text-sm transition-all ${
                 outcome === 1
-                  ? "bg-neo-green text-neo-dark shadow-[inset_0_-3px_0_0_rgba(0,0,0,0.15)]"
-                  : "bg-white text-gray-400 hover:text-gray-600"
+                  ? "bg-neo-green/20 text-neo-green"
+                  : "bg-white/5 text-white/50 hover:text-white/80"
               }`}
             >
               YES
             </button>
-            <div className="w-0.5 bg-black" />
+            <div className="w-px bg-white/10" />
             <button
               onClick={() => setOutcome(0)}
-              className={`flex-1 py-2.5 font-heading font-bold text-sm transition-all ${
+              className={`flex-1 py-2.5 font-heading font-semibold text-sm transition-all ${
                 outcome === 0
-                  ? "bg-neo-pink text-neo-dark shadow-[inset_0_-3px_0_0_rgba(0,0,0,0.15)]"
-                  : "bg-white text-gray-400 hover:text-gray-600"
+                  ? "bg-neo-pink/20 text-neo-pink"
+                  : "bg-white/5 text-white/50 hover:text-white/80"
               }`}
             >
               NO
@@ -161,7 +194,7 @@ export default function BetForm({
 
           {/* Amount */}
           <div className="mb-3">
-            <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">
+            <label className="block text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1.5">
               Amount (STRK)
             </label>
             <input
@@ -179,10 +212,10 @@ export default function BetForm({
                 <button
                   key={p}
                   onClick={() => setAmount(p)}
-                  className={`flex-1 py-1 border border-black text-[10px] font-bold transition-all ${
+                  className={`flex-1 py-1 border border-white/10 text-[10px] font-bold transition-all rounded ${
                     amount === p
-                      ? "bg-neo-dark text-white"
-                      : "bg-gray-50 hover:bg-gray-100"
+                      ? "bg-neo-blue/20 text-neo-blue"
+                      : "bg-white/5 text-white/60 hover:text-white/80 hover:bg-white/10"
                   }`}
                 >
                   {p}
@@ -193,22 +226,28 @@ export default function BetForm({
 
           {/* Payout Preview */}
           {amountBigInt > 0n && (
-            <div className="border-2 border-dashed border-gray-300 p-3 mb-4 space-y-1.5 bg-gray-50/50">
+            <div className="border border-dashed border-white/10 p-3 mb-4 space-y-1.5 bg-white/5 rounded-lg">
               <div className="flex justify-between text-xs">
-                <span className="text-gray-500">Potential payout</span>
-                <span className="font-mono font-bold">
+                <span className="text-white/50">Potential payout</span>
+                <span className="font-mono font-bold text-white/80">
                   {(Number(estPayout) / 1e18).toFixed(2)} STRK
                 </span>
               </div>
               <div className="flex justify-between text-xs">
-                <span className="text-gray-500">Multiplier</span>
+                <span className="text-white/50">Multiplier</span>
                 <span className="font-mono font-bold text-neo-green">
                   {estMultiple.toFixed(2)}x
                 </span>
               </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-white/50">Gas (est.)</span>
+                <span className="font-mono text-white/50">
+                  ~0.001 STRK
+                </span>
+              </div>
               {probShift !== 0 && (
                 <div className="flex justify-between text-xs">
-                  <span className="text-gray-500">Price impact</span>
+                  <span className="text-white/50">Price impact</span>
                   <span
                     className={`font-mono font-bold ${
                       probShift > 0 ? "text-neo-green" : "text-neo-pink"
@@ -223,36 +262,47 @@ export default function BetForm({
           )}
 
           {/* Submit */}
-          <button
-            onClick={handleSubmit}
-            disabled={loading || amountBigInt <= 0n}
-            className={`neo-btn w-full text-sm ${
-              outcome === 1
-                ? "bg-neo-green text-neo-dark"
-                : "bg-neo-pink text-neo-dark"
-            } disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:translate-x-0 disabled:translate-y-0`}
-          >
-            {loading
-              ? "Executing..."
-              : `Bet ${outcome === 1 ? "YES" : "NO"}${amount ? ` \u2014 ${amount} STRK` : ""}`}
-          </button>
+          {isConnected ? (
+            <button
+              onClick={handleSubmit}
+              disabled={isPending || amountBigInt <= 0n}
+              className={`neo-btn w-full text-sm ${
+                outcome === 1
+                  ? "bg-neo-green/20 text-neo-green border-neo-green/40"
+                  : "bg-neo-pink/20 text-neo-pink border-neo-pink/40"
+              } disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:translate-x-0 disabled:translate-y-0`}
+            >
+              {isPending
+                ? "Signing Transaction..."
+                : `Bet ${outcome === 1 ? "YES" : "NO"}${amount ? ` \u2014 ${amount} STRK` : ""}`}
+            </button>
+          ) : (
+            <div className="text-center py-3 border border-dashed border-white/10 text-xs font-mono text-white/50 rounded-lg">
+              Connect Wallet to Place Bets
+            </div>
+          )}
 
           {/* Result */}
           {result && (
             <div
-              className={`mt-3 p-2.5 border-2 text-xs font-mono ${
+              className={`mt-3 p-2.5 border text-xs font-mono rounded-lg ${
                 result.status === "success"
-                  ? "border-neo-green bg-neo-green/10"
-                  : "border-neo-pink bg-neo-pink/10"
+                  ? "border-neo-green/40 bg-neo-green/10"
+                  : "border-neo-pink/40 bg-neo-pink/10"
               }`}
             >
               {result.status === "success" ? (
                 <>
-                  <span className="font-bold">Bet placed</span>
+                  <span className="font-bold">Bet placed on-chain</span>
                   {result.txHash && (
-                    <span className="block text-[10px] text-gray-500 mt-0.5">
-                      {result.txHash}
-                    </span>
+                    <a
+                      href={`https://sepolia.voyager.online/tx/${result.txHash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block text-[10px] text-neo-blue mt-1 hover:underline break-all"
+                    >
+                      View on Voyager: {result.txHash.slice(0, 20)}...
+                    </a>
                   )}
                 </>
               ) : (

@@ -1,19 +1,38 @@
 import { NextResponse } from "next/server";
-import { getMarkets, DEMO_QUESTIONS } from "@/lib/market-reader";
+import { getMarkets, MARKET_QUESTIONS } from "@/lib/market-reader";
+import { config } from "@/lib/config";
+import { getOnChainActivityCounts } from "@/lib/event-indexer";
 
 export async function GET() {
   try {
     const markets = await getMarkets();
 
+    const addresses = markets
+      .map((m) => m.address)
+      .filter((a) => a !== "0x0" && !a.startsWith("0xpending"));
+    const tradeCounts =
+      addresses.length > 0
+        ? await getOnChainActivityCounts(addresses)
+        : {};
+
     const enriched = markets.map((m) => ({
       ...m,
-      question: DEMO_QUESTIONS[m.id] ?? `Market #${m.id}`,
+      question: MARKET_QUESTIONS[m.id] ?? `Market #${m.id}`,
       totalPool: m.totalPool.toString(),
       yesPool: m.yesPool.toString(),
       noPool: m.noPool.toString(),
+      tradeCount: tradeCounts[m.address] ?? 0,
     }));
 
-    return NextResponse.json({ markets: enriched });
+    const factoryAddress = config.MARKET_FACTORY_ADDRESS ?? "0x0";
+    const factoryConfigured =
+      factoryAddress !== "0x0" && factoryAddress !== "";
+
+    return NextResponse.json({
+      markets: enriched,
+      factoryConfigured,
+      factoryAddress,
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

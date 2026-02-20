@@ -3,8 +3,9 @@ import {
   getMarketById,
   getAgentPredictions,
   getWeightedProbability,
-  DEMO_QUESTIONS,
+  MARKET_QUESTIONS,
 } from "@/lib/market-reader";
+import { agentLoop } from "@/lib/agent-loop";
 
 export async function GET(
   _request: NextRequest,
@@ -24,16 +25,35 @@ export async function GET(
       getWeightedProbability(marketId),
     ]);
 
+    const recentActions = agentLoop.getActionLog(200);
+    const latestAction = [...recentActions]
+      .reverse()
+      .find(
+        (a) =>
+          a.marketId === marketId &&
+          a.type === "prediction" &&
+          !!a.txHash
+      );
+    const latestAgentTake = latestAction
+      ? {
+          agentName: latestAction.agentName,
+          probability: latestAction.probability ?? 0,
+          reasoning: latestAction.reasoning ?? latestAction.detail,
+          timestamp: Math.floor(latestAction.timestamp / 1000),
+        }
+      : null;
+
     return NextResponse.json({
       market: {
         ...market,
-        question: DEMO_QUESTIONS[marketId] ?? `Market #${marketId}`,
+        question: MARKET_QUESTIONS[marketId] ?? `Market #${marketId}`,
         totalPool: market.totalPool.toString(),
         yesPool: market.yesPool.toString(),
         noPool: market.noPool.toString(),
       },
       predictions,
       weightedProbability: weightedProb,
+      latestAgentTake,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

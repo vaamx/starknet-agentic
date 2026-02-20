@@ -1,30 +1,49 @@
 /**
  * Autonomous Agent Loop — Core engine for continuous agent operation.
  *
- * Runs a periodic cycle where agents research, forecast, and bet on markets.
+ * Supports two modes:
+ * 1. Client-driven polling: Dashboard sends POST { action: "tick" } every 60s
+ * 2. Legacy server-side: setInterval (works locally, NOT on Vercel serverless)
+ *
+ * Each tick picks one agent + one market and runs research → forecast → bet.
  * Executes REAL on-chain transactions when agent account is configured.
  */
 
-import { getMarkets, DEMO_QUESTIONS, SUPER_BOWL_REGEX, type MarketState } from "./market-reader";
+import { getMarkets, MARKET_QUESTIONS, SUPER_BOWL_REGEX, type MarketState, registerQuestion } from "./market-reader";
 import {
   researchAndForecast,
   type MarketContext,
 } from "./research-agent";
+import { discoverMarkets } from "./market-discovery";
+import { gatherResearch, type DataSourceName } from "./data-sources";
+import { fetchCryptoPrices } from "./data-sources/crypto-prices";
+import { categorizeMarket } from "./categories";
 import {
   AGENT_PERSONAS,
-  simulatePersonaForecast,
   type AgentPersona,
 } from "./agent-personas";
-import { type SpawnedAgent, agentSpawner } from "./agent-spawner";
-import { placeBet, recordPrediction, isAgentConfigured } from "./starknet-executor";
+import { type AgentBudget, type SpawnedAgent, agentSpawner } from "./agent-spawner";
+import { placeBet, recordPrediction, isAgentConfigured, createMarket, getSignerMode } from "./starknet-executor";
 import { config } from "./config";
+import { executeAvnuSwap } from "./defi-executor";
+import { generateDebateExchange } from "./agent-debate";
+import { hasSessionKeyConfigured } from "./session-policy";
 
 export interface AgentAction {
   id: string;
   timestamp: number;
   agentId: string;
   agentName: string;
-  type: "research" | "prediction" | "bet" | "discovery" | "error";
+  type:
+    | "research"
+    | "prediction"
+    | "bet"
+    | "discovery"
+    | "error"
+    | "debate"
+    | "market_creation"
+    | "defi_signal"
+    | "defi_swap";
   marketId?: number;
   question?: string;
   detail: string;
@@ -33,6 +52,21 @@ export interface AgentAction {
   betOutcome?: "YES" | "NO";
   sourcesUsed?: string[];
   txHash?: string;
+  reasoningHash?: string;
+  reasoning?: string;
+  defiDirection?: "BUY" | "SELL";
+  defiPair?: string;
+  defiAmount?: string;
+  debateTarget?: string;
+}
+
+/** Compute a SHA-256 hash of reasoning text as a proof-of-reasoning digest. */
+async function hashReasoning(text: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return "0x" + hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export interface LoopStatus {
@@ -43,11 +77,58 @@ export interface LoopStatus {
   activeAgentCount: number;
   intervalMs: number;
   onChainEnabled: boolean;
+  aiEnabled: boolean;
+  signerMode: "owner" | "session";
+  sessionKeyConfigured: boolean;
+  defiEnabled: boolean;
+  defiAutoTrade: boolean;
+  debateEnabled: boolean;
 }
 
 type LoopListener = (action: AgentAction) => void;
 
 const MAX_ACTION_LOG = 200;
+
+function parseNumber(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function formatStrk(amount: bigint): string {
+  return `${Number(amount / 10n ** 14n) / 10000} STRK`;
+}
+
+function computeBetAmount(
+  confidence: number,
+  budget?: AgentBudget
+): bigint {
+  const minStrk = Math.max(0, parseNumber(config.AGENT_BET_MIN_STRK, 5));
+  const maxStrk = Math.max(minStrk, parseNumber(config.AGENT_BET_MAX_STRK, 10));
+
+  let cap = maxStrk;
+  if (budget) {
+    const budgetMax = Number(budget.maxBetSize) / 1e18;
+    if (Number.isFinite(budgetMax) && budgetMax > 0) {
+      cap = Math.min(cap, budgetMax);
+    }
+  }
+
+  if (cap <= 0) return 0n;
+
+  const effectiveMin = Math.min(minStrk, cap);
+  const betStrk = effectiveMin + confidence * (cap - effectiveMin);
+  let betWei = BigInt(Math.round(betStrk * 1e18));
+
+  if (budget) {
+    const remaining = budget.totalBudget - budget.spent;
+    const minWei = BigInt(Math.round(effectiveMin * 1e18));
+    if (remaining < minWei) return 0n;
+    if (betWei > remaining) betWei = remaining;
+  }
+
+  return betWei;
+}
 
 class AgentLoop {
   private isRunning = false;
@@ -55,19 +136,21 @@ class AgentLoop {
   private actionLog: AgentAction[] = [];
   private tickCount = 0;
   private lastTickAt: number | null = null;
-  private intervalMs = 60_000; // 1 min for live game
+  private intervalMs = 60_000;
   private listeners = new Set<LoopListener>();
   private actionCounter = 0;
-  private analyzedMarkets = new Map<string, Set<number>>();
+  private agentRotationIndex = 0;
+  private marketCreationInterval = 5;
+  private defiInterval = 7;
+  private debateCounter = 0;
 
+  /** Legacy: start server-side interval (only works in long-lived processes) */
   start(intervalMs?: number) {
     if (this.isRunning) return;
     this.isRunning = true;
     if (intervalMs) this.intervalMs = intervalMs;
 
-    // Run first tick immediately
     this.tick();
-
     this.intervalId = setInterval(() => this.tick(), this.intervalMs);
   }
 
@@ -91,6 +174,12 @@ class AgentLoop {
       activeAgentCount: AGENT_PERSONAS.length + spawned.length,
       intervalMs: this.intervalMs,
       onChainEnabled: isAgentConfigured(),
+      aiEnabled: !!process.env.ANTHROPIC_API_KEY,
+      signerMode: getSignerMode(),
+      sessionKeyConfigured: hasSessionKeyConfigured(),
+      defiEnabled: config.AGENT_DEFI_ENABLED === "true",
+      defiAutoTrade: config.AGENT_DEFI_AUTO_TRADE === "true",
+      debateEnabled: config.AGENT_DEBATE_ENABLED === "true",
     };
   }
 
@@ -128,9 +217,93 @@ class AgentLoop {
     };
   }
 
+  /**
+   * Stateless tick — called by the client-driven polling endpoint.
+   * Picks one agent from the rotation and one random market, runs forecast.
+   * Returns the actions generated during this tick.
+   */
+  async singleTick(): Promise<AgentAction[]> {
+    this.tickCount++;
+    this.lastTickAt = Date.now();
+    const tickActions: AgentAction[] = [];
+
+    const origEmit = this.emit.bind(this);
+    const captureEmit = (action: AgentAction) => {
+      tickActions.push(action);
+      origEmit(action);
+    };
+
+    if (!isAgentConfigured()) {
+      const errAction = this.createAction({
+        agentId: "system",
+        agentName: "System",
+        type: "error",
+        detail: "Agent account not configured — autonomous actions disabled",
+      });
+      captureEmit(errAction);
+      return tickActions;
+    }
+
+    let markets: MarketState[];
+    try {
+      markets = await getMarkets();
+    } catch {
+      const errAction = this.createAction({
+        agentId: "system",
+        agentName: "System",
+        type: "error",
+        detail: "Failed to fetch markets",
+      });
+      captureEmit(errAction);
+      return tickActions;
+    }
+
+    const openMarkets = markets.filter((m) => m.status === 0);
+
+    // Every N ticks, attempt to create a new market instead of forecasting
+    const shouldCreate = this.tickCount % this.marketCreationInterval === 0;
+    if (shouldCreate) {
+      const created = await this.runMarketCreation(captureEmit);
+      if (created) return tickActions;
+    }
+
+    // Periodic DeFi pulse (optional)
+    const shouldRunDefi = this.tickCount % this.defiInterval === 0;
+    if (shouldRunDefi) {
+      await this.runDefiPulse(captureEmit);
+    }
+
+    if (openMarkets.length === 0) return tickActions;
+
+    // Pick the next agent in round-robin from built-in personas
+    const allPersonas = AGENT_PERSONAS;
+    const persona = allPersonas[this.agentRotationIndex % allPersonas.length];
+    this.agentRotationIndex++;
+
+    // Pick a random market
+    const target = openMarkets[Math.floor(Math.random() * openMarkets.length)];
+
+    await this.runAgentOnMarketWithEmit(persona, target, undefined, captureEmit);
+
+    return tickActions;
+  }
+
+  /** Legacy full tick — runs all agents on all markets */
   private async tick() {
     this.tickCount++;
     this.lastTickAt = Date.now();
+
+    if (!isAgentConfigured()) {
+      this.emit(
+        this.createAction({
+          agentId: "system",
+          agentName: "System",
+          type: "error",
+          detail: "Agent account not configured — autonomous actions disabled",
+        })
+      );
+      return;
+    }
 
     let markets: MarketState[];
     try {
@@ -148,36 +321,46 @@ class AgentLoop {
     }
 
     const openMarkets = markets.filter((m) => m.status === 0);
+
+    if (this.tickCount % this.defiInterval === 0) {
+      await this.runDefiPulse(this.emit.bind(this));
+    }
+
     if (openMarkets.length === 0) return;
 
     // Run built-in personas
     for (const persona of AGENT_PERSONAS) {
-      await this.runAgentOnMarkets(persona, openMarkets);
+      const target = openMarkets[Math.floor(Math.random() * openMarkets.length)];
+      await this.runAgentOnMarket(persona, target);
     }
 
     // Run spawned agents
     const spawnedAgents = agentSpawner.list().filter((a) => a.status === "running");
     for (const spawned of spawnedAgents) {
-      await this.runAgentOnMarkets(spawned.persona, openMarkets, spawned);
+      const target = openMarkets[Math.floor(Math.random() * openMarkets.length)];
+      await this.runAgentOnMarket(spawned.persona, target, spawned);
     }
   }
 
-  private async runAgentOnMarkets(
+  private async runAgentOnMarket(
     persona: AgentPersona,
-    markets: MarketState[],
+    target: MarketState,
     spawned?: SpawnedAgent
+  ) {
+    await this.runAgentOnMarketWithEmit(persona, target, spawned, this.emit.bind(this));
+  }
+
+  private async runAgentOnMarketWithEmit(
+    persona: AgentPersona,
+    target: MarketState,
+    spawned: SpawnedAgent | undefined,
+    emit: (action: AgentAction) => void
   ) {
     const agentId = spawned?.id ?? persona.id;
     const agentName = spawned?.name ?? persona.name;
     const onChain = isAgentConfigured();
 
-    // Pick a market this agent hasn't recently analyzed
-    const analyzed = this.analyzedMarkets.get(agentId) ?? new Set();
-    const unanalyzed = markets.filter((m) => !analyzed.has(m.id));
-    const target = unanalyzed.length > 0 ? unanalyzed[0] : markets[0];
-
-    const question =
-      DEMO_QUESTIONS[target.id] ?? `Market #${target.id}`;
+    const question = MARKET_QUESTIONS[target.id] ?? `Market #${target.id}`;
 
     // Auto-add ESPN source for Super Bowl related markets
     const sources = [...(persona.preferredSources ?? ["polymarket", "coingecko", "news", "social"])];
@@ -186,51 +369,69 @@ class AgentLoop {
     }
 
     // Research phase
-    this.emit(
+    emit(
       this.createAction({
         agentId,
         agentName,
         type: "research",
         marketId: target.id,
         question,
-        detail: `Researching "${question}" using ${sources.join(", ")}${onChain ? " [ON-CHAIN]" : " [DEMO]"}`,
+        detail: `Researching "${question}" using ${sources.join(", ")}`,
         sourcesUsed: sources,
       })
     );
 
     // Generate forecast
     let probability: number;
+    let reasoning: string = "";
     try {
-      const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
-
-      if (hasApiKey && (persona.id === "alpha" || spawned)) {
-        const context: MarketContext = {
-          currentMarketProb: target.impliedProbYes,
-          totalPool: (target.totalPool / 10n ** 18n).toString(),
-          timeUntilResolution: `${Math.max(0, Math.floor((target.resolutionTime - Date.now() / 1000) / 86400))} days`,
-        };
-
-        const gen = researchAndForecast(persona, question, context);
-        let result: any;
-        while (true) {
-          const { value, done } = await gen.next();
-          if (done) {
-            result = value;
-            break;
-          }
-        }
-        probability = result?.probability ?? 0.5;
-      } else {
-        const forecast = simulatePersonaForecast(
-          persona,
-          target.impliedProbYes,
-          question
+      if (!process.env.ANTHROPIC_API_KEY) {
+        emit(
+          this.createAction({
+            agentId,
+            agentName,
+            type: "error",
+            marketId: target.id,
+            question,
+            detail: "Anthropic API key not configured — forecasting disabled",
+          })
         );
-        probability = forecast.probability;
+        return;
       }
-    } catch {
-      probability = target.impliedProbYes + (Math.random() - 0.5) * 0.1;
-      probability = Math.max(0.03, Math.min(0.97, probability));
+
+      const context: MarketContext = {
+        currentMarketProb: target.impliedProbYes,
+        totalPool: (target.totalPool / 10n ** 18n).toString(),
+        timeUntilResolution: `${Math.max(0, Math.floor((target.resolutionTime - Date.now() / 1000) / 86400))} days`,
+        systemPrompt: persona.systemPrompt,
+      };
+
+      const gen = researchAndForecast(persona, question, context);
+      let result: any;
+      while (true) {
+        const { value, done } = await gen.next();
+        if (done) {
+          result = value;
+          break;
+        }
+      }
+      probability = result?.probability;
+      reasoning = result?.reasoning ?? "";
+      if (typeof probability !== "number") {
+        throw new Error("Forecast missing probability");
+      }
+    } catch (err: any) {
+      emit(
+        this.createAction({
+          agentId,
+          agentName,
+          type: "error",
+          marketId: target.id,
+          question,
+          detail: `Forecast failed: ${err?.message ?? "unknown error"}`,
+        })
+      );
+      return;
     }
 
     // Record prediction ON-CHAIN if configured
@@ -246,57 +447,92 @@ class AgentLoop {
       }
     }
 
-    this.emit(
-      this.createAction({
-        agentId,
-        agentName,
-        type: "prediction",
-        marketId: target.id,
+    // Hash the reasoning text as proof-of-reasoning
+    let proofHash: string | undefined;
+    if (reasoning) {
+      try {
+        proofHash = await hashReasoning(reasoning);
+      } catch {
+        // Hashing failed, continue without proof
+      }
+    }
+
+    const reasoningSnippet = reasoning
+      ? reasoning.replace(/\s+/g, " ").trim().slice(0, 140)
+      : undefined;
+
+    if (predictionTxHash) {
+      emit(
+        this.createAction({
+          agentId,
+          agentName,
+          type: "prediction",
+          marketId: target.id,
+          question,
+          probability,
+          detail: `Predicted ${Math.round(probability * 100)}% YES on "${question}" [tx: ${predictionTxHash.slice(0, 16)}...]`,
+          txHash: predictionTxHash,
+          reasoningHash: proofHash,
+          reasoning: reasoningSnippet,
+        })
+      );
+    } else {
+      emit(
+        this.createAction({
+          agentId,
+          agentName,
+          type: "error",
+          marketId: target.id,
+          question,
+          detail: onChain
+            ? "Prediction not recorded on-chain"
+            : "Agent account not configured",
+        })
+      );
+    }
+
+    await this.maybeRunDebate(
+      {
+        lead: persona,
         question,
         probability,
-        detail: `Predicted ${Math.round(probability * 100)}% YES on "${question}"${predictionTxHash ? ` [tx: ${predictionTxHash.slice(0, 16)}...]` : ""}`,
-        txHash: predictionTxHash,
-      })
+        reasoning: reasoningSnippet ?? "",
+        marketId: target.id,
+      },
+      emit
     );
 
     // Decide whether to bet
     const confidence = Math.abs(probability - 0.5) * 2;
-    const shouldBet = confidence > 0.15;
+    const threshold = parseNumber(config.AGENT_BET_CONFIDENCE_THRESHOLD, 0.15);
+    const shouldBet = confidence > threshold;
 
-    if (shouldBet && spawned) {
-      const budget = spawned.budget;
-      const remaining = budget.totalBudget - budget.spent;
-      if (remaining > 0n) {
-        const betFraction = confidence * 0.1;
-        const betRaw =
-          (BigInt(Math.floor(betFraction * 1000)) * remaining) / 1000n;
-        const betSize =
-          betRaw > budget.maxBetSize ? budget.maxBetSize : betRaw;
+    if (shouldBet) {
+      const betAmount = computeBetAmount(confidence, spawned?.budget);
+      if (betAmount > 0n) {
+        const outcome = probability > 0.5 ? "YES" : "NO";
+        const betDisplay = formatStrk(betAmount);
 
-        if (betSize > 0n) {
-          const outcome = probability > 0.5 ? "YES" : "NO";
-          const betDisplay = `${Number(betSize / 10n ** 14n) / 10000} STRK`;
-
-          // Execute REAL bet if on-chain, otherwise log
-          let betTxHash: string | undefined;
-          if (onChain) {
-            try {
-              const outcomeNum: 0 | 1 = probability > 0.5 ? 1 : 0;
-              const txResult = await placeBet(
-                target.address,
-                outcomeNum,
-                betSize,
-                config.COLLATERAL_TOKEN_ADDRESS
-              );
-              if (txResult.status === "success") {
-                betTxHash = txResult.txHash;
-              }
-            } catch {
-              // Bet tx failed, still log the intent
+        let betTxHash: string | undefined;
+        if (onChain) {
+          try {
+            const outcomeNum: 0 | 1 = probability > 0.5 ? 1 : 0;
+            const txResult = await placeBet(
+              target.address,
+              outcomeNum,
+              betAmount,
+              config.COLLATERAL_TOKEN_ADDRESS
+            );
+            if (txResult.status === "success") {
+              betTxHash = txResult.txHash;
             }
+          } catch {
+            // Bet tx failed
           }
+        }
 
-          this.emit(
+        if (betTxHash) {
+          emit(
             this.createAction({
               agentId,
               agentName,
@@ -306,61 +542,257 @@ class AgentLoop {
               probability,
               betAmount: betDisplay,
               betOutcome: outcome,
-              detail: `Bet ${betDisplay} on ${outcome} for "${question}" (confidence: ${(confidence * 100).toFixed(0)}%)${betTxHash ? ` [tx: ${betTxHash.slice(0, 16)}...]` : onChain ? " [tx failed]" : ""}`,
+              detail: `Bet ${betDisplay} on ${outcome} for "${question}" (confidence: ${(confidence * 100).toFixed(0)}%) [tx: ${betTxHash.slice(0, 16)}...]`,
               txHash: betTxHash,
             })
           );
-
-          spawned.budget.spent += betSize;
-          spawned.stats.bets++;
-        }
-      }
-    } else if (shouldBet) {
-      // Built-in agent: place real bet if on-chain
-      const betAmount = BigInt(Math.floor(confidence * 500)) * 10n ** 18n;
-      const betDisplay = `${(confidence * 500).toFixed(0)} STRK`;
-      const outcome = probability > 0.5 ? "YES" : "NO";
-
-      let betTxHash: string | undefined;
-      if (onChain && betAmount > 0n) {
-        try {
-          const outcomeNum: 0 | 1 = probability > 0.5 ? 1 : 0;
-          const txResult = await placeBet(
-            target.address,
-            outcomeNum,
-            betAmount,
-            config.COLLATERAL_TOKEN_ADDRESS
-          );
-          if (txResult.status === "success") {
-            betTxHash = txResult.txHash;
+          if (spawned) {
+            spawned.budget.spent += betAmount;
+            spawned.stats.bets++;
           }
-        } catch {
-          // Bet tx failed
+        } else {
+          emit(
+            this.createAction({
+              agentId,
+              agentName,
+              type: "error",
+              marketId: target.id,
+              question,
+              detail: "Bet not executed on-chain",
+            })
+          );
         }
       }
+    }
 
-      this.emit(
+    if (spawned && predictionTxHash) {
+      spawned.stats.predictions++;
+    }
+  }
+
+  private async runMarketCreation(
+    emit: (action: AgentAction) => void
+  ): Promise<boolean> {
+    if (!isAgentConfigured() || config.MARKET_FACTORY_ADDRESS === "0x0") {
+      return false;
+    }
+
+    let suggestedCategory: string | undefined;
+    try {
+      const sources: DataSourceName[] = ["news", "social", "coingecko", "github", "rss"];
+      const research = await gatherResearch("trending markets", sources);
+      const combined = research
+        .map((r) => `${r.summary} ${r.data.map((d) => d.label).join(" ")}`)
+        .join(" ");
+      const cat = categorizeMarket(combined);
+      if (cat !== "other" && cat !== "all") {
+        suggestedCategory = cat;
+      }
+    } catch {
+      // Research failed, proceed without category bias
+    }
+
+    const suggestions = await discoverMarkets(suggestedCategory, 6);
+    if (suggestions.length === 0) return false;
+
+    const existingQuestions = new Set(
+      Object.values(MARKET_QUESTIONS).map((q) => q.toLowerCase())
+    );
+    const picked =
+      suggestions.find((s) => !existingQuestions.has(s.question.toLowerCase())) ??
+      suggestions[0];
+
+    const questionRaw = picked.question;
+    const question = questionRaw.slice(0, 31).replace(/[^\x20-\x7E]/g, "");
+    const durationDays = picked.suggestedResolutionDays ?? 30;
+
+    const result = await createMarket(
+      question,
+      durationDays,
+      200,
+      config.AGENT_ADDRESS
+    );
+
+    if (result.status !== "success") {
+      return false;
+    }
+
+    if (result.marketId !== undefined) {
+      registerQuestion(result.marketId, question);
+    }
+
+    let detail = `Created new market: "${question}"`;
+    if (result.allowlistTxHash) {
+      detail += " (allowlist updated)";
+    } else if (result.allowlistError) {
+      detail += ` (allowlist failed: ${result.allowlistError})`;
+    }
+
+    emit(
+      this.createAction({
+        agentId: "agent-loop",
+        agentName: "Agent Loop",
+        type: "market_creation",
+        marketId: result.marketId,
+        question,
+        detail,
+        txHash: result.txHash,
+      })
+    );
+
+    return true;
+  }
+
+  private async runDefiPulse(emit: (action: AgentAction) => void): Promise<void> {
+    if (config.AGENT_DEFI_ENABLED !== "true") return;
+    if (!isAgentConfigured()) return;
+
+    let change: number | null = null;
+    try {
+      const prices = await fetchCryptoPrices("ethereum");
+      const ethPoint = prices.data.find((p) =>
+        String(p.label).toLowerCase().includes("ethereum price")
+      );
+      if (ethPoint?.value) {
+        const match = String(ethPoint.value).match(/\(([+-]?\d+(?:\.\d+)?)%\)/);
+        if (match) {
+          change = parseFloat(match[1]);
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    if (change === null || Number.isNaN(change)) {
+      emit(
         this.createAction({
-          agentId,
-          agentName,
-          type: "bet",
-          marketId: target.id,
-          question,
-          probability,
-          betAmount: betDisplay,
-          betOutcome: outcome,
-          detail: `Bet ${betDisplay} on ${outcome} for "${question}" (confidence: ${(confidence * 100).toFixed(0)}%)${betTxHash ? ` [tx: ${betTxHash.slice(0, 16)}...]` : ""}`,
-          txHash: betTxHash,
+          agentId: "defi-pulse",
+          agentName: "DeFi Pulse",
+          type: "defi_signal",
+          detail: "No ETH change data available for DeFi pulse.",
+        })
+      );
+      return;
+    }
+
+    const threshold = parseNumber(config.AGENT_DEFI_SIGNAL_THRESHOLD, 2);
+    const direction =
+      change >= threshold ? "BUY" : change <= -threshold ? "SELL" : null;
+
+    const pair = `${config.AGENT_DEFI_SELL_TOKEN}/${config.AGENT_DEFI_BUY_TOKEN}`;
+
+    emit(
+      this.createAction({
+        agentId: "defi-pulse",
+        agentName: "DeFi Pulse",
+        type: "defi_signal",
+        detail: `ETH 24h change ${change.toFixed(2)}%. Signal: ${direction ?? "HOLD"} for ${pair}.`,
+        defiDirection: direction ?? undefined,
+        defiPair: pair,
+      })
+    );
+
+    if (!direction) return;
+    if (config.AGENT_DEFI_AUTO_TRADE !== "true") return;
+
+    const amountStrk = parseNumber(config.AGENT_DEFI_MAX_STRK, 10);
+    if (amountStrk <= 0) return;
+
+    const sellToken =
+      direction === "BUY"
+        ? config.AGENT_DEFI_SELL_TOKEN
+        : config.AGENT_DEFI_BUY_TOKEN;
+    const buyToken =
+      direction === "BUY"
+        ? config.AGENT_DEFI_BUY_TOKEN
+        : config.AGENT_DEFI_SELL_TOKEN;
+
+    const slippage = parseNumber(config.AGENT_DEFI_SLIPPAGE, 0.01);
+
+    const swapResult = await executeAvnuSwap({
+      sellToken,
+      buyToken,
+      amount: amountStrk,
+      slippage,
+    });
+
+    if (swapResult.status === "success") {
+      emit(
+        this.createAction({
+          agentId: "defi-pulse",
+          agentName: "DeFi Pulse",
+          type: "defi_swap",
+          detail: `AVNU swap executed: ${amountStrk} ${sellToken} → ${buyToken} (slippage ${slippage}).`,
+          defiDirection: direction,
+          defiPair: `${sellToken}/${buyToken}`,
+          defiAmount: `${amountStrk} ${sellToken}`,
+          txHash: swapResult.txHash,
+        })
+      );
+    } else {
+      emit(
+        this.createAction({
+          agentId: "defi-pulse",
+          agentName: "DeFi Pulse",
+          type: "error",
+          detail: `AVNU swap failed: ${swapResult.error ?? "unknown error"}`,
         })
       );
     }
+  }
 
-    // Track analyzed markets
-    analyzed.add(target.id);
-    this.analyzedMarkets.set(agentId, analyzed);
+  private async maybeRunDebate(
+    params: {
+      lead: AgentPersona;
+      question: string;
+      probability: number;
+      reasoning: string;
+      marketId: number;
+    },
+    emit: (action: AgentAction) => void
+  ) {
+    if (config.AGENT_DEBATE_ENABLED !== "true") return;
+    if (!params.reasoning) return;
 
-    if (spawned) {
-      spawned.stats.predictions++;
+    const interval = parseNumber(config.AGENT_DEBATE_INTERVAL, 3);
+    if (interval <= 0) return;
+    this.debateCounter += 1;
+    if (this.debateCounter % interval !== 0) return;
+
+    const challengers = AGENT_PERSONAS.filter((p) => p.id !== params.lead.id);
+    if (challengers.length === 0) return;
+    const challenger =
+      challengers[Math.floor(Math.random() * challengers.length)];
+
+    try {
+      const debateText = await generateDebateExchange({
+        question: params.question,
+        leadAgent: params.lead.name,
+        leadProbability: params.probability,
+        leadReasoning: params.reasoning,
+        challenger,
+      });
+
+      emit(
+        this.createAction({
+          agentId: challenger.id,
+          agentName: challenger.name,
+          type: "debate",
+          marketId: params.marketId,
+          question: params.question,
+          detail: debateText,
+          debateTarget: params.lead.name,
+        })
+      );
+    } catch (err: any) {
+      emit(
+        this.createAction({
+          agentId: "debate-engine",
+          agentName: "Debate Engine",
+          type: "error",
+          detail: `Debate generation failed: ${err?.message ?? "unknown error"}`,
+        })
+      );
     }
   }
 }

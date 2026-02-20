@@ -2,7 +2,7 @@
  * Polymarket Data Source — Fetches prediction market odds from Polymarket.
  *
  * Uses the public Gamma API for market search.
- * Falls back to demo data with realistic Polymarket-style odds.
+ * Returns empty results when the API is unavailable.
  */
 
 import type { DataSourceResult, DataPoint } from "./index";
@@ -51,11 +51,23 @@ export async function fetchPolymarketData(
         summary,
       };
     }
-  } catch {
-    // Fall through to demo data
+  } catch (err: any) {
+    return {
+      source: "polymarket",
+      query: keywords,
+      timestamp: Date.now(),
+      data: [],
+      summary: `No Polymarket data available (${err?.message ?? "request failed"}).`,
+    };
   }
 
-  return getDemoPolymarketData(question, keywords);
+  return {
+    source: "polymarket",
+    query: keywords,
+    timestamp: Date.now(),
+    data: [],
+    summary: "No matching Polymarket markets found.",
+  };
 }
 
 function extractKeywords(question: string): string {
@@ -109,45 +121,4 @@ function formatNumber(n: any): string {
   if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
   if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
   return num.toFixed(0);
-}
-
-function getDemoPolymarketData(
-  question: string,
-  keywords: string
-): DataSourceResult {
-  const seed = hashString(question);
-  const prob = 0.3 + (seed % 40) / 100;
-  const vol = 50000 + (seed % 500) * 1000;
-
-  return {
-    source: "polymarket",
-    query: keywords,
-    timestamp: Date.now(),
-    data: [
-      {
-        label: question.replace("?", ""),
-        value: `YES ${Math.round(prob * 100)}% | Vol: $${formatNumber(vol)}`,
-        confidence: prob,
-      },
-      {
-        label: "Related: Crypto market direction Q2 2026",
-        value: `YES 58% | Vol: $${formatNumber(vol * 0.6)}`,
-        confidence: 0.58,
-      },
-      {
-        label: "Related: DeFi TVL growth 2026",
-        value: `YES 45% | Vol: $${formatNumber(vol * 0.4)}`,
-        confidence: 0.45,
-      },
-    ],
-    summary: `[Demo] Simulated Polymarket data: primary market at ${Math.round(prob * 100)}% YES with $${formatNumber(vol)} volume. 2 related markets found.`,
-  };
-}
-
-function hashString(s: string): number {
-  let hash = 0;
-  for (let i = 0; i < s.length; i++) {
-    hash = (hash * 31 + s.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash);
 }

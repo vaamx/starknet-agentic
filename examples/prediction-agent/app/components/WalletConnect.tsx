@@ -1,87 +1,24 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-
-interface WalletState {
-  address: string | null;
-  connected: boolean;
-  chainId: string | null;
-  walletName: string | null;
-}
+import { useState } from "react";
+import { useAccount, useConnect, useDisconnect } from "@starknet-react/core";
 
 export default function WalletConnect() {
-  const [wallet, setWallet] = useState<WalletState>({
-    address: null,
-    connected: false,
-    chainId: null,
-    walletName: null,
-  });
-  const [connecting, setConnecting] = useState(false);
+  const { address, isConnected } = useAccount();
+  const { connect, connectors, isPending } = useConnect();
+  const { disconnect } = useDisconnect();
   const [showDropdown, setShowDropdown] = useState(false);
 
-  // Check for existing connection on mount
-  useEffect(() => {
-    const checkExisting = async () => {
-      const starknet = (window as any).starknet;
-      if (starknet?.isConnected && starknet?.selectedAddress) {
-        setWallet({
-          address: starknet.selectedAddress,
-          connected: true,
-          chainId: starknet.chainId ?? null,
-          walletName: starknet.name ?? starknet.id ?? "Wallet",
-        });
-      }
-    };
-    checkExisting();
-  }, []);
-
-  const connect = useCallback(async () => {
-    setConnecting(true);
-    try {
-      // Try window.starknet (Argent X, Braavos inject this)
-      const starknet = (window as any).starknet;
-      if (!starknet) {
-        window.open("https://www.argent.xyz/argent-x/", "_blank");
-        return;
-      }
-
-      await starknet.enable();
-
-      if (starknet.isConnected && starknet.selectedAddress) {
-        setWallet({
-          address: starknet.selectedAddress,
-          connected: true,
-          chainId: starknet.chainId ?? null,
-          walletName: starknet.name ?? starknet.id ?? "Wallet",
-        });
-      }
-    } catch (err) {
-      console.error("Wallet connection failed:", err);
-    } finally {
-      setConnecting(false);
-    }
-  }, []);
-
-  const disconnect = useCallback(() => {
-    setWallet({
-      address: null,
-      connected: false,
-      chainId: null,
-      walletName: null,
-    });
-    setShowDropdown(false);
-  }, []);
-
-  const shortAddress = wallet.address
-    ? `${wallet.address.slice(0, 6)}...${wallet.address.slice(-4)}`
+  const shortAddress = address
+    ? `${address.slice(0, 6)}...${address.slice(-4)}`
     : null;
 
-  if (wallet.connected && shortAddress) {
+  if (isConnected && shortAddress) {
     return (
       <div className="relative">
         <button
           onClick={() => setShowDropdown(!showDropdown)}
-          className="flex items-center gap-2 px-3 py-1.5 border-2 border-neo-green bg-neo-green/10 text-xs font-mono text-neo-green hover:bg-neo-green/20 transition-colors"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-neo-green/40 bg-neo-green/10 text-xs font-mono text-neo-green hover:bg-neo-green/20 transition-colors"
         >
           <span className="w-2 h-2 rounded-full bg-neo-green" />
           {shortAddress}
@@ -93,23 +30,21 @@ export default function WalletConnect() {
               className="fixed inset-0 z-40"
               onClick={() => setShowDropdown(false)}
             />
-            <div className="absolute right-0 top-full mt-1 z-50 border-2 border-black bg-white shadow-neo min-w-[200px]">
-              <div className="px-3 py-2 border-b border-gray-200">
-                <p className="text-[10px] font-mono text-gray-400 uppercase">
-                  {wallet.walletName}
+            <div className="absolute right-0 top-full mt-2 z-50 border border-white/10 bg-neo-dark/90 backdrop-blur shadow-neo min-w-[200px] rounded-lg">
+              <div className="px-3 py-2 border-b border-white/10">
+                <p className="text-[10px] font-mono text-white/40 uppercase">
+                  Connected
                 </p>
-                <p className="font-mono text-xs mt-0.5 break-all">
-                  {wallet.address}
+                <p className="font-mono text-xs mt-0.5 break-all text-white/80">
+                  {address}
                 </p>
               </div>
-              {wallet.chainId && (
-                <div className="px-3 py-1.5 border-b border-gray-200 text-[10px] font-mono text-gray-400">
-                  Chain: {wallet.chainId}
-                </div>
-              )}
               <button
-                onClick={disconnect}
-                className="w-full text-left px-3 py-2 text-xs font-mono text-neo-pink hover:bg-neo-pink/5 transition-colors"
+                onClick={() => {
+                  disconnect();
+                  setShowDropdown(false);
+                }}
+                className="w-full text-left px-3 py-2 text-xs font-mono text-neo-pink hover:bg-white/5 transition-colors"
               >
                 Disconnect
               </button>
@@ -120,16 +55,63 @@ export default function WalletConnect() {
     );
   }
 
+  const hasConnectors = connectors.length > 0;
+
   return (
-    <button
-      onClick={connect}
-      disabled={connecting}
-      className={`flex items-center gap-2 px-3 py-1.5 border-2 border-black text-xs font-mono bg-white hover:bg-gray-50 transition-colors ${
-        connecting ? "opacity-50 cursor-not-allowed" : ""
-      }`}
-    >
-      <span className="w-2 h-2 rounded-full bg-gray-300" />
-      {connecting ? "Connecting..." : "Connect Wallet"}
-    </button>
+    <div className="relative">
+      <button
+        onClick={() => {
+          if (!hasConnectors) return;
+          if (connectors.length === 1) {
+            connect({ connector: connectors[0] });
+          } else {
+            setShowDropdown(!showDropdown);
+          }
+        }}
+        disabled={isPending || !hasConnectors}
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 text-xs font-mono bg-white/5 transition-colors ${
+          !hasConnectors
+            ? "opacity-50 cursor-not-allowed"
+            : "hover:bg-white/10"
+        } ${isPending ? "opacity-50 cursor-not-allowed" : ""}`}
+      >
+        <span className="w-2 h-2 rounded-full bg-white/30" />
+        {isPending ? "Connecting..." : hasConnectors ? "Connect Wallet" : "No Wallet Detected"}
+      </button>
+
+      {!hasConnectors && (
+        <div className="absolute right-0 top-full mt-2 z-50 border border-white/10 bg-neo-dark/90 backdrop-blur shadow-neo min-w-[200px] px-3 py-2 rounded-lg">
+          <p className="text-[10px] font-mono text-white/50">
+            Install ArgentX or Braavos to connect.
+          </p>
+        </div>
+      )}
+
+      {showDropdown && connectors.length > 1 && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setShowDropdown(false)}
+          />
+          <div className="absolute right-0 top-full mt-2 z-50 border border-white/10 bg-neo-dark/90 backdrop-blur shadow-neo min-w-[180px] rounded-lg">
+            <p className="px-3 py-1.5 text-[10px] font-mono text-white/40 uppercase border-b border-white/10">
+              Select Wallet
+            </p>
+            {connectors.map((connector) => (
+              <button
+                key={connector.id}
+                onClick={() => {
+                  connect({ connector });
+                  setShowDropdown(false);
+                }}
+                className="w-full text-left px-3 py-2 text-xs font-mono hover:bg-white/5 transition-colors border-b border-white/10 last:border-b-0 text-white/80"
+              >
+                {connector.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
