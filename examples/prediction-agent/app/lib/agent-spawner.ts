@@ -1,8 +1,11 @@
 /**
- * Agent Spawner — Registry for human-created agents.
+ * Agent Spawner — Registry for human-created agents + built-in seed agents.
  *
- * Allows users to spawn custom forecasting agents with configurable
- * personas, budgets, and data source preferences.
+ * Built-in agents (Alpha through Epsilon) are always present — they survive
+ * serverless cold starts because they're derived from AGENT_PERSONAS.
+ *
+ * User-spawned agents are stored in the browser via localStorage and passed
+ * to API endpoints as needed.
  */
 
 import { AGENT_PERSONAS, type AgentPersona } from "./agent-personas";
@@ -20,6 +23,7 @@ export interface SpawnedAgent {
   budget: AgentBudget;
   createdAt: number;
   status: "running" | "paused" | "stopped";
+  isBuiltIn?: boolean;
   stats: {
     predictions: number;
     bets: number;
@@ -34,6 +38,45 @@ export interface SpawnAgentConfig {
   budgetStrk?: number;
   maxBetStrk?: number;
   preferredSources?: string[];
+}
+
+/** Serializable config for localStorage persistence */
+export interface SerializedSpawnedAgent {
+  id: string;
+  name: string;
+  personaId: string;
+  agentType: string;
+  model: string;
+  preferredSources: string[];
+  budgetStrk: number;
+  maxBetStrk: number;
+  createdAt: number;
+  status: "running" | "paused" | "stopped";
+}
+
+/**
+ * Returns the 5 built-in agents derived from AGENT_PERSONAS.
+ * These are always available regardless of server state.
+ */
+export function getBuiltInAgents(): SpawnedAgent[] {
+  return AGENT_PERSONAS.map((persona) => ({
+    id: persona.id,
+    name: persona.name,
+    persona,
+    budget: {
+      totalBudget: BigInt(1500) * 10n ** 18n, // 1500 STRK
+      spent: 0n,
+      maxBetSize: BigInt(10) * 10n ** 18n, // 10 STRK max
+    },
+    createdAt: Date.now(),
+    status: "running" as const,
+    isBuiltIn: true,
+    stats: {
+      predictions: 0,
+      bets: 0,
+      pnl: 0n,
+    },
+  }));
 }
 
 class AgentSpawnerRegistry {
@@ -60,8 +103,8 @@ class AgentSpawnerRegistry {
       persona = this.createCustomPersona(id, config);
     }
 
-    const budgetWei = BigInt(Math.floor((config.budgetStrk ?? 1000) * 1e18));
-    const maxBetWei = BigInt(Math.floor((config.maxBetStrk ?? 100) * 1e18));
+    const budgetWei = BigInt(Math.floor((config.budgetStrk ?? 300) * 1e18));
+    const maxBetWei = BigInt(Math.floor((config.maxBetStrk ?? 10) * 1e18));
 
     const agent: SpawnedAgent = {
       id,
@@ -161,6 +204,7 @@ export function serializeAgent(
     agentType: agent.persona.agentType,
     model: agent.persona.model,
     preferredSources: agent.persona.preferredSources,
+    isBuiltIn: agent.isBuiltIn ?? false,
     budget: {
       totalBudget: agent.budget.totalBudget.toString(),
       spent: agent.budget.spent.toString(),
@@ -180,5 +224,24 @@ export function serializeAgent(
       bets: agent.stats.bets,
       pnl: agent.stats.pnl.toString(),
     },
+  };
+}
+
+/** localStorage key for spawned agents */
+export const STORAGE_KEY = "prediction-agent-spawned";
+
+/** Serialize a spawned agent for localStorage */
+export function serializeForStorage(agent: SpawnedAgent): SerializedSpawnedAgent {
+  return {
+    id: agent.id,
+    name: agent.name,
+    personaId: agent.persona.id,
+    agentType: agent.persona.agentType,
+    model: agent.persona.model,
+    preferredSources: agent.persona.preferredSources ?? [],
+    budgetStrk: Number(agent.budget.totalBudget / 10n ** 18n),
+    maxBetStrk: Number(agent.budget.maxBetSize / 10n ** 18n),
+    createdAt: agent.createdAt,
+    status: agent.status,
   };
 }

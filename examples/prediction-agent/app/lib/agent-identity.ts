@@ -48,6 +48,9 @@ export interface AgentIdentity {
   model: string;
   status: string;
   walletAddress: string;
+  framework?: string;
+  a2aEndpoint?: string;
+  moltbookId?: string;
   reputationScore: number;
   feedbackCount: number;
 }
@@ -66,14 +69,26 @@ export async function getAgentIdentity(agentId: string): Promise<AgentIdentity |
   if (!registryAddr) return null;
 
   try {
-    const registry = new Contract(IDENTITY_REGISTRY_ABI as any, registryAddr, provider);
+    const registry = new Contract({ abi: IDENTITY_REGISTRY_ABI as any, address: registryAddr, providerOrAccount: provider });
 
-    const [nameResult, typeResult, modelResult, statusResult, ownerResult] =
+    const [
+      nameResult,
+      typeResult,
+      modelResult,
+      statusResult,
+      frameworkResult,
+      endpointResult,
+      moltbookResult,
+      ownerResult,
+    ] =
       await Promise.all([
         registry.get_metadata(agentId, "agentName").catch(() => ""),
         registry.get_metadata(agentId, "agentType").catch(() => ""),
         registry.get_metadata(agentId, "model").catch(() => ""),
         registry.get_metadata(agentId, "status").catch(() => ""),
+        registry.get_metadata(agentId, "framework").catch(() => ""),
+        registry.get_metadata(agentId, "a2aEndpoint").catch(() => ""),
+        registry.get_metadata(agentId, "moltbookId").catch(() => ""),
         registry.owner_of(agentId).catch(() => "0x0"),
       ]);
 
@@ -81,11 +96,11 @@ export async function getAgentIdentity(agentId: string): Promise<AgentIdentity |
     let feedbackCount = 0;
 
     if (config.REPUTATION_REGISTRY_ADDRESS) {
-      const repRegistry = new Contract(
-        REPUTATION_REGISTRY_ABI as any,
-        config.REPUTATION_REGISTRY_ADDRESS,
-        provider
-      );
+      const repRegistry = new Contract({
+        abi: REPUTATION_REGISTRY_ABI as any,
+        address: config.REPUTATION_REGISTRY_ADDRESS,
+        providerOrAccount: provider,
+      });
       try {
         const [score, count] = await Promise.all([
           repRegistry.get_average_score(agentId),
@@ -105,6 +120,9 @@ export async function getAgentIdentity(agentId: string): Promise<AgentIdentity |
       model: String(modelResult || "claude-sonnet-4-5"),
       status: String(statusResult || "active"),
       walletAddress: String(ownerResult),
+      framework: frameworkResult ? String(frameworkResult) : undefined,
+      a2aEndpoint: endpointResult ? String(endpointResult) : undefined,
+      moltbookId: moltbookResult ? String(moltbookResult) : undefined,
       reputationScore,
       feedbackCount,
     };
@@ -135,6 +153,9 @@ export async function generateAgentCard(agentId: string, baseUrl: string) {
             feedbackCount: identity.feedbackCount,
             walletAddress: identity.walletAddress,
           },
+          framework: identity.framework,
+          a2aEndpoint: identity.a2aEndpoint,
+          moltbookId: identity.moltbookId,
         }
       : undefined,
     endpoints: {
@@ -144,66 +165,4 @@ export async function generateAgentCard(agentId: string, baseUrl: string) {
       status: `${baseUrl}/api/status`,
     },
   };
-}
-
-/** Demo identity data when contracts aren't deployed. */
-export function getDemoAgentIdentities(): Map<string, AgentIdentity> {
-  const identities = new Map<string, AgentIdentity>();
-
-  identities.set("0xAlpha", {
-    agentId: "1",
-    name: "AlphaForecaster",
-    agentType: "superforecaster",
-    model: "claude-sonnet-4-5",
-    status: "active",
-    walletAddress: "0xAlpha",
-    reputationScore: 88,
-    feedbackCount: 47,
-  });
-
-  identities.set("0xBeta", {
-    agentId: "2",
-    name: "BetaAnalyst",
-    agentType: "quant-forecaster",
-    model: "claude-sonnet-4-5",
-    status: "active",
-    walletAddress: "0xBeta",
-    reputationScore: 82,
-    feedbackCount: 34,
-  });
-
-  identities.set("0xGamma", {
-    agentId: "3",
-    name: "GammaTrader",
-    agentType: "market-maker",
-    model: "gpt-4o",
-    status: "active",
-    walletAddress: "0xGamma",
-    reputationScore: 75,
-    feedbackCount: 28,
-  });
-
-  identities.set("0xDelta", {
-    agentId: "4",
-    name: "DeltaScout",
-    agentType: "data-analyst",
-    model: "claude-haiku-4-5",
-    status: "active",
-    walletAddress: "0xDelta",
-    reputationScore: 65,
-    feedbackCount: 12,
-  });
-
-  identities.set("0xEpsilon", {
-    agentId: "5",
-    name: "EpsilonOracle",
-    agentType: "news-analyst",
-    model: "gemini-pro",
-    status: "active",
-    walletAddress: "0xEpsilon",
-    reputationScore: 58,
-    feedbackCount: 8,
-  });
-
-  return identities;
 }

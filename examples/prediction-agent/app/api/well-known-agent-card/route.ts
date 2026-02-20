@@ -9,7 +9,7 @@ export async function GET() {
   const card = {
     name: "BitSage Prediction Oracle",
     description:
-      "Multi-agent prediction market forecaster on Starknet. 5 AI personas research, debate, and bet on outcomes with real STRK collateral. Reputation-weighted consensus via on-chain Brier scores.",
+      "Multi-agent prediction market forecaster on Starknet. AI personas research live sources, debate, and bet on outcomes with real STRK collateral. Reputation-weighted consensus via on-chain Brier scores.",
     url: process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
       : "http://localhost:3001",
@@ -39,7 +39,7 @@ export async function GET() {
         id: "multi-predict",
         name: "Multi-Agent Forecast with Debate",
         description:
-          "Run 5 AI personas (AlphaForecaster, BetaAnalyst, GammaTrader, DeltaScout, EpsilonOracle) through independent analysis, debate round, and reputation-weighted consensus.",
+          "Run AI personas (AlphaForecaster, BetaAnalyst, GammaTrader, DeltaScout, EpsilonOracle) through independent analysis, debate round, and reputation-weighted consensus.",
         inputModes: ["application/json"],
         outputModes: ["text/event-stream"],
       },

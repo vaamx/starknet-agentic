@@ -1,7 +1,7 @@
 /**
  * Unified Data Sources — Aggregates real-world data for agent research.
  *
- * Each source fetches external data and falls back to demo data
+ * Each source fetches external data and returns empty results
  * when API keys are missing or requests fail.
  */
 
@@ -20,13 +20,30 @@ export interface DataSourceResult {
   summary: string;
 }
 
-export type DataSourceName = "polymarket" | "coingecko" | "news" | "social" | "espn";
+export type DataSourceName =
+  | "polymarket"
+  | "coingecko"
+  | "news"
+  | "web"
+  | "social"
+  | "espn"
+  | "github"
+  | "onchain"
+  | "rss"
+  | "x"
+  | "telegram";
 
 import { fetchPolymarketData } from "./polymarket";
 import { fetchCryptoPrices } from "./crypto-prices";
 import { fetchNewsData } from "./news-search";
+import { fetchWebSearch } from "./web-search";
 import { fetchSocialTrends } from "./social-trends";
 import { fetchEspnScores } from "./espn-live";
+import { fetchGithubTrends } from "./github-trends";
+import { fetchStarknetOnchain } from "./starknet-onchain";
+import { fetchRssFeeds } from "./rss-feeds";
+import { fetchXTrends } from "./x-trends";
+import { fetchTelegramTrends } from "./telegram-trends";
 
 const SOURCE_FETCHERS: Record<
   DataSourceName,
@@ -35,16 +52,28 @@ const SOURCE_FETCHERS: Record<
   polymarket: fetchPolymarketData,
   coingecko: fetchCryptoPrices,
   news: fetchNewsData,
+  web: fetchWebSearch,
   social: fetchSocialTrends,
   espn: fetchEspnScores,
+  github: fetchGithubTrends,
+  onchain: fetchStarknetOnchain,
+  rss: fetchRssFeeds,
+  x: fetchXTrends,
+  telegram: fetchTelegramTrends,
 };
 
 const ALL_SOURCES: DataSourceName[] = [
   "polymarket",
   "coingecko",
   "news",
+  "web",
   "social",
   "espn",
+  "github",
+  "onchain",
+  "rss",
+  "x",
+  "telegram",
 ];
 
 /**

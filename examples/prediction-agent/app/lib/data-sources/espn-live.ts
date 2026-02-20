@@ -35,7 +35,13 @@ export async function fetchEspnScores(
     const game = superBowl ?? events[0];
 
     if (!game) {
-      return getFallbackEspnData(question);
+      return {
+        source: "espn",
+        query: question,
+        timestamp: Date.now(),
+        data: [],
+        summary: "No live NFL game data available.",
+      };
     }
 
     const competition = game.competitions?.[0];
@@ -150,53 +156,13 @@ export async function fetchEspnScores(
       data,
       summary,
     };
-  } catch {
-    return getFallbackEspnData(question);
+  } catch (err: any) {
+    return {
+      source: "espn",
+      query: question,
+      timestamp: Date.now(),
+      data: [],
+      summary: `No ESPN data available (${err?.message ?? "request failed"}).`,
+    };
   }
-}
-
-function getFallbackEspnData(question: string): DataSourceResult {
-  const data: DataPoint[] = [
-    {
-      label: "Game",
-      value: "Super Bowl LX: Seattle Seahawks vs New England Patriots",
-    },
-    {
-      label: "Date",
-      value: "Feb 8, 2026 — 6:30 PM EST at Levi's Stadium, Santa Clara, CA",
-    },
-    {
-      label: "Spread",
-      value: "Seahawks -4.5",
-    },
-    {
-      label: "Over/Under",
-      value: "45.5",
-    },
-    {
-      label: "Halftime Show",
-      value: "Bad Bunny",
-    },
-    {
-      label: "Seahawks Record",
-      value: "15-4 (NFC Champions)",
-    },
-    {
-      label: "Patriots Record",
-      value: "13-6 (AFC Champions)",
-    },
-    {
-      label: "Key Matchup",
-      value: "DK Metcalf vs Patriots secondary; Geno Smith playoff experience",
-    },
-  ];
-
-  return {
-    source: "espn",
-    query: question,
-    timestamp: Date.now(),
-    data,
-    summary:
-      "[Pre-game] Super Bowl LX: Seahawks (-4.5) vs Patriots, O/U 45.5. Kickoff 6:30 PM EST. Bad Bunny halftime.",
-  };
 }

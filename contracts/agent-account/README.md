@@ -50,6 +50,22 @@ let policy = SessionPolicy {
 account.register_session_key(session_key, policy);
 ```
 
+### Contract Allowlist (Session Keys)
+
+Session keys can be restricted to a global allowlist:
+
+```cairo
+// Owner-only
+account.add_allowed_contract(market_factory);
+account.add_allowed_contract(strk_token);
+account.add_allowed_contract(accuracy_tracker);
+account.set_allow_all_contracts(false);
+```
+
+Notes:
+- `allowed_contract` in the session policy is still honored and is **more restrictive**.
+- If `allowed_contract` is zero and `allow_all_contracts` is false, the call must be in the allowlist.
+
 ### Upgrade (Timelocked)
 
 ```cairo

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { forecastMarket, extractProbability } from "@/lib/agent-forecaster";
-import { getMarketById, getAgentPredictions, DEMO_QUESTIONS } from "@/lib/market-reader";
+import { getMarketById, getAgentPredictions, MARKET_QUESTIONS } from "@/lib/market-reader";
+import { AGENT_PERSONAS } from "@/lib/agent-personas";
 import { recordPrediction } from "@/lib/starknet-executor";
 
 export const maxDuration = 60;
@@ -8,6 +9,12 @@ export const maxDuration = 60;
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const marketId = body.marketId as number;
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return new Response(JSON.stringify({ error: "Anthropic API key not configured" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
   // Return the stream immediately, do all work inside
   const encoder = new TextEncoder();
@@ -28,12 +35,15 @@ export async function POST(request: NextRequest) {
         }
 
         const predictions = await getAgentPredictions(marketId);
-        const question = DEMO_QUESTIONS[marketId] ?? `Market #${marketId}`;
+        const question = MARKET_QUESTIONS[marketId] ?? `Market #${marketId}`;
 
         const daysUntil = Math.max(
           0,
           Math.floor((market.resolutionTime - Date.now() / 1000) / 86400)
         );
+
+        const alphaPrompt =
+          AGENT_PERSONAS.find((p) => p.id === "alpha")?.systemPrompt;
 
         const generator = forecastMarket(question, {
           currentMarketProb: market.impliedProbYes,
@@ -44,6 +54,7 @@ export async function POST(request: NextRequest) {
             brier: p.brierScore,
           })),
           timeUntilResolution: `${daysUntil} days`,
+          systemPrompt: alphaPrompt,
         });
 
         let fullText = "";
@@ -61,7 +72,17 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        const probability = result?.probability ?? extractProbability(fullText);
+        const probability =
+          result?.probability ?? extractProbability(fullText);
+        if (probability === null) {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "error", message: "Model output missing probability" })}\n\n`
+            )
+          );
+          controller.close();
+          return;
+        }
 
         // Attempt to record prediction on-chain
         const txResult = await recordPrediction(marketId, probability);

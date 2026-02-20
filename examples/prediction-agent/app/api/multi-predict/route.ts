@@ -1,10 +1,7 @@
 import { NextRequest } from "next/server";
-import { forecastMarket, extractProbability } from "@/lib/agent-forecaster";
-import {
-  AGENT_PERSONAS,
-  simulatePersonaForecast,
-} from "@/lib/agent-personas";
-import { getMarketById, getAgentPredictions, DEMO_QUESTIONS, SUPER_BOWL_REGEX } from "@/lib/market-reader";
+import { forecastMarket } from "@/lib/agent-forecaster";
+import { AGENT_PERSONAS } from "@/lib/agent-personas";
+import { getMarketById, getAgentPredictions, MARKET_QUESTIONS, SUPER_BOWL_REGEX } from "@/lib/market-reader";
 import { gatherResearch, buildResearchBrief } from "@/lib/data-sources/index";
 import type { DataSourceName } from "@/lib/data-sources/index";
 import { runDebateRound, type Round1Result } from "@/lib/agent-debate";
@@ -31,7 +28,7 @@ export async function POST(request: NextRequest) {
   }
 
   const predictions = await getAgentPredictions(marketId);
-  const question = DEMO_QUESTIONS[marketId] ?? `Market #${marketId}`;
+  const question = MARKET_QUESTIONS[marketId] ?? `Market #${marketId}`;
 
   const daysUntil = Math.max(
     0,
@@ -39,6 +36,12 @@ export async function POST(request: NextRequest) {
   );
 
   const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
+  if (!hasApiKey) {
+    return new Response(JSON.stringify({ error: "Anthropic API key not configured" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -48,8 +51,29 @@ export async function POST(request: NextRequest) {
           agent: string;
           name: string;
           probability: number;
-          brierScore: number;
+          brierScore: number | null;
         }[] = [];
+
+        const sourceSet = new Set<DataSourceName>();
+        for (const persona of AGENT_PERSONAS) {
+          for (const src of (persona.preferredSources ?? ["polymarket", "coingecko", "news", "social"])) {
+            sourceSet.add(src as DataSourceName);
+          }
+        }
+        if (SUPER_BOWL_REGEX.test(question)) {
+          sourceSet.add("espn");
+        }
+        const sources = Array.from(sourceSet);
+
+        let researchBrief = "";
+        let researchCount = 0;
+        try {
+          const research = await gatherResearch(question, sources);
+          researchCount = research.length;
+          researchBrief = buildResearchBrief(research);
+        } catch {
+          researchBrief = "";
+        }
 
         // ======== ROUND 1: Independent Forecasts ========
         for (const persona of AGENT_PERSONAS) {
@@ -67,93 +91,55 @@ export async function POST(request: NextRequest) {
 
           let probability: number;
 
-          if (hasApiKey && persona.id === "alpha") {
-            // Auto-add ESPN for Super Bowl markets
-            const baseSources = (persona.preferredSources ?? ["polymarket", "coingecko", "news", "social"]) as DataSourceName[];
-            const sources = SUPER_BOWL_REGEX.test(question) && !baseSources.includes("espn")
-              ? [...baseSources, "espn" as DataSourceName]
-              : baseSources;
-
-            let researchBrief = "";
-            try {
-              const research = await gatherResearch(question, sources);
-              researchBrief = buildResearchBrief(research);
-
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({
-                    type: "text",
-                    agentId: persona.id,
-                    content: `[Researched ${research.length} data sources: ${research.map((r) => r.source).join(", ")}]\n\n`,
-                  })}\n\n`
-                )
-              );
-            } catch {
-              // Research failed, continue without it
-            }
-
-            const generator = forecastMarket(question, {
-              currentMarketProb: market.impliedProbYes,
-              totalPool: (market.totalPool / 10n ** 18n).toString(),
-              agentPredictions: predictions.map((p) => ({
-                agent: p.agent.slice(0, 10),
-                prob: p.predictedProb,
-                brier: p.brierScore,
-              })),
-              timeUntilResolution: `${daysUntil} days`,
-              researchBrief,
-            });
-
-            let fullText = "";
-            let result: any;
-
-            while (true) {
-              const { value, done } = await generator.next();
-              if (done) {
-                result = value;
-                break;
-              }
-              fullText += value;
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({
-                    type: "text",
-                    agentId: persona.id,
-                    content: value,
-                  })}\n\n`
-                )
-              );
-            }
-
-            probability = result?.probability ?? extractProbability(fullText);
-          } else {
-            // Simulated forecast for other agents
-            const forecast = simulatePersonaForecast(
-              persona,
-              market.impliedProbYes,
-              question
+          if (researchCount > 0) {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  type: "text",
+                  agentId: persona.id,
+                  content: `[Researched ${researchCount} data sources: ${sources.join(", ")}]\n\n`,
+                })}\n\n`
+              )
             );
-            probability = forecast.probability;
-
-            const chunks = forecast.reasoning.split(/(?<=\n\n)/);
-            for (const chunk of chunks) {
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({
-                    type: "text",
-                    agentId: persona.id,
-                    content: chunk,
-                  })}\n\n`
-                )
-              );
-              await new Promise((r) => setTimeout(r, 100));
-            }
           }
 
-          const existing = predictions.find(
-            (p) => p.agent === `0x${persona.id.charAt(0).toUpperCase()}${persona.id.slice(1)}`
-          );
-          const brierScore = existing?.brierScore ?? 0.2 + Math.random() * 0.15;
+          const generator = forecastMarket(question, {
+            currentMarketProb: market.impliedProbYes,
+            totalPool: (market.totalPool / 10n ** 18n).toString(),
+            agentPredictions: predictions.map((p) => ({
+              agent: p.agent.slice(0, 10),
+              prob: p.predictedProb,
+              brier: p.brierScore,
+            })),
+            timeUntilResolution: `${daysUntil} days`,
+            researchBrief,
+            systemPrompt: persona.systemPrompt,
+          });
+
+          let result: any;
+          while (true) {
+            const { value, done } = await generator.next();
+            if (done) {
+              result = value;
+              break;
+            }
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  type: "text",
+                  agentId: persona.id,
+                  content: value,
+                })}\n\n`
+              )
+            );
+          }
+
+          if (typeof result?.probability !== "number") {
+            throw new Error(`Forecast missing probability for ${persona.name}`);
+          }
+          probability = result.probability;
+
+          const brierScore = null;
 
           agentResults.push({
             agent: persona.id,
@@ -189,7 +175,9 @@ export async function POST(request: NextRequest) {
           brierScore: a.brierScore,
         }));
 
-        const debateResults = runDebateRound(round1Results, question);
+        const debateResults = await runDebateRound(round1Results, question, Object.fromEntries(
+          AGENT_PERSONAS.map((p) => [p.id, p.systemPrompt])
+        ));
 
         for (const debate of debateResults) {
           // Stream debate reasoning
@@ -227,17 +215,10 @@ export async function POST(request: NextRequest) {
         }
 
         // ======== CONSENSUS (from Round 2 revised estimates) ========
-        const totalInverseWeight = agentResults.reduce(
-          (sum, a) => sum + (a.brierScore > 0 ? 1 / a.brierScore : 10),
-          0
-        );
-        const weightedProb = agentResults.reduce(
-          (sum, a) =>
-            sum +
-            a.probability *
-              (a.brierScore > 0 ? 1 / a.brierScore : 10),
-          0
-        ) / totalInverseWeight;
+        const totalWeight = agentResults.length || 1;
+        const weightedProb =
+          agentResults.reduce((sum, a) => sum + a.probability, 0) /
+          totalWeight;
 
         const simpleAvg =
           agentResults.reduce((sum, a) => sum + a.probability, 0) /
@@ -255,7 +236,7 @@ export async function POST(request: NextRequest) {
                 name: a.name,
                 probability: a.probability,
                 brierScore: a.brierScore,
-                weight: a.brierScore > 0 ? (1 / a.brierScore / totalInverseWeight) : 0,
+                weight: 1 / totalWeight,
               })),
             })}\n\n`
           )

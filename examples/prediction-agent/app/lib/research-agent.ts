@@ -32,6 +32,8 @@ export interface MarketContext {
   totalPool?: string;
   agentPredictions?: { agent: string; prob: number; brier: number }[];
   timeUntilResolution?: string;
+  systemPrompt?: string;
+  model?: string;
 }
 
 /**

@@ -1,17 +1,20 @@
 import { NextRequest } from "next/server";
 import {
   agentSpawner,
+  getBuiltInAgents,
   serializeAgent,
   type SpawnAgentConfig,
 } from "@/lib/agent-spawner";
 
 /**
  * Spawned Agents endpoint.
- * GET: List all spawned agents with stats.
+ * GET: List all agents (built-in + spawned) with stats.
  * POST: Spawn a new custom agent.
  */
 export async function GET() {
-  const agents = agentSpawner.list().map(serializeAgent);
+  const builtIn = getBuiltInAgents().map(serializeAgent);
+  const spawned = agentSpawner.list().map(serializeAgent);
+  const agents = [...builtIn, ...spawned];
   return Response.json({ agents, count: agents.length });
 }
 
@@ -22,8 +25,8 @@ export async function POST(request: NextRequest) {
     name: body.name ?? `Agent-${Date.now().toString(36)}`,
     personaId: body.personaId,
     customSystemPrompt: body.systemPrompt,
-    budgetStrk: body.budgetStrk ?? 1000,
-    maxBetStrk: body.maxBetStrk ?? 100,
+    budgetStrk: body.budgetStrk ?? 300,
+    maxBetStrk: body.maxBetStrk ?? 10,
     preferredSources: body.preferredSources,
   };
 

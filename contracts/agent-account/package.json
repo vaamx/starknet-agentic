@@ -1,0 +1,11 @@
+{
+  "name": "agent-account-deploy",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "deploy": "tsx scripts/deploy_sepolia.ts"
+  },
+  "dependencies": {
+    "starknet": "^8.9.1"
+  }
+}

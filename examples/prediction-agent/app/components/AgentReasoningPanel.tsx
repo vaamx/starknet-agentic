@@ -10,6 +10,7 @@ interface AgentResult {
   reasoning: string;
   probability: number | null;
   isComplete: boolean;
+  brierScore: number | null;
 }
 
 interface ConsensusResult {
@@ -20,7 +21,7 @@ interface ConsensusResult {
     id: string;
     name: string;
     probability: number;
-    brierScore: number;
+    brierScore: number | null;
     weight: number;
   }[];
 }
@@ -34,7 +35,7 @@ export default function AgentReasoningPanel({
   marketId,
   question,
 }: AgentReasoningPanelProps) {
-  const [mode, setMode] = useState<"single" | "multi" | "research">("single");
+  const [mode, setMode] = useState<"single" | "multi" | "research">("multi");
   const [reasoning, setReasoning] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [probability, setProbability] = useState<number | null>(null);
@@ -179,6 +180,7 @@ export default function AgentReasoningPanel({
                   reasoning: "",
                   probability: null,
                   isComplete: false,
+                  brierScore: null,
                 });
                 return next;
               });
@@ -202,6 +204,7 @@ export default function AgentReasoningPanel({
                   next.set(parsed.agentId, {
                     ...agent,
                     probability: parsed.probability,
+                    brierScore: parsed.brierScore ?? null,
                     isComplete: true,
                   });
                 }
@@ -299,7 +302,7 @@ export default function AgentReasoningPanel({
     : null;
 
   return (
-    <div className="border-2 border-black bg-neo-dark shadow-neo-lg overflow-hidden scanlines">
+    <div className="border border-white/10 bg-neo-dark/80 shadow-neo-lg overflow-hidden scanlines rounded-xl">
       {/* Terminal Header Bar */}
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
@@ -321,7 +324,7 @@ export default function AgentReasoningPanel({
             <span className="font-mono text-neo-green text-xs">
               {isStreaming
                 ? mode === "multi"
-                  ? `agents running (${agentResults.size})`
+                  ? `swarm running (${agentResults.size})`
                   : "streaming"
                 : consensus
                   ? "consensus reached"
@@ -339,12 +342,12 @@ export default function AgentReasoningPanel({
 
         <div className="flex items-center gap-3">
           {consensus && (
-            <span className="bg-neo-yellow text-neo-dark px-2.5 py-0.5 text-xs font-black border border-black font-mono">
+            <span className="bg-neo-yellow text-neo-dark px-2.5 py-0.5 text-xs font-black border border-white/10 font-mono rounded-full">
               {Math.round(consensus.weightedProbability * 100)}%
             </span>
           )}
           {!consensus && probability !== null && (
-            <span className="bg-neo-green text-neo-dark px-2.5 py-0.5 text-xs font-black border border-black font-mono">
+            <span className="bg-neo-green text-neo-dark px-2.5 py-0.5 text-xs font-black border border-white/10 font-mono rounded-full">
               {Math.round(probability * 100)}%
             </span>
           )}
@@ -384,7 +387,7 @@ export default function AgentReasoningPanel({
                     : "text-white/30 hover:text-white/50"
                 }`}
               >
-                Multi
+                Swarm
               </button>
               <button
                 onClick={() => setMode("research")}
@@ -463,7 +466,7 @@ export default function AgentReasoningPanel({
               <span className="text-white/20">$ </span>
               <span className="text-white/60">
                 {mode === "multi"
-                  ? `multi-analyze --market ${marketId} --agents 5`
+                  ? `swarm-analyze --market ${marketId} --agents 5`
                   : `analyze --market ${marketId}`}
               </span>
             </div>
@@ -504,7 +507,7 @@ export default function AgentReasoningPanel({
             ) : activeAgentTab === "consensus" && consensus ? (
               <div className="text-white/85 space-y-3">
                 <div className="text-neo-yellow font-bold">
-                  === REPUTATION-WEIGHTED CONSENSUS ===
+                  === MULTI-AGENT CONSENSUS ===
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -522,7 +525,7 @@ export default function AgentReasoningPanel({
                 </div>
                 <div className="border-t border-white/10 pt-2 mt-2">
                   <div className="text-white/40 text-xs mb-2">
-                    Agent contributions (by inverse Brier weight):
+                    Agent contributions (equal weight):
                   </div>
                   {consensus.agents.map((a) => (
                     <div key={a.id} className="flex items-center gap-2 py-0.5">
@@ -533,7 +536,7 @@ export default function AgentReasoningPanel({
                         {Math.round(a.probability * 100)}%
                       </span>
                       <span className="text-white/30 w-14 text-right">
-                        B:{a.brierScore.toFixed(3)}
+                        B:{a.brierScore !== null ? a.brierScore.toFixed(3) : "N/A"}
                       </span>
                       <div className="flex-1 h-1.5 bg-white/10 overflow-hidden">
                         <div
@@ -614,7 +617,7 @@ export default function AgentReasoningPanel({
               )}
             </div>
             <div className="flex items-center gap-2 text-[10px] font-mono text-white/20">
-              <span>{mode === "multi" ? "multi-agent" : "claude-sonnet-4.5"}</span>
+              <span>{mode === "multi" ? "swarm" : "claude-sonnet-4-5"}</span>
               <span>|</span>
               <span>ERC-8004</span>
             </div>

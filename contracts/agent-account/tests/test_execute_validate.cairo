@@ -74,6 +74,8 @@ fn permissive_policy() -> SessionPolicy {
         spending_limit: 1_000_000,
         spending_token: token_addr(),
         allowed_contract: zero_addr(),
+        max_calls_per_tx: 0,
+        spending_period_secs: 0,
     }
 }
 
@@ -85,6 +87,8 @@ fn restricted_policy() -> SessionPolicy {
         spending_limit: 100,
         spending_token: token_addr(),
         allowed_contract: allowed_target(),
+        max_calls_per_tx: 0,
+        spending_period_secs: 0,
     }
 }
 
@@ -94,6 +98,15 @@ fn register_key(
 ) {
     start_cheat_caller_address(addr, addr);
     agent.register_session_key(key, policy);
+    stop_cheat_caller_address(addr);
+}
+
+/// Allowlist a contract (cheats caller to contract itself).
+fn allow_contract(
+    agent: IAgentAccountDispatcher, addr: ContractAddress, target: ContractAddress,
+) {
+    start_cheat_caller_address(addr, addr);
+    agent.add_allowed_contract(target);
     stop_cheat_caller_address(addr);
 }
 
@@ -181,6 +194,49 @@ fn test_validate_session_key_signature_succeeds() {
 
     start_cheat_block_timestamp(addr, 100);
     let result = account.__validate__(array![]);
+    assert_eq!(result, starknet::VALIDATED);
+
+    stop_cheat_block_timestamp(addr);
+    stop_cheat_caller_address(addr);
+    cleanup_cheats();
+}
+
+#[test]
+fn test_validate_session_key_blocked_by_allowlist() {
+    let owner_kp = KeyPairTrait::from_secret_key(0x1234_felt252);
+    let session_kp = KeyPairTrait::from_secret_key(0x5678_felt252);
+    let (addr, account, agent) = deploy_agent_account(owner_kp.public_key);
+
+    register_key(agent, addr, session_kp.public_key, permissive_policy());
+
+    let (r, s) = session_kp.sign(TX_HASH).unwrap();
+    setup_session_key_tx_context(addr, session_kp.public_key, r, s);
+    start_cheat_block_timestamp(addr, 100);
+
+    let calls = array![generic_call(allowed_target())];
+    let result = account.__validate__(calls);
+    assert_eq!(result, 0);
+
+    stop_cheat_block_timestamp(addr);
+    stop_cheat_caller_address(addr);
+    cleanup_cheats();
+}
+
+#[test]
+fn test_validate_session_key_allowlisted_contract_succeeds() {
+    let owner_kp = KeyPairTrait::from_secret_key(0x1234_felt252);
+    let session_kp = KeyPairTrait::from_secret_key(0x5678_felt252);
+    let (addr, account, agent) = deploy_agent_account(owner_kp.public_key);
+
+    register_key(agent, addr, session_kp.public_key, permissive_policy());
+    allow_contract(agent, addr, allowed_target());
+
+    let (r, s) = session_kp.sign(TX_HASH).unwrap();
+    setup_session_key_tx_context(addr, session_kp.public_key, r, s);
+    start_cheat_block_timestamp(addr, 100);
+
+    let calls = array![generic_call(allowed_target())];
+    let result = account.__validate__(calls);
     assert_eq!(result, starknet::VALIDATED);
 
     stop_cheat_block_timestamp(addr);

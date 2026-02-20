@@ -36,18 +36,13 @@ export async function* forecastMarket(
     agentPredictions?: { agent: string; prob: number; brier: number }[];
     timeUntilResolution?: string;
     researchBrief?: string;
+    systemPrompt?: string;
+    model?: string;
   }
 ): AsyncGenerator<string, ForecastResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    // Yield a demo forecast when no API key
-    const demoText = generateDemoForecast(question, context);
-    for (const chunk of demoText.split(/(?<=\. )/)) {
-      yield chunk;
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    const prob = extractProbability(demoText);
-    return { reasoning: demoText, probability: prob };
+    throw new Error("Anthropic API key not configured");
   }
 
   const client = new Anthropic({ apiKey });
@@ -79,9 +74,9 @@ export async function* forecastMarket(
   let fullText = "";
 
   const stream = client.messages.stream({
-    model: "claude-sonnet-4-5-20250929",
+    model: context.model ?? "claude-sonnet-4-5-20250929",
     max_tokens: 1024,
-    system: SYSTEM_PROMPT,
+    system: context.systemPrompt ?? SYSTEM_PROMPT,
     messages: [{ role: "user", content: userMessage }],
   });
 
@@ -96,11 +91,14 @@ export async function* forecastMarket(
   }
 
   const probability = extractProbability(fullText);
+  if (probability === null) {
+    throw new Error("Model response missing probability");
+  }
   return { reasoning: fullText, probability };
 }
 
 /** Extract probability from Claude's response. */
-export function extractProbability(text: string): number {
+export function extractProbability(text: string): number | null {
   // Look for "**My estimate: XX%**" pattern
   const match = text.match(/\*\*My estimate:\s*(\d+(?:\.\d+)?)%\*\*/i);
   if (match) return parseFloat(match[1]) / 100;
@@ -112,38 +110,5 @@ export function extractProbability(text: string): number {
     return parseFloat(last) / 100;
   }
 
-  return 0.5; // default if no probability found
-}
-
-function generateDemoForecast(
-  question: string,
-  context: {
-    currentMarketProb?: number;
-    agentPredictions?: { agent: string; prob: number; brier: number }[];
-  }
-): string {
-  const marketProb = context.currentMarketProb ?? 0.5;
-  const isYesLeaning = marketProb > 0.5;
-
-  return `## Analysis: "${question}"
-
-### Base Rate
-Looking at historical data for similar crypto/blockchain predictions, events of this type occur approximately ${isYesLeaning ? "55-65%" : "30-45%"} of the time in comparable market conditions.
-
-### Inside View
-The current market is pricing this at ${(marketProb * 100).toFixed(1)}%. ${
-    isYesLeaning
-      ? "The bullish lean reflects recent momentum and positive sentiment in the ecosystem."
-      : "The bearish lean suggests significant headwinds and uncertainty around this outcome."
-  }
-
-### Key Factors
-- **Supporting evidence**: Recent network growth metrics and developer activity are ${isYesLeaning ? "strong" : "mixed"}
-- **Counterarguments**: ${isYesLeaning ? "Macro headwinds and regulatory uncertainty could dampen progress" : "Potential catalysts including upcoming protocol upgrades could shift momentum"}
-- **Information gaps**: Limited on-chain data for precise estimation, relying partly on qualitative assessment
-
-### Calibration Check
-${context.agentPredictions?.length ? `Other agents are predicting between ${Math.min(...context.agentPredictions.map((p) => p.prob * 100)).toFixed(0)}% and ${Math.max(...context.agentPredictions.map((p) => p.prob * 100)).toFixed(0)}%. ` : ""}My estimate accounts for both the base rate and specific factors, adjusted slightly toward the market consensus.
-
-**My estimate: ${Math.round(marketProb * 100 + (Math.random() - 0.5) * 10)}%**`;
+  return null;
 }
