@@ -5,7 +5,7 @@
 export type MarketCategory = "all" | "sports" | "crypto" | "politics" | "tech" | "other";
 
 const SPORTS_REGEX =
-  /super bowl|nfl|seahawks|patriots|touchdown|quarterback|mvp|halftime|spread|overtime|rushing|first score|defensive|nba|mlb|world cup|champions league|boxing|ufc|tennis|formula 1|olympics/i;
+  /super bowl|nfl|seahawks|patriots|touchdown|quarterback|mvp|halftime|spread|overtime|rush(ing)?|first score|defensive|total score|score last|2min|SB LX|nba|mlb|world cup|champions league|boxing|ufc|tennis|formula 1|olympics/i;
 
 const CRYPTO_REGEX =
   /bitcoin|btc|ethereum|eth|starknet|strk|solana|sol|crypto|token|defi|nft|blockchain|tps|gas fee|layer\s?2|zk|rollup/i;
