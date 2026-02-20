@@ -12,7 +12,7 @@ vi.mock("starknet", async (importOriginal) => {
   const actual = await importOriginal<typeof import("starknet")>();
   return {
     ...actual,
-    Contract: vi.fn().mockImplementation(({ address }: { address: string }) => {
+    Contract: vi.fn().mockImplementation(function MockContract({ address }: { address: string }) {
       if (address === BALANCE_CHECKER_ADDRESS) {
         return { get_balances: mockBalanceCheckerCall };
       }
@@ -21,7 +21,9 @@ vi.mock("starknet", async (importOriginal) => {
         decimals: mockErc20Decimals,
       };
     }),
-    RpcProvider: vi.fn().mockImplementation(() => ({})),
+    RpcProvider: vi.fn().mockImplementation(function MockRpcProvider() {
+      return {};
+    }),
   };
 });
 
@@ -110,7 +112,7 @@ describe("fetchTokenBalances", () => {
     mockErc20BalanceOf.mockResolvedValue(BigInt("1000000000000000000"));
     mockErc20Decimals.mockResolvedValue(18);
 
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     const result = await fetchTokenBalances(
       "0x123",
@@ -123,19 +125,25 @@ describe("fetchTokenBalances", () => {
     expect(result.balances).toHaveLength(1);
     expect(mockBalanceCheckerCall).toHaveBeenCalled();
     expect(mockErc20BalanceOf).toHaveBeenCalled();
-    expect(consoleSpy).toHaveBeenCalledWith(
-      "BalanceChecker contract unavailable, falling back to batch RPC:",
-      "Contract not found"
-    );
 
-    consoleSpy.mockRestore();
+    const logCall = stderrSpy.mock.calls.find((call) => {
+      const line = String(call[0]);
+      return line.includes("balance.checker_fallback");
+    });
+    expect(logCall).toBeDefined();
+    const parsed = JSON.parse(String(logCall![0]));
+    expect(parsed.event).toBe("balance.checker_fallback");
+    expect(parsed.level).toBe("warn");
+    expect(parsed.details.error).toBe("Contract not found");
+
+    stderrSpy.mockRestore();
   });
 
   it("propagates error when both methods fail", async () => {
     mockBalanceCheckerCall.mockRejectedValue(new Error("BalanceChecker failed"));
     mockErc20BalanceOf.mockRejectedValue(new Error("RPC failed"));
 
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await expect(
       fetchTokenBalances("0x123", ["ETH"], [TOKENS.ETH], mockProvider)

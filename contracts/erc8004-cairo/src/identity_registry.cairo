@@ -19,6 +19,7 @@
 #[starknet::contract]
 pub mod IdentityRegistry {
     use core::poseidon::poseidon_hash_span;
+    use core::num::traits::Zero;
     use core::to_byte_array::AppendFormattedToByteArray;
     use erc8004::interfaces::account::IAccountDispatcher;
     use erc8004::interfaces::account::IAccountDispatcherTrait;
@@ -163,6 +164,7 @@ pub mod IdentityRegistry {
     // ============ Constructor ============
     #[constructor]
     fn constructor(ref self: ContractState, owner: ContractAddress) {
+        assert(!owner.is_zero(), 'Invalid owner');
         // Initialize ERC721 with name "ERC-8004 Trustless Agent" and symbol "AGENT"
         self.erc721.initializer("ERC-8004 Trustless Agent", "AGENT", "");
 
@@ -527,8 +529,9 @@ pub mod IdentityRegistry {
             // SNIP-6 standard: returns 'VALID' (0x56414c4944) if signature is valid
             let result = account.is_valid_signature(message_hash, signature_array);
 
-            // Check if result equals 'VALID'
-            result == 'VALID' || result == starknet::VALIDATED
+            // SNIP-6 requires `is_valid_signature` to return 'VALID' on success.
+            // We intentionally do not accept alternative return markers here.
+            result == 'VALID'
         }
     }
 
