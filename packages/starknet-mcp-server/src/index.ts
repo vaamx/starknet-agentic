@@ -48,6 +48,7 @@ import {
   CallData,
   cairo,
   byteArray,
+  shortString,
   ETransactionVersion,
   hash,
   ec,
@@ -56,6 +57,7 @@ import {
   type Call,
 } from "starknet";
 import { randomBytes } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import {
   resolveTokenAddressAsync,
   validateTokensInputAsync,
@@ -449,8 +451,8 @@ async function executeTransaction(
   return result.transaction_hash;
 }
 
-// MCP Server setup
-const server = new Server(
+// MCP Server setup — exported so http-server.ts can share this instance
+export const server = new Server(
   {
     name: "starknet-mcp-server",
     version: "0.1.0",
@@ -1141,6 +1143,113 @@ if (env.ERC8004_IDENTITY_REGISTRY_ADDRESS) {
     }
   );
 }
+
+// ── Research & Huginn Tools ──────────────────────────────────────────────────
+tools.push(
+  {
+    name: "research_web_search",
+    description:
+      "Search the web for current information using Tavily (AI-synthesized answer) with Brave Search as fallback. Returns an AI-synthesized answer plus ranked snippets. Ideal for news, current events, and fact-checking.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+        recency: { type: "string", description: "Recency filter: 'day', 'week', 'month' (optional)", enum: ["day", "week", "month"] },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "research_polymarket",
+    description:
+      "Fetch prediction market odds from Polymarket Gamma API for a given topic. Returns market questions, implied probabilities, and total pools.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Topic or question to search for on Polymarket" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "research_crypto_prices",
+    description:
+      "Fetch current cryptocurrency prices and 24-hour change from CoinGecko. Returns price in USD and percentage change.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tokens: { type: "string", description: "Comma-separated token names or symbols (e.g. 'ethereum,starknet,bitcoin')" },
+      },
+      required: ["tokens"],
+    },
+  },
+  {
+    name: "research_sports_scores",
+    description:
+      "Fetch live and recent sports scores and statistics from ESPN. Supports NFL, NBA, MLB, and other major sports.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Sport, team, or game query (e.g. 'NFL Super Bowl', 'Kansas City Chiefs')" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "huginn_log_thought",
+    description:
+      "Hash reasoning text with SHA-256 and log the hash on-chain in the Huginn Registry for verifiable AI provenance. Requires HUGINN_REGISTRY_ADDRESS environment variable.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        reasoning: { type: "string", description: "The AI reasoning text to hash and log on-chain" },
+        agentName: { type: "string", description: "Optional agent name for the log entry" },
+      },
+      required: ["reasoning"],
+    },
+  },
+  {
+    name: "huginn_get_thought",
+    description:
+      "Check whether a thought hash has been logged or proven in the Huginn Registry. Returns proof status and agent ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        thoughtHash: { type: "string", description: "The 0x-prefixed SHA-256 hash to look up (64 hex chars)" },
+        huginnAddress: { type: "string", description: "Huginn Registry contract address (defaults to HUGINN_REGISTRY_ADDRESS env var)" },
+      },
+      required: ["thoughtHash"],
+    },
+  },
+  {
+    name: "prediction_resolve",
+    description:
+      "Resolve a prediction market by calling resolve() on the market contract and finalizing the outcome on the AccuracyTracker. The market must have passed its resolution time.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        marketAddress: { type: "string", description: "Address of the prediction market to resolve" },
+        outcome: { type: "number", enum: [0, 1], description: "Winning outcome: 1 = YES, 0 = NO" },
+        marketId: { type: "number", description: "Market ID for AccuracyTracker finalization (optional)" },
+        trackerAddress: { type: "string", description: "AccuracyTracker address for finalization (defaults to ACCURACY_TRACKER env var)" },
+        gasfree: { type: "boolean", description: "Use gasfree mode", default: false },
+      },
+      required: ["marketAddress", "outcome"],
+    },
+  },
+  {
+    name: "prediction_get_market",
+    description:
+      "Get the current state of a single prediction market: status, implied probabilities, total pool, resolution time.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        marketAddress: { type: "string", description: "Address of the prediction market contract" },
+      },
+      required: ["marketAddress"],
+    },
+  }
+);
 
 function parseIdentityRegisteredFromReceipt(
   receipt: unknown,
@@ -2642,6 +2751,315 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
+      // ── Research Tool Handlers ──────────────────────────────────────────────
+      case "research_web_search": {
+        const { query, recency } = args as { query: string; recency?: "day" | "week" | "month" };
+
+        // Map recency to Tavily `days` (number of days to look back).
+        const tavilyDays = recency === "day" ? 1 : recency === "month" ? 30 : 7;
+        // Map recency to Brave freshness code.
+        const braveFreshness = recency === "day" ? "pd" : recency === "month" ? "pm" : "pw";
+
+        // Try Tavily first
+        const tavilyKey = process.env.TAVILY_API_KEY;
+        if (tavilyKey) {
+          const res = await fetch("https://api.tavily.com/search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              api_key: tavilyKey,
+              query,
+              search_depth: "basic",
+              include_answer: true,
+              include_images: false,
+              max_results: 5,
+              days: tavilyDays,
+            }),
+            signal: AbortSignal.timeout(8000),
+          });
+          if (res.ok) {
+            const data = await res.json() as any;
+            const answer = data.answer ?? "";
+            const results = (data.results ?? []).slice(0, 5).map((r: any) => ({
+              title: r.title,
+              snippet: r.content?.slice(0, 120),
+              url: r.url,
+            }));
+            return { content: [{ type: "text", text: JSON.stringify({ source: "tavily", answer, results }, null, 2) }] };
+          }
+        }
+
+        // Brave fallback
+        const braveKey = process.env.BRAVE_SEARCH_API_KEY;
+        if (!braveKey) {
+          return { content: [{ type: "text", text: JSON.stringify({ source: "none", answer: "No search API key configured (TAVILY_API_KEY or BRAVE_SEARCH_API_KEY)", results: [] }, null, 2) }] };
+        }
+        const braveUrl = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5&freshness=${braveFreshness}`;
+        const braveRes = await fetch(braveUrl, {
+          headers: { Accept: "application/json", "X-Subscription-Token": braveKey },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (!braveRes.ok) throw new Error(`Brave API ${braveRes.status}`);
+        const braveData = await braveRes.json() as any;
+        const items = (braveData.web?.results ?? []).slice(0, 5).map((r: any) => ({
+          title: r.title,
+          snippet: r.description?.slice(0, 120),
+          url: r.url,
+        }));
+        return { content: [{ type: "text", text: JSON.stringify({ source: "brave", answer: "", results: items }, null, 2) }] };
+      }
+
+      case "research_polymarket": {
+        const { query } = args as { query: string };
+        const url = `https://gamma-api.polymarket.com/markets?limit=10&active=true&q=${encodeURIComponent(query)}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+        if (!res.ok) throw new Error(`Polymarket API ${res.status}`);
+        const data = await res.json() as any;
+        const markets = (Array.isArray(data) ? data : data.markets ?? []).slice(0, 5).map((m: any) => ({
+          question: m.question ?? m.title,
+          impliedProbYes: m.outcomePrices
+            ? parseFloat(m.outcomePrices[0] ?? "0.5")
+            : (m.probability ?? null),
+          totalVolume: m.volumeNum ?? m.volume ?? 0,
+          url: m.url ?? `https://polymarket.com/event/${m.slug ?? ""}`,
+        }));
+        return { content: [{ type: "text", text: JSON.stringify({ query, markets }, null, 2) }] };
+      }
+
+      case "research_crypto_prices": {
+        const { tokens } = args as { tokens: string };
+        const ids = tokens.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean).join(",");
+        const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`;
+        const headers: Record<string, string> = { Accept: "application/json" };
+        if (process.env.COINGECKO_API_KEY) headers["x-cg-pro-api-key"] = process.env.COINGECKO_API_KEY;
+        const res = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
+        if (!res.ok) throw new Error(`CoinGecko API ${res.status}`);
+        const data = await res.json() as any;
+        const prices = Object.entries(data as Record<string, any>).map(([id, info]: [string, any]) => ({
+          token: id,
+          priceUsd: info.usd,
+          change24h: info.usd_24h_change?.toFixed(2),
+        }));
+        return { content: [{ type: "text", text: JSON.stringify({ tokens, prices }, null, 2) }] };
+      }
+
+      case "research_sports_scores": {
+        const { query } = args as { query: string };
+        const sport = /nba/i.test(query) ? "basketball/nba" : /mlb/i.test(query) ? "baseball/mlb" : "football/nfl";
+        const url = `https://site.api.espn.com/apis/site/v2/sports/${sport}/scoreboard`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+        if (!res.ok) throw new Error(`ESPN API ${res.status}`);
+        const data = await res.json() as any;
+        const events = (data.events ?? []).slice(0, 5).map((e: any) => ({
+          name: e.name,
+          shortName: e.shortName,
+          status: e.status?.type?.description,
+          score: e.competitions?.[0]?.competitors?.map((c: any) => `${c.team?.abbreviation} ${c.score}`).join(" vs "),
+        }));
+        return { content: [{ type: "text", text: JSON.stringify({ sport, query, events }, null, 2) }] };
+      }
+
+      case "huginn_log_thought": {
+        const { reasoning, agentName } = args as { reasoning: string; agentName?: string };
+        const huginnAddress = process.env.HUGINN_REGISTRY_ADDRESS;
+        if (!huginnAddress || huginnAddress === "0x0") {
+          return { content: [{ type: "text", text: JSON.stringify({ status: "skipped", reason: "HUGINN_REGISTRY_ADDRESS not configured" }, null, 2) }] };
+        }
+
+        const hashBuffer = await import("node:crypto").then(c =>
+          c.createHash("sha256").update(reasoning).digest()
+        );
+        const bytes = hashBuffer;
+        const highHex = bytes.slice(0, 16).toString("hex");
+        const lowHex = bytes.slice(16, 32).toString("hex");
+        const thoughtHash = "0x" + highHex + lowHex;
+        const highBigInt = BigInt("0x" + highHex);
+        const lowBigInt = BigInt("0x" + lowHex);
+
+        // Capture as const so TypeScript's closure narrowing is satisfied — huginnAddress
+        // is already guaranteed non-null/non-zero by the early-return guard above.
+        const huginnAddr: string = huginnAddress;
+
+        const logCall: Call = {
+          contractAddress: huginnAddr,
+          entrypoint: "log_thought",
+          calldata: CallData.compile({ thought_hash: { low: lowBigInt, high: highBigInt } }),
+        };
+
+        // Auto-registration recovery: log_thought() panics with 'Agent not registered'
+        // if the agent has never called register_agent(). Attempt once; if it fails with
+        // that error, register first then retry. register_agent() is idempotent-by-catch
+        // ('Agent already registered' is treated as a no-op).
+        async function tryLog(allowRetry: boolean): Promise<string> {
+          try {
+            const tx = await executeTransaction(logCall, false, TOKENS.STRK);
+            await provider.waitForTransaction(tx);
+            return tx;
+          } catch (err: any) {
+            if (allowRetry && String(err).includes("Agent not registered")) {
+              // Register using agentName (max 31 ASCII chars for felt252).
+              const name = shortString.encodeShortString((agentName ?? "MCPAgent").slice(0, 31));
+              const registerCall: Call = {
+                contractAddress: huginnAddr,
+                entrypoint: "register_agent",
+                calldata: [
+                  name,    // name: felt252
+                  "0x0",   // ByteArray::data.len        = 0
+                  "0x0",   // ByteArray::pending_word    = 0
+                  "0x0",   // ByteArray::pending_word_len = 0
+                ],
+              };
+              try {
+                const regTx = await executeTransaction(registerCall, false, TOKENS.STRK);
+                await provider.waitForTransaction(regTx);
+              } catch (regErr: any) {
+                // 'Agent already registered' is fine — another process beat us to it.
+                if (!String(regErr).includes("Agent already registered")) throw regErr;
+              }
+              return tryLog(false);
+            }
+            throw err;
+          }
+        }
+
+        const transactionHash = await tryLog(true);
+        return { content: [{ type: "text", text: JSON.stringify({ status: "success", thoughtHash, transactionHash, huginnAddress }, null, 2) }] };
+      }
+
+      case "huginn_get_thought": {
+        const { thoughtHash, huginnAddress: huginnAddr } = args as { thoughtHash: string; huginnAddress?: string };
+        const huginnAddress = huginnAddr ?? process.env.HUGINN_REGISTRY_ADDRESS;
+        if (!huginnAddress || huginnAddress === "0x0") {
+          return { content: [{ type: "text", text: JSON.stringify({ status: "skipped", reason: "Huginn address not provided" }, null, 2) }] };
+        }
+
+        // Parse thoughtHash into u256
+        const hashHex = thoughtHash.replace(/^0x/, "");
+        const highHex = hashHex.slice(0, 32).padStart(32, "0");
+        const lowHex = hashHex.slice(32).padStart(32, "0");
+        const high = BigInt("0x" + highHex);
+        const low = BigInt("0x" + lowHex);
+
+        const existsResult = await provider.callContract({
+          contractAddress: huginnAddress,
+          entrypoint: "proof_exists",
+          calldata: CallData.compile({ thought_hash: { low, high } }),
+        });
+        const proofExists = Array.isArray(existsResult) ? existsResult[0] !== "0x0" : false;
+
+        return { content: [{ type: "text", text: JSON.stringify({ thoughtHash, huginnAddress, proofExists }, null, 2) }] };
+      }
+
+      case "prediction_resolve": {
+        const { marketAddress, outcome, marketId, trackerAddress: trackerAddr, gasfree = false } = args as {
+          marketAddress: string;
+          outcome: number;
+          marketId?: number;
+          trackerAddress?: string;
+          gasfree?: boolean;
+        };
+
+        const resolveCall: Call = {
+          contractAddress: marketAddress,
+          entrypoint: "resolve",
+          calldata: CallData.compile({ winning_outcome: outcome }),
+        };
+
+        const calls: Call[] = [resolveCall];
+
+        const trackerAddress = trackerAddr ?? process.env.ACCURACY_TRACKER_ADDRESS;
+        if (marketId !== undefined && trackerAddress && trackerAddress !== "0x0") {
+          calls.push({
+            contractAddress: trackerAddress,
+            entrypoint: "finalize_market",
+            calldata: CallData.compile({
+              market_id: cairo.uint256(marketId),
+              actual_outcome: cairo.uint256(outcome),
+            }),
+          });
+        }
+
+        const transactionHash = await executeTransaction(calls, gasfree, TOKENS.STRK);
+        await provider.waitForTransaction(transactionHash);
+
+        return {
+          content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash, marketAddress, outcome, marketId }, null, 2) }],
+        };
+      }
+
+      case "prediction_get_market": {
+        const { marketAddress } = args as { marketAddress: string };
+
+        // Market ABI entrypoints: get_status (u8), get_total_pool (u256),
+        // get_implied_probs (Array<(u8, u256)>), get_market_info (felt252, u64, addr, addr, u16).
+        // There are NO get_yes_pool / get_no_pool / get_resolution_time entrypoints.
+        const [statusResult, poolResult, impliedResult, marketInfoResult] = await Promise.all([
+          provider.callContract({ contractAddress: marketAddress, entrypoint: "get_status", calldata: [] }),
+          provider.callContract({ contractAddress: marketAddress, entrypoint: "get_total_pool", calldata: [] }),
+          provider.callContract({ contractAddress: marketAddress, entrypoint: "get_implied_probs", calldata: [] }).catch(() => null),
+          provider.callContract({ contractAddress: marketAddress, entrypoint: "get_market_info", calldata: [] }).catch(() => null),
+        ]);
+
+        // starknet.js v8 callContract returns string[] directly.
+        const extractFirst = (r: any): string => Array.isArray(r) ? r[0] : (r as any)?.result?.[0] ?? "0x0";
+
+        const status = Number(BigInt(extractFirst(statusResult)));
+        // u256 = [low, high] felts. Total pool low is at index 0.
+        const totalPoolLow = poolResult && Array.isArray(poolResult) ? BigInt(poolResult[0]) : 0n;
+        const totalPoolHigh = poolResult && Array.isArray(poolResult) ? BigInt(poolResult[1] ?? "0x0") : 0n;
+        const totalPool = formatAmount(totalPoolLow + totalPoolHigh * (2n ** 128n), 18);
+
+        // Parse get_implied_probs: Array<(u8, u256)>
+        // Serialized as: [count, outcome0, low0, high0, outcome1, low1, high1, ...]
+        let yesPool: string | null = null;
+        let noPool: string | null = null;
+        let impliedProbYes: number | null = null;
+        if (impliedResult && Array.isArray(impliedResult) && impliedResult.length >= 1) {
+          const count = Number(BigInt(impliedResult[0]));
+          for (let i = 0; i < count; i++) {
+            const base = 1 + i * 3;
+            const outcome = Number(BigInt(impliedResult[base] ?? "0x0"));
+            const poolLow = BigInt(impliedResult[base + 1] ?? "0x0");
+            const poolHigh = BigInt(impliedResult[base + 2] ?? "0x0");
+            const poolAmount = poolLow + poolHigh * (2n ** 128n);
+            if (outcome === 1) yesPool = formatAmount(poolAmount, 18);
+            else noPool = formatAmount(poolAmount, 18);
+          }
+          if (yesPool !== null && noPool !== null) {
+            const yes = parseFloat(yesPool);
+            const total = yes + parseFloat(noPool);
+            if (total > 0) impliedProbYes = yes / total;
+          }
+        }
+
+        // Parse get_market_info: (felt252, u64, ContractAddress, ContractAddress, u16)
+        // = [questionHash, resolutionTime, creator, token, fee] — each 1 felt except
+        // felt252/u64/address are all 1 felt in Starknet serialization.
+        let resolutionTime: number | null = null;
+        if (marketInfoResult && Array.isArray(marketInfoResult) && marketInfoResult.length >= 2) {
+          resolutionTime = Number(BigInt(marketInfoResult[1]));
+        }
+
+        const statusLabel = status === 0 ? "OPEN" : status === 1 ? "RESOLVED" : "CANCELLED";
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              marketAddress,
+              status,
+              statusLabel,
+              totalPool,
+              yesPool,
+              noPool,
+              impliedProbYes: impliedProbYes !== null ? (impliedProbYes * 100).toFixed(1) + "%" : null,
+              resolutionTime,
+              resolutionDate: resolutionTime ? new Date(resolutionTime * 1000).toISOString() : null,
+            }, null, 2),
+          }],
+        };
+      }
+
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -2668,18 +3086,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-// Start server
+// Start server (stdio mode) — only when this file is the entry point.
+// When imported by http-server.ts, this block is skipped.
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   log({ level: "info", event: "server.started", details: { transport: "stdio" } });
 }
 
-main().catch((error) => {
-  log({
-    level: "error",
-    event: "server.fatal",
-    details: { error: error instanceof Error ? error.message : String(error) },
+const __filename = fileURLToPath(import.meta.url);
+const isDirectRun =
+  process.argv[1] === __filename ||
+  process.argv[1]?.endsWith("/dist/index.js") ||
+  process.argv[1]?.endsWith("/index.js");
+
+if (isDirectRun) {
+  main().catch((error) => {
+    log({
+      level: "error",
+      event: "server.fatal",
+      details: { error: error instanceof Error ? error.message : String(error) },
+    });
+    process.exit(1);
   });
-  process.exit(1);
-});
+}

@@ -1,0 +1,341 @@
+{
+  "version": "1",
+  "skills": [
+    {
+      "name": "cairo-contracts",
+      "description": "Use when writing Cairo smart contracts on Starknet — contract structure, storage, events, interfaces, components, OpenZeppelin v3 patterns, and common contract templates.",
+      "keywords": [
+        "cairo",
+        "contracts",
+        "starknet",
+        "openzeppelin",
+        "components",
+        "storage",
+        "events",
+        "interfaces",
+        "erc20",
+        "erc721"
+      ],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/cairo-contracts/SKILL.md",
+      "hasScripts": false,
+      "hasReferences": false,
+      "userInvocable": true
+    },
+    {
+      "name": "cairo-deploy",
+      "description": "Use when deploying Cairo contracts to Starknet — sncast commands, account setup, declare/deploy workflow, network configuration, contract verification.",
+      "keywords": [
+        "cairo",
+        "deploy",
+        "sncast",
+        "starknet",
+        "devnet",
+        "sepolia",
+        "mainnet",
+        "declare",
+        "verification"
+      ],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/cairo-deploy/SKILL.md",
+      "hasScripts": false,
+      "hasReferences": false,
+      "userInvocable": true
+    },
+    {
+      "name": "cairo-optimization",
+      "description": "Use as an explicit post-test optimization pass — fixing slow loops, expensive arithmetic, integer splitting or limb assembly, modular reduction, storage slot packing, or BoundedInt type bounds. Invoke after implementation and tests pass.",
+      "keywords": [
+        "cairo",
+        "optimization",
+        "gas",
+        "bounded-int",
+        "storage-packing",
+        "arithmetic",
+        "starknet",
+        "smart-contracts",
+        "performance",
+        "garaga"
+      ],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/cairo-optimization/SKILL.md",
+      "hasScripts": false,
+      "hasReferences": false,
+      "userInvocable": true
+    },
+    {
+      "name": "cairo-security",
+      "description": "Use when reviewing Cairo contracts for security — common vulnerabilities, audit patterns, production hardening, Cairo-specific pitfalls, L1/L2 bridging safety, session key security, precision/rounding bugs, static analysis tooling. Sourced from 50+ public audits and the Cairo Book.",
+      "keywords": [
+        "cairo",
+        "security",
+        "audit",
+        "vulnerabilities",
+        "access-control",
+        "reentrancy",
+        "starknet",
+        "production",
+        "hardening",
+        "l1-l2",
+        "session-keys",
+        "precision",
+        "rounding",
+        "static-analysis",
+        "snip-12",
+        "snip-9",
+        "outside-execution",
+        "governance",
+        "pausable",
+        "paymaster",
+        "account-abstraction",
+        "storage-node",
+        "vec",
+        "map",
+        "felt252",
+        "erc4626",
+        "erc20-permit"
+      ],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/cairo-security/SKILL.md",
+      "hasScripts": false,
+      "hasReferences": false,
+      "userInvocable": true
+    },
+    {
+      "name": "cairo-testing",
+      "description": "Use when writing tests for Cairo smart contracts — snforge test structure, contract deployment in tests, cheatcodes, event testing, fuzzing, fork testing.",
+      "keywords": [
+        "cairo",
+        "testing",
+        "snforge",
+        "starknet-foundry",
+        "fuzzing",
+        "cheatcodes",
+        "integration-tests",
+        "unit-tests"
+      ],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/cairo-testing/SKILL.md",
+      "hasScripts": false,
+      "hasReferences": false,
+      "userInvocable": true
+    },
+    {
+      "name": "controller-cli",
+      "description": "\"Use when installing and operating the Cartridge Controller CLI (`controller`) to create human-approved sessions and execute Starknet transactions (JSON-only, explicit network selection, least-privilege policy scoping, paymaster control, and error recovery).\"",
+      "keywords": [],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/controller-cli/SKILL.md",
+      "hasScripts": true,
+      "hasReferences": false,
+      "userInvocable": true
+    },
+    {
+      "name": "huginn-log",
+      "description": "Log AI reasoning on-chain for auditability and verifiable provenance. Hash reasoning text with SHA-256, store the u256 hash in the Huginn Registry on Starknet, and optionally prove it with a ZK verifier. Creates an immutable, trustless audit trail of AI decision-making.",
+      "keywords": [
+        "huginn",
+        "provenance",
+        "reasoning",
+        "on-chain",
+        "sha256",
+        "hash",
+        "zk-proof",
+        "audit",
+        "thought-log",
+        "trustless"
+      ],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/huginn-log/SKILL.md",
+      "hasScripts": false,
+      "hasReferences": false,
+      "userInvocable": true
+    },
+    {
+      "name": "huginn-onboard",
+      "description": "Bridge to Starknet from any EVM chain and register with Huginn agent registry. Enables cross-chain agent onboarding with AVNU bridge integration.",
+      "keywords": [
+        "starknet",
+        "bridge",
+        "huginn",
+        "onboarding",
+        "cross-chain",
+        "ethereum",
+        "base",
+        "arbitrum",
+        "avnu"
+      ],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/huginn-onboard/SKILL.md",
+      "hasScripts": false,
+      "hasReferences": false,
+      "userInvocable": true
+    },
+    {
+      "name": "starknet-anonymous-wallet",
+      "description": "Create an anonymous Starknet wallet via Typhoon and interact with Starknet contracts. Privacy-focused wallet creation for agents requiring anonymity.",
+      "keywords": [
+        "starknet",
+        "wallet",
+        "anonymous",
+        "transfer",
+        "balance",
+        "anonymous-agent-wallet",
+        "strk",
+        "eth",
+        "privacy",
+        "typhoon"
+      ],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/starknet-anonymous-wallet/SKILL.md",
+      "hasScripts": true,
+      "hasReferences": true,
+      "userInvocable": true
+    },
+    {
+      "name": "starknet-defi",
+      "description": "Execute DeFi operations on Starknet including token swaps via avnu aggregator, DCA recurring buys, STRK staking, and lending/borrowing. Supports gasless transactions.",
+      "keywords": [
+        "starknet",
+        "defi",
+        "swap",
+        "dca",
+        "staking",
+        "lending",
+        "avnu",
+        "ekubo",
+        "jediswap",
+        "zklend",
+        "nostra",
+        "aggregator",
+        "yield"
+      ],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/starknet-defi/SKILL.md",
+      "hasScripts": true,
+      "hasReferences": false,
+      "userInvocable": true
+    },
+    {
+      "name": "starknet-forecast",
+      "description": "Superforecasting methodology for AI agents on Starknet. Use multi-persona debate, autonomous tool-use research loops, calibrated probability estimation (Brier scoring), and on-chain reputation weighting to produce well-calibrated forecasts for any prediction market question.",
+      "keywords": [
+        "forecasting",
+        "superforecaster",
+        "probability",
+        "brier-score",
+        "calibration",
+        "multi-agent",
+        "debate",
+        "tool-use",
+        "prediction-market"
+      ],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/starknet-forecast/SKILL.md",
+      "hasScripts": false,
+      "hasReferences": false,
+      "userInvocable": true
+    },
+    {
+      "name": "starknet-identity",
+      "description": "Register AI agents on-chain using the ERC-8004 Trustless Agents standard. Manage agent identity as NFTs, build reputation through feedback, and request third-party validation.",
+      "keywords": [
+        "starknet",
+        "identity",
+        "erc-8004",
+        "agent-registry",
+        "reputation",
+        "validation",
+        "nft",
+        "trustless",
+        "on-chain-identity",
+        "agent-registration"
+      ],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/starknet-identity/SKILL.md",
+      "hasScripts": true,
+      "hasReferences": false,
+      "userInvocable": true
+    },
+    {
+      "name": "starknet-js",
+      "description": "\"Guide for building Starknet applications using starknet.js v9.x SDK. Use when developing Starknet dApps, interacting with smart contracts, managing accounts, handling transactions, estimating fees, integrating browser wallets, or working with Paymaster for sponsored/alternative gas token transactions.\"",
+      "keywords": [],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/starknet-js/SKILL.md",
+      "hasScripts": false,
+      "hasReferences": false,
+      "userInvocable": true
+    },
+    {
+      "name": "starknet-mini-pay",
+      "description": "Simple P2P payments on Starknet. Generate QR codes, payment links, invoices, and transfer ETH/STRK/USDC. Like Lightning, but native.",
+      "keywords": [
+        "starknet",
+        "payments",
+        "qr-code",
+        "payment-links",
+        "lightning",
+        "p2p",
+        "transfer",
+        "invoice",
+        "strk",
+        "eth",
+        "usdc"
+      ],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/starknet-mini-pay/SKILL.md",
+      "hasScripts": true,
+      "hasReferences": false,
+      "userInvocable": true
+    },
+    {
+      "name": "starknet-predict",
+      "description": "Interact with Starknet prediction markets on Sepolia. Place bets, view open markets and implied probabilities, record probability predictions on-chain for Brier score tracking, claim winnings from resolved markets, and create new markets via the factory contract.",
+      "keywords": [
+        "starknet",
+        "prediction-market",
+        "bet",
+        "forecast",
+        "probability",
+        "brier-score",
+        "strk",
+        "claim",
+        "sepolia",
+        "factory"
+      ],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/starknet-predict/SKILL.md",
+      "hasScripts": false,
+      "hasReferences": false,
+      "userInvocable": true
+    },
+    {
+      "name": "starknet-research",
+      "description": "Access 12 real-world data sources for prediction research. Fetch live crypto prices (CoinGecko), Polymarket odds, ESPN sports data, web search (Tavily/Brave), news headlines, GitHub trends, Starknet on-chain metrics, RSS feeds, X trends, and Telegram signals. Each source fails gracefully with empty results when API keys are absent.",
+      "keywords": [
+        "research",
+        "polymarket",
+        "coingecko",
+        "espn",
+        "tavily",
+        "brave",
+        "crypto",
+        "starknet",
+        "github",
+        "rss",
+        "data-sources"
+      ],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/starknet-research/SKILL.md",
+      "hasScripts": false,
+      "hasReferences": false,
+      "userInvocable": true
+    },
+    {
+      "name": "starknet-wallet",
+      "description": "Create and manage Starknet wallets for AI agents. Transfer tokens, check balances, manage session keys, deploy accounts, and interact with smart contracts using native Account Abstraction.",
+      "keywords": [
+        "starknet",
+        "wallet",
+        "transfer",
+        "balance",
+        "session-keys",
+        "account-abstraction",
+        "paymaster",
+        "gasless",
+        "agent-wallet",
+        "strk",
+        "eth"
+      ],
+      "url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/starknet-wallet/SKILL.md",
+      "hasScripts": true,
+      "hasReferences": false,
+      "userInvocable": true
+    }
+  ]
+}

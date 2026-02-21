@@ -30,6 +30,7 @@ import {
 import { runWizard } from "./wizards.js";
 import { parseCredentialsArgs, runCredentialsSetup } from "./credentials.js";
 import { parseVerifyArgs, runVerification } from "./verify.js";
+import { sovereignAgentWizard } from "./deploy-wizard.js";
 
 const VERSION = "0.5.0";
 
@@ -49,6 +50,7 @@ ${pc.bold("Usage:")}
   npx create-starknet-agent credentials [options]
 
 ${pc.bold("Commands:")}
+  ${pc.cyan("deploy")}         Deploy a sovereign agent on Starknet (AgentAccount + ERC-8004 identity)
   ${pc.cyan("credentials")}    Securely configure Starknet wallet credentials
   ${pc.cyan("verify")}         Verify setup is working correctly (MCP, credentials, skills)
 
@@ -88,6 +90,12 @@ ${pc.bold("Exit Codes:")}
   2  Missing required credentials
   3  Platform not supported
 
+${pc.bold("Deploy Options:")}
+  --network <net>       sepolia or mainnet (default: sepolia)
+  --bitsage-cloud       Provision BitsagE Cloud compute machine
+  --tier <tier>         nano (0.05 STRK/hr), micro (0.10), small (0.25) [default: nano]
+  --dry-run             Preview all steps without sending transactions
+
 ${pc.bold("Examples:")}
   npx create-starknet-agent my-agent
   npx create-starknet-agent my-agent --template defi
@@ -95,6 +103,8 @@ ${pc.bold("Examples:")}
   npx create-starknet-agent my-agent --platform claude-code
   npx create-starknet-agent --detect-only
   npx create-starknet-agent my-agent -y
+  npx create-starknet-agent deploy my-agent --network sepolia --dry-run
+  npx create-starknet-agent deploy my-agent --network sepolia --bitsage-cloud --tier nano
 
 ${pc.bold("Credential Setup:")}
   npx create-starknet-agent credentials
@@ -769,6 +779,137 @@ function outputJson(result: JsonSetupResult | JsonVerifyResult | JsonDetectResul
   process.exit(exitCode);
 }
 
+// ── Deploy subcommand ─────────────────────────────────────────────────────────
+
+/**
+ * Parse deploy subcommand arguments.
+ * Usage: npx create-starknet-agent deploy [name] [--network <n>] [--bitsage-cloud] [--tier <t>] [--dry-run]
+ */
+function parseDeployArgs(args: string[]): {
+  name?: string;
+  network: "sepolia" | "mainnet";
+  bitsageCloud: boolean;
+  tier: "nano" | "micro" | "small";
+  dryRun: boolean;
+} {
+  const result = {
+    name: undefined as string | undefined,
+    network: "sepolia" as "sepolia" | "mainnet",
+    bitsageCloud: false,
+    tier: "nano" as "nano" | "micro" | "small",
+    dryRun: false,
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--network" && args[i + 1]) {
+      const net = args[++i];
+      if (net === "mainnet" || net === "sepolia") result.network = net;
+    } else if (arg === "--bitsage-cloud") {
+      result.bitsageCloud = true;
+    } else if (arg === "--tier" && args[i + 1]) {
+      const t = args[++i];
+      if (t === "nano" || t === "micro" || t === "small") result.tier = t;
+    } else if (arg === "--dry-run") {
+      result.dryRun = true;
+    } else if (!arg.startsWith("-") && !result.name) {
+      result.name = arg;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Run the sovereign agent deploy wizard.
+ */
+async function runDeployCommand(args: string[]): Promise<void> {
+  const parsed = parseDeployArgs(args);
+
+  const onCancel = () => {
+    console.log(pc.red("\nDeploy cancelled."));
+    process.exit(0);
+  };
+
+  // Prompt for agent name if not provided
+  let agentName = parsed.name;
+  if (!agentName) {
+    const { name } = await prompts(
+      {
+        type: "text",
+        name: "name",
+        message: "Agent name:",
+        initial: "my-sovereign-agent",
+        validate: (v: string) => /^[a-zA-Z][a-zA-Z0-9_-]*$/.test(v) || "Use letters, numbers, - or _",
+      },
+      { onCancel }
+    );
+    agentName = name as string;
+  }
+
+  // Mainnet safety gate
+  if (parsed.network === "mainnet" && !parsed.dryRun) {
+    console.log(pc.yellow("\nWARNING: You are about to deploy on MAINNET using real STRK."));
+    const { confirmed } = await prompts(
+      {
+        type: "confirm",
+        name: "confirmed",
+        message: "Are you sure you want to deploy on mainnet?",
+        initial: false,
+      },
+      { onCancel }
+    );
+    if (!confirmed) {
+      console.log(pc.dim("Deployment cancelled."));
+      process.exit(0);
+    }
+  }
+
+  // Prompt for parent wallet credentials (used only for factory call)
+  console.log();
+  console.log(pc.dim("Your parent wallet will pay the deployment gas fee."));
+  console.log(pc.dim("The new agent will get its own keypair and address."));
+
+  const { parentPrivateKey } = await prompts(
+    {
+      type: "password",
+      name: "parentPrivateKey",
+      message: "Parent wallet private key (0x...):",
+      validate: (v: string) => v.startsWith("0x") || "Must start with 0x",
+    },
+    { onCancel }
+  );
+
+  const { parentAddress } = await prompts(
+    {
+      type: "text",
+      name: "parentAddress",
+      message: "Parent wallet address (0x...):",
+      validate: (v: string) => v.startsWith("0x") || "Must start with 0x",
+    },
+    { onCancel }
+  );
+
+  // Run the wizard
+  try {
+    await sovereignAgentWizard({
+      name: agentName,
+      network: parsed.network,
+      parentPrivateKey: parentPrivateKey as string,
+      parentAddress: parentAddress as string,
+      bitsageCloud: parsed.bitsageCloud,
+      tier: parsed.tier,
+      dryRun: parsed.dryRun,
+    });
+    process.exit(0);
+  } catch (err) {
+    console.error(pc.red("\nDeploy failed:"), (err as Error).message);
+    process.exit(EXIT_CODES.CONFIG_ERROR);
+  }
+}
+
+// ── Main entry point ──────────────────────────────────────────────────────────
+
 // Main entry point
 async function main() {
   const args = process.argv.slice(2);
@@ -797,6 +938,13 @@ async function main() {
 
     await runVerification(verifyArgs);
     return; // runVerification calls process.exit
+  }
+
+  // Handle deploy subcommand
+  if (args[0] === "deploy") {
+    printBanner();
+    await runDeployCommand(args.slice(1));
+    return;
   }
 
   const parsed = parseArgs(args);
