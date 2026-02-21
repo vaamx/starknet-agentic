@@ -1,10 +1,13 @@
 import { NextRequest } from "next/server";
 import { forecastMarket } from "@/lib/agent-forecaster";
+import { agenticForecastMarket, type AgenticForecastEvent } from "@/lib/forecast-tools";
 import { AGENT_PERSONAS } from "@/lib/agent-personas";
 import { getMarketById, getAgentPredictions, MARKET_QUESTIONS, SUPER_BOWL_REGEX } from "@/lib/market-reader";
 import { gatherResearch, buildResearchBrief } from "@/lib/data-sources/index";
 import type { DataSourceName } from "@/lib/data-sources/index";
 import { runDebateRound, type Round1Result } from "@/lib/agent-debate";
+import { requireX402 } from "@/lib/x402-middleware";
+import { config } from "@/lib/config";
 
 /**
  * Multi-agent forecast endpoint.
@@ -15,6 +18,10 @@ import { runDebateRound, type Round1Result } from "@/lib/agent-debate";
 export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
+  // Phase C: X-402 payment check — must happen BEFORE opening the SSE stream
+  const paymentResult = await requireX402(request, "multi_predict", config.x402PriceMultiPredict);
+  if (paymentResult instanceof Response) return paymentResult; // HTTP 402
+
   const body = await request.json();
   const marketId = body.marketId as number;
 
@@ -75,6 +82,23 @@ export async function POST(request: NextRequest) {
           researchBrief = "";
         }
 
+        // Compute once — same value for all 5 persona iterations.
+        const useToolUse = process.env.AGENT_TOOL_USE_ENABLED !== "false";
+
+        // Base context fields are identical across all personas; only systemPrompt varies.
+        // Factoring avoids re-computing agentPredictions.map() 5× unnecessarily.
+        const baseContext = {
+          currentMarketProb: market.impliedProbYes,
+          totalPool: (market.totalPool / 10n ** 18n).toString(),
+          agentPredictions: predictions.map((p) => ({
+            agent: p.agent.slice(0, 10),
+            prob: p.predictedProb,
+            brier: p.brierScore,
+          })),
+          timeUntilResolution: `${daysUntil} days`,
+          researchBrief,
+        };
+
         // ======== ROUND 1: Independent Forecasts ========
         for (const persona of AGENT_PERSONAS) {
           controller.enqueue(
@@ -103,18 +127,11 @@ export async function POST(request: NextRequest) {
             );
           }
 
-          const generator = forecastMarket(question, {
-            currentMarketProb: market.impliedProbYes,
-            totalPool: (market.totalPool / 10n ** 18n).toString(),
-            agentPredictions: predictions.map((p) => ({
-              agent: p.agent.slice(0, 10),
-              prob: p.predictedProb,
-              brier: p.brierScore,
-            })),
-            timeUntilResolution: `${daysUntil} days`,
-            researchBrief,
-            systemPrompt: persona.systemPrompt,
-          });
+          const forecastContext = { ...baseContext, systemPrompt: persona.systemPrompt };
+
+          const generator = useToolUse
+            ? agenticForecastMarket(question, forecastContext)
+            : forecastMarket(question, forecastContext);
 
           let result: any;
           while (true) {
@@ -123,15 +140,34 @@ export async function POST(request: NextRequest) {
               result = value;
               break;
             }
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  type: "text",
-                  agentId: persona.id,
-                  content: value,
-                })}\n\n`
-              )
-            );
+            if (useToolUse) {
+              const event = value as AgenticForecastEvent;
+              if (event.type === "reasoning_chunk") {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: "text", agentId: persona.id, content: event.content })}\n\n`
+                  )
+                );
+              } else if (event.type === "tool_call") {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: "tool_call", agentId: persona.id, toolName: event.toolName, toolUseId: event.toolUseId, input: event.input })}\n\n`
+                  )
+                );
+              } else if (event.type === "tool_result") {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: "tool_result", agentId: persona.id, toolName: event.toolName, toolUseId: event.toolUseId, result: event.result, isError: event.isError })}\n\n`
+                  )
+                );
+              }
+            } else {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ type: "text", agentId: persona.id, content: value as string })}\n\n`
+                )
+              );
+            }
           }
 
           if (typeof result?.probability !== "number") {

@@ -13,6 +13,7 @@ import WalletConnect from "./components/WalletConnect";
 import ResearchLab from "./components/ResearchLab";
 import OpenClawConnections from "./components/OpenClawConnections";
 import SwarmDialogue from "./components/SwarmDialogue";
+import SurvivalDashboard from "./components/SurvivalDashboard";
 import { STORAGE_KEY, type SerializedSpawnedAgent } from "@/lib/agent-spawner";
 import {
   categorizeMarket,
@@ -702,6 +703,8 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
+
+            <SurvivalDashboard />
 
             <SwarmDialogue isLoopRunning={autonomousMode} />
 

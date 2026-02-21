@@ -126,14 +126,36 @@ export interface CreateMarketResult extends TxResult {
   allowlistError?: string;
 }
 
+/**
+ * Get the STRK wallet balance for the given address (or AGENT_ADDRESS if omitted).
+ * Returns 0n on any RPC error.
+ */
+export async function getWalletBalance(address?: string): Promise<bigint> {
+  const target = address ?? config.AGENT_ADDRESS;
+  if (!target) return 0n;
+  try {
+    const result = await provider.callContract({
+      contractAddress: config.COLLATERAL_TOKEN_ADDRESS,
+      entrypoint: "balanceOf",
+      calldata: CallData.compile({ account: target }),
+    });
+    const low  = BigInt(result[0] ?? "0x0");
+    const high = BigInt(result[1] ?? "0x0");
+    return low + high * (2n ** 128n);
+  } catch {
+    return 0n;
+  }
+}
+
 /** Place a bet on a prediction market. */
 export async function placeBet(
   marketAddress: string,
   outcome: 0 | 1,
   amount: bigint,
-  collateralToken: string
+  collateralToken: string,
+  accountOverride?: Account
 ): Promise<TxResult> {
-  const account = getAccount();
+  const account = accountOverride ?? getAccount();
   if (!account) {
     return { txHash: "", status: "error", error: "No agent account configured" };
   }
@@ -175,9 +197,10 @@ export async function placeBet(
 /** Record an agent prediction on the accuracy tracker. */
 export async function recordPrediction(
   marketId: number,
-  probability: number
+  probability: number,
+  accountOverride?: Account
 ): Promise<TxResult> {
-  const account = getAccount();
+  const account = accountOverride ?? getAccount();
   if (!account) {
     return { txHash: "", status: "error", error: "No agent account configured" };
   }

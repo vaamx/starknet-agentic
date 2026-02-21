@@ -1,8 +1,17 @@
 /**
- * OASF Agent Manifest — /.well-known/agent.json
+ * Canonical A2A / OASF Agent Manifest — /.well-known/agent.json
  *
- * Open Agent Service Framework manifest for indexing by
- * Daydreams, xgate.run, and other agent discovery services.
+ * This path is the canonical Google A2A discovery endpoint:
+ *   https://developers.google.com/agent-to-agent
+ *
+ * Also the OASF manifest path used by Daydreams, xgate.run, and
+ * other agent discovery services.
+ *
+ * The richer A2A Agent Card (with full skill/billing detail) is at:
+ *   /.well-known/agent-card.json
+ *
+ * Both paths are kept in sync. This manifest is intentionally brief
+ * and links to the full card for details.
  */
 
 export async function GET() {
@@ -14,109 +23,149 @@ export async function GET() {
     schema_version: "1.0",
     name: "BitSage Prediction Oracle",
     description:
-      "On-chain prediction market agent swarm on Starknet Sepolia. Multiple AI personas research live sources, forecast probabilities, execute real STRK bets, and track accuracy via Brier scores.",
+      "Autonomous on-chain prediction market agent on Starknet Sepolia. " +
+      "Multi-AI-persona research + debate + STRK-collateral betting. " +
+      "Survival-gated: self-throttles based on STRK treasury. " +
+      "OpenClaw peer forecast mesh supported.",
     url: baseUrl,
-    version: "1.0.0",
+    version: "2.0.0",
     author: {
       name: "BitSage Network / keep-starknet-strange",
       url: "https://github.com/keep-starknet-strange/starknet-agentic",
     },
+
+    // ── Protocol support ───────────────────────────────────────────────────
     protocols: [
       {
         name: "A2A",
         version: "1.0",
+        // Both paths serve the full A2A agent card.
         endpoint: `${baseUrl}/.well-known/agent-card.json`,
+        note: "Also served at /.well-known/agent.json (this document).",
       },
       {
         name: "MCP",
         version: "1.0",
-        description: "Starknet MCP server with 9 tools",
+        description: "Starknet MCP server — 31+ tools via stdio or StreamableHTTP.",
       },
       {
-        name: "x402",
-        description: "Starknet payment signing for HTTP 402 flows",
+        name: "X-402",
+        description: "STRK payment gating for predict / multi-predict endpoints (SNIP-12 signed).",
       },
       {
         name: "ERC-8004",
+        description: "On-chain agent identity (IdentityRegistry), reputation, and validation.",
+      },
+      {
+        name: "OpenClaw",
         description:
-          "On-chain agent identity, reputation, and validation registries",
+          "A2A peer forecast mesh. POST forecasts to /api/openclaw/forecast; " +
+          "delegate to peers via /api/openclaw/delegate.",
       },
     ],
+
+    // ── Agent personas ─────────────────────────────────────────────────────
     agents: [
       {
         id: "alpha",
         name: "AlphaForecaster",
         type: "superforecaster",
-        model: "claude-sonnet-4-5",
-        description:
-          "Calibrated superforecaster using Good Judgment Project methodology",
+        model: "claude-sonnet-4-6",
+        description: "Calibrated superforecaster — Good Judgment Project methodology.",
       },
       {
         id: "beta",
         name: "BetaAnalyst",
         type: "quant-forecaster",
-        model: "claude-sonnet-4-5",
-        description:
-          "Quantitative analyst focused on on-chain metrics and technicals",
+        model: "claude-sonnet-4-6",
+        description: "Quant analyst — on-chain metrics, technicals.",
       },
       {
         id: "gamma",
         name: "GammaTrader",
         type: "market-maker",
-        model: "claude-sonnet-4-5",
-        description:
-          "Market-making agent analyzing liquidity, flow, and cross-venue data",
+        model: "claude-sonnet-4-6",
+        description: "Market maker — liquidity, flow, cross-venue arbitrage signals.",
       },
       {
         id: "delta",
         name: "DeltaScout",
         type: "data-analyst",
-        model: "claude-sonnet-4-5",
-        description:
-          "Data-driven agent prioritizing primary sources and developer activity",
+        model: "claude-sonnet-4-6",
+        description: "Data analyst — primary sources, developer activity, chain data.",
       },
       {
         id: "epsilon",
         name: "EpsilonOracle",
         type: "news-analyst",
-        model: "claude-sonnet-4-5",
-        description:
-          "News and sentiment analyst tracking narrative shifts and institutional signals",
+        model: "claude-sonnet-4-6",
+        description: "News/sentiment analyst — narrative, institutional signals.",
       },
     ],
-    dataSources: [
-      "polymarket",
-      "coingecko",
-      "news",
-      "social",
-      "espn",
-    ],
-    endpoints: {
-      predict: `${baseUrl}/api/predict`,
-      multiPredict: `${baseUrl}/api/multi-predict`,
-      markets: `${baseUrl}/api/markets`,
-      dataSources: `${baseUrl}/api/data-sources`,
-      agentLoop: `${baseUrl}/api/agent-loop`,
-      agentCard: `${baseUrl}/.well-known/agent-card.json`,
+
+    // ── Survival / economic model ──────────────────────────────────────────
+    survivalModel: {
+      description:
+        "Agent behavior is gated on its on-chain STRK balance. " +
+        "Each heartbeat tick maps balance → tier → model selection + bet multiplier.",
+      tiers: ["thriving (≥1000 STRK)", "healthy (≥100)", "low (≥10)", "critical (≥1)", "dead (<1)"],
+      balanceEndpoint: `${baseUrl}/api/survival`,
+      soulEndpoint:    `${baseUrl}/api/soul`,
     },
+
+    // ── Compute billing ────────────────────────────────────────────────────
+    billingModel: {
+      type: "strk-escrow-heartbeat",
+      collateralToken: "STRK",
+      tokenAddress: "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+      safetyRails: [
+        "tick_id replay protection",
+        "agent circuit breaker (pause/resume)",
+        "agent daily cap (on-chain)",
+        "48h operator timelock",
+      ],
+    },
+
+    // ── Data sources ───────────────────────────────────────────────────────
+    dataSources: ["polymarket", "coingecko", "news", "social", "espn", "tavily"],
+
+    // ── Endpoints ─────────────────────────────────────────────────────────
+    endpoints: {
+      agentCard:    `${baseUrl}/.well-known/agent-card.json`,
+      predict:      `${baseUrl}/api/predict`,
+      multiPredict: `${baseUrl}/api/multi-predict`,
+      markets:      `${baseUrl}/api/markets`,
+      survival:     `${baseUrl}/api/survival`,
+      soul:         `${baseUrl}/api/soul`,
+      heartbeat:    `${baseUrl}/api/heartbeat`,
+      openclawForecast: `${baseUrl}/api/openclaw/forecast`,
+      openclawDelegate: `${baseUrl}/api/openclaw/delegate`,
+    },
+
+    // ── Blockchain ─────────────────────────────────────────────────────────
     blockchain: {
       network: "starknet-sepolia",
-      factoryAddress: process.env.MARKET_FACTORY_ADDRESS ?? "0x0",
-      trackerAddress: process.env.ACCURACY_TRACKER_ADDRESS ?? "0x0",
+      agentAddress:    process.env.AGENT_ADDRESS ?? "0x0",
+      factoryAddress:  process.env.MARKET_FACTORY_ADDRESS ?? "0x0",
+      huginnRegistry:  process.env.HUGINN_REGISTRY_ADDRESS ?? "0x0",
       collateralToken: {
-        symbol: "STRK",
-        address:
-          "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+        symbol:  "STRK",
+        address: "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
       },
     },
+
+    // ── Feature flags ──────────────────────────────────────────────────────
     features: [
       "multi-agent-debate",
       "reputation-weighted-consensus",
-      "research-lab",
+      "survival-tiered-operation",
       "on-chain-brier-scores",
       "autonomous-betting",
+      "huginn-thought-provenance",
+      "openclaw-peer-mesh",
       "sse-streaming",
-      "on-chain-activity-indexer",
+      "x402-payment-gating",
+      "child-agent-replication",
     ],
   };
 
