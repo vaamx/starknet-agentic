@@ -145,6 +145,10 @@ jobs:
         working-directory: contracts/session-account
         run: scarb build
 
+      - name: Check bitsage-escrow contracts
+        working-directory: contracts/bitsage-escrow
+        run: scarb build
+
   cairo-test-erc8004:
     name: Cairo Tests (erc8004)
     runs-on: ubuntu-latest
@@ -272,6 +276,8 @@ jobs:
   validate-skills:
     name: Validate Skills
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -335,6 +341,30 @@ jobs:
           EOF
 
           echo "Plugin manifest validated successfully!"
+
+      - name: Generate skill registry
+        run: node scripts/generate-skill-registry.mjs > skills/registry.json
+
+      - name: Validate generated registry
+        run: |
+          python3 -c "
+          import json, sys
+          with open('skills/registry.json') as f:
+              d = json.load(f)
+          count = len(d.get('skills', []))
+          print(f'skills/registry.json: {count} skills — OK')
+          if count == 0:
+              sys.exit(1)
+          "
+
+      - name: Commit registry (main branch only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add skills/registry.json
+          git diff --staged --quiet || git commit -m "chore: regenerate skills/registry.json [skip ci]"
+          git push
 
   onboarding-smoke:
     name: Onboarding Smoke
