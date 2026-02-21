@@ -1,12 +1,20 @@
 import { NextRequest } from "next/server";
 import { forecastMarket, extractProbability } from "@/lib/agent-forecaster";
+import { agenticForecastMarket, type AgenticForecastEvent } from "@/lib/forecast-tools";
 import { getMarketById, getAgentPredictions, MARKET_QUESTIONS } from "@/lib/market-reader";
 import { AGENT_PERSONAS } from "@/lib/agent-personas";
 import { recordPrediction } from "@/lib/starknet-executor";
+import { logThoughtOnChain } from "@/lib/huginn-executor";
+import { requireX402 } from "@/lib/x402-middleware";
+import { config } from "@/lib/config";
 
 export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
+  // Phase C: X-402 payment check — must happen BEFORE opening the SSE stream
+  const paymentResult = await requireX402(request, "predict", config.x402PricePredict);
+  if (paymentResult instanceof Response) return paymentResult; // HTTP 402
+
   const body = await request.json();
   const marketId = body.marketId as number;
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -45,7 +53,9 @@ export async function POST(request: NextRequest) {
         const alphaPrompt =
           AGENT_PERSONAS.find((p) => p.id === "alpha")?.systemPrompt;
 
-        const generator = forecastMarket(question, {
+        const useToolUse = process.env.AGENT_TOOL_USE_ENABLED !== "false";
+
+        const forecastContext = {
           currentMarketProb: market.impliedProbYes,
           totalPool: (market.totalPool / 10n ** 18n).toString(),
           agentPredictions: predictions.map((p) => ({
@@ -55,7 +65,11 @@ export async function POST(request: NextRequest) {
           })),
           timeUntilResolution: `${daysUntil} days`,
           systemPrompt: alphaPrompt,
-        });
+        };
+
+        const generator = useToolUse
+          ? agenticForecastMarket(question, forecastContext)
+          : forecastMarket(question, forecastContext);
 
         let fullText = "";
         let result: any;
@@ -66,10 +80,30 @@ export async function POST(request: NextRequest) {
             result = value;
             break;
           }
-          fullText += value;
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ type: "text", content: value })}\n\n`)
-          );
+
+          if (useToolUse) {
+            const event = value as AgenticForecastEvent;
+            if (event.type === "reasoning_chunk") {
+              fullText += event.content;
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ type: "text", content: event.content })}\n\n`)
+              );
+            } else if (event.type === "tool_call") {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ type: "tool_call", toolName: event.toolName, toolUseId: event.toolUseId, input: event.input })}\n\n`)
+              );
+            } else if (event.type === "tool_result") {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ type: "tool_result", toolName: event.toolName, toolUseId: event.toolUseId, result: event.result, isError: event.isError })}\n\n`)
+              );
+            }
+          } else {
+            const chunk = value as string;
+            fullText += chunk;
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: "text", content: chunk })}\n\n`)
+            );
+          }
         }
 
         const probability =
@@ -84,17 +118,48 @@ export async function POST(request: NextRequest) {
           return;
         }
 
-        // Attempt to record prediction on-chain
-        const txResult = await recordPrediction(marketId, probability);
+        // Record prediction and log Huginn thought concurrently.
+        // logThoughtOnChain() never throws — errors surface as HuginnLogResult.status="error".
+        // recordPrediction() is safe to fire in parallel since it has its own error handling.
+        const [txSettled, huginnSettled] = await Promise.allSettled([
+          recordPrediction(marketId, probability),
+          logThoughtOnChain(fullText),
+        ]);
+
+        const txResult =
+          txSettled.status === "fulfilled" ? txSettled.value : null;
+        const huginnResult =
+          huginnSettled.status === "fulfilled" ? huginnSettled.value : null;
+
+        // SHA-256 fingerprint of the reasoning — present on skip and success.
+        const thoughtHash = huginnResult?.thoughtHash || undefined;
+        // Starknet tx hash of the log_thought() call — only on Huginn success.
+        const huginnTxHash =
+          huginnResult?.status === "success" ? huginnResult.txHash : undefined;
+
+        // Emit huginn_log before the final result so the UI can show it inline.
+        if (huginnResult?.status === "success") {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: "huginn_log",
+                thoughtHash,
+                huginnTxHash,
+              })}\n\n`
+            )
+          );
+        }
 
         controller.enqueue(
           encoder.encode(
             `data: ${JSON.stringify({
               type: "result",
               probability,
-              txHash: txResult.txHash,
-              txStatus: txResult.status,
-              txError: txResult.error,
+              txHash: txResult?.txHash,
+              txStatus: txResult?.status ?? "error",
+              txError: txResult?.error,
+              reasoningHash: thoughtHash,
+              huginnTxHash,
             })}\n\n`
           )
         );

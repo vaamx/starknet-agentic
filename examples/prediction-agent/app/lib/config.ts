@@ -1,5 +1,18 @@
 import { z } from "zod";
 
+/**
+ * Starknet address validator — accepts "0x0" sentinel OR a valid hex address.
+ * A Starknet address is 0x followed by 1–64 lowercase hex characters.
+ * Leading zeros are stripped by the node so "0x0" and "0x00000" are both valid.
+ */
+const starknetAddressOrZero = (label: string) =>
+  z
+    .string()
+    .refine(
+      (val) => /^0x[0-9a-fA-F]{1,64}$/.test(val),
+      { message: `${label} must be '0x0' or a valid hex address (0x + 1–64 hex chars)` }
+    );
+
 const envSchema = z.object({
   STARKNET_RPC_URL: z.string().url().default("https://rpc.starknet-testnet.lava.build"),
   STARKNET_CHAIN_ID: z.string().default("SN_SEPOLIA"),
@@ -21,9 +34,9 @@ const envSchema = z.object({
   SESSION_KEY_ADMIN_TOKEN: z.string().optional(),
   AGENT_ID: z.string().default("1"),
   AGENT_ACCOUNT_FACTORY: z.string().optional(),
-  MARKET_FACTORY_ADDRESS: z.string().default("0x0"),
-  ACCURACY_TRACKER_ADDRESS: z.string().default("0x0"),
-  COLLATERAL_TOKEN_ADDRESS: z.string().default(
+  MARKET_FACTORY_ADDRESS: starknetAddressOrZero("MARKET_FACTORY_ADDRESS").default("0x0"),
+  ACCURACY_TRACKER_ADDRESS: starknetAddressOrZero("ACCURACY_TRACKER_ADDRESS").default("0x0"),
+  COLLATERAL_TOKEN_ADDRESS: starknetAddressOrZero("COLLATERAL_TOKEN_ADDRESS").default(
     "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"
   ),
   ANTHROPIC_API_KEY: z.string().optional(),
@@ -55,6 +68,48 @@ const envSchema = z.object({
   AGENT_BET_MIN_STRK: z.string().default("5"),
   AGENT_BET_MAX_STRK: z.string().default("10"),
   AGENT_BET_CONFIDENCE_THRESHOLD: z.string().default("0.15"),
+  // Huginn Registry — on-chain thought provenance
+  HUGINN_REGISTRY_ADDRESS: starknetAddressOrZero("HUGINN_REGISTRY_ADDRESS").default("0x0"),
+  // Tavily web search (Tavily → Brave fallback when absent)
+  TAVILY_API_KEY: z.string().optional(),
+  // Agentic tool-use feature flags
+  AGENT_TOOL_USE_ENABLED: z.string().default("true"),
+  AGENT_TOOL_MAX_TURNS: z
+    .string()
+    .default("8")
+    .refine(
+      (val) => {
+        const n = parseInt(val, 10);
+        return Number.isFinite(n) && n >= 1 && n <= 20;
+      },
+      { message: "AGENT_TOOL_MAX_TURNS must be an integer between 1 and 20" }
+    ),
+  // Phase A — Heartbeat authentication
+  HEARTBEAT_SECRET: z.string().optional(),
+  // Phase B — Survival tier thresholds (STRK amounts)
+  SURVIVAL_TIER_THRIVING:  z.string().default("1000"),
+  SURVIVAL_TIER_HEALTHY:   z.string().default("100"),
+  SURVIVAL_TIER_LOW:       z.string().default("10"),
+  SURVIVAL_TIER_CRITICAL:  z.string().default("1"),
+  SURVIVAL_CHECK_INTERVAL: z.string().default("3"),
+  SURVIVAL_MODEL_THRIVING: z.string().default("claude-opus-4-6"),
+  SURVIVAL_MODEL_HEALTHY:  z.string().default("claude-sonnet-4-6"),
+  SURVIVAL_MODEL_LOW:      z.string().default("claude-haiku-4-5-20251001"),
+  // Phase C — X-402 paywall (default OFF)
+  X402_ENABLED:             z.string().default("false"),
+  X402_PRICE_PREDICT:       z.string().default("0.1"),
+  X402_PRICE_MULTI_PREDICT: z.string().default("0.5"),
+  X402_NONCE_TTL_SECS:      z.string().default("300"),
+  // Phase D — Child agent wallets (default OFF)
+  CHILD_AGENT_FACTORY_ADDRESS: z.string().default("0x2f69e566802910359b438ccdb3565dce304a7cc52edbf9fd246d6ad2cd89ce4"),
+  CHILD_AGENT_ENABLED:         z.string().default("false"),
+  CHILD_AGENT_FUND_STRK:       z.string().default("50"),
+  CHILD_AGENT_REPLICATE_EVERY: z.string().default("100"),
+  CHILD_AGENT_MAX:             z.string().default("5"),
+  // Phase F — Compute reserve sweep (default OFF)
+  COMPUTE_RESERVE_ENABLED:   z.string().default("false"),
+  COMPUTE_RESERVE_THRESHOLD: z.string().default("200"),
+  COMPUTE_RESERVE_PERCENT:   z.string().default("20"),
 });
 
 const rawConfig = envSchema.parse(process.env);
@@ -77,14 +132,51 @@ const defaults =
     ? REGISTRY_DEFAULTS.SN_MAIN
     : REGISTRY_DEFAULTS.SN_SEPOLIA;
 
+/**
+ * Application configuration — extends rawConfig with:
+ * - Defaulted registry addresses (chain-specific fallbacks)
+ * - Derived typed helpers so consumers don't re-parse strings ad-hoc
+ */
 export const config = {
   ...rawConfig,
+  // Registry address defaults (chain-aware)
   IDENTITY_REGISTRY_ADDRESS:
     rawConfig.IDENTITY_REGISTRY_ADDRESS ?? defaults.identity,
   REPUTATION_REGISTRY_ADDRESS:
     rawConfig.REPUTATION_REGISTRY_ADDRESS ?? defaults.reputation,
   VALIDATION_REGISTRY_ADDRESS:
     rawConfig.VALIDATION_REGISTRY_ADDRESS ?? defaults.validation,
+
+  // ── Derived typed helpers ─────────────────────────────────────────────
+  /** true when Huginn Registry is configured (address != "0x0"). */
+  huginnEnabled: rawConfig.HUGINN_REGISTRY_ADDRESS !== "0x0",
+
+  /**
+   * true when agentic tool-use is active.
+   * false ONLY when AGENT_TOOL_USE_ENABLED is explicitly set to "false".
+   * Default is true.
+   */
+  toolUseEnabled: rawConfig.AGENT_TOOL_USE_ENABLED !== "false",
+
+  /**
+   * Parsed integer max tool-use rounds per forecast. Clamped to [1, 20].
+   * Consumers should use this instead of re-parsing AGENT_TOOL_MAX_TURNS.
+   */
+  toolMaxTurns: Math.max(1, Math.min(20, parseInt(rawConfig.AGENT_TOOL_MAX_TURNS, 10) || 8)),
+
+  // ── Phase C: X-402 derived helpers ──────────────────────────────────────
+  x402Enabled:           rawConfig.X402_ENABLED === "true",
+  x402PricePredict:      parseFloat(rawConfig.X402_PRICE_PREDICT)        || 0.1,
+  x402PriceMultiPredict: parseFloat(rawConfig.X402_PRICE_MULTI_PREDICT)  || 0.5,
+
+  // ── Phase D: Child agent derived helpers ─────────────────────────────────
+  childAgentEnabled:        rawConfig.CHILD_AGENT_ENABLED === "true",
+  childAgentFundStrk:       parseFloat(rawConfig.CHILD_AGENT_FUND_STRK)  || 50,
+  childAgentReplicateEvery: parseInt(rawConfig.CHILD_AGENT_REPLICATE_EVERY, 10) || 100,
+  childAgentMax:            parseInt(rawConfig.CHILD_AGENT_MAX, 10)       || 5,
+
+  // ── Phase F: Compute reserve derived helpers ─────────────────────────────
+  computeReserveEnabled: rawConfig.COMPUTE_RESERVE_ENABLED === "true",
 };
 
-export type Config = z.infer<typeof envSchema>;
+export type Config = typeof config;

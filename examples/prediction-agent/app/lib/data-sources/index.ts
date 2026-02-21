@@ -25,6 +25,7 @@ export type DataSourceName =
   | "coingecko"
   | "news"
   | "web"
+  | "tavily"
   | "social"
   | "espn"
   | "github"
@@ -33,10 +34,16 @@ export type DataSourceName =
   | "x"
   | "telegram";
 
+export { fetchPolymarketData } from "./polymarket";
+export { fetchCryptoPrices } from "./crypto-prices";
+export { fetchTavilySearch } from "./tavily";
+export { fetchEspnScores } from "./espn-live";
+export { fetchStarknetOnchain } from "./starknet-onchain";
 import { fetchPolymarketData } from "./polymarket";
 import { fetchCryptoPrices } from "./crypto-prices";
 import { fetchNewsData } from "./news-search";
 import { fetchWebSearch } from "./web-search";
+import { fetchTavilySearch } from "./tavily";
 import { fetchSocialTrends } from "./social-trends";
 import { fetchEspnScores } from "./espn-live";
 import { fetchGithubTrends } from "./github-trends";
@@ -53,6 +60,7 @@ const SOURCE_FETCHERS: Record<
   coingecko: fetchCryptoPrices,
   news: fetchNewsData,
   web: fetchWebSearch,
+  tavily: fetchTavilySearch,
   social: fetchSocialTrends,
   espn: fetchEspnScores,
   github: fetchGithubTrends,
@@ -67,6 +75,7 @@ const ALL_SOURCES: DataSourceName[] = [
   "coingecko",
   "news",
   "web",
+  "tavily",
   "social",
   "espn",
   "github",

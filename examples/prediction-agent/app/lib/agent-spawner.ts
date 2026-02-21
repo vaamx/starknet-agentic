@@ -8,6 +8,7 @@
  * to API endpoints as needed.
  */
 
+import type { Account } from "starknet";
 import { AGENT_PERSONAS, type AgentPersona } from "./agent-personas";
 
 export interface AgentBudget {
@@ -29,6 +30,14 @@ export interface SpawnedAgent {
     bets: number;
     pnl: bigint;
   };
+  /** On-chain address of this agent's own AgentAccount contract (Phase D). */
+  walletAddress?: string;
+  /** Ephemeral keypair — in-memory only, never serialized or returned via API. */
+  privateKey?: string;
+  /** In-process Account instance for signing txs as this child. Ephemeral. */
+  account?: Account;
+  /** ERC-8004 identity token ID from the IdentityRegistry. */
+  agentId?: bigint;
 }
 
 export interface SpawnAgentConfig {
@@ -224,6 +233,9 @@ export function serializeAgent(
       bets: agent.stats.bets,
       pnl: agent.stats.pnl.toString(),
     },
+    // On-chain identity (Phase D) — exposed in API but private key never included
+    walletAddress: agent.walletAddress,
+    agentId: agent.agentId?.toString(),
   };
 }
 

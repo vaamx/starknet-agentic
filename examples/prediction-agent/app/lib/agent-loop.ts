@@ -23,11 +23,23 @@ import {
   type AgentPersona,
 } from "./agent-personas";
 import { type AgentBudget, type SpawnedAgent, agentSpawner } from "./agent-spawner";
+import { Account, RpcProvider } from "starknet";
 import { placeBet, recordPrediction, isAgentConfigured, createMarket, getSignerMode } from "./starknet-executor";
 import { config } from "./config";
+import { logThoughtOnChain } from "./huginn-executor";
 import { executeAvnuSwap } from "./defi-executor";
 import { generateDebateExchange } from "./agent-debate";
 import { hasSessionKeyConfigured } from "./session-policy";
+import {
+  getSurvivalState,
+  getBetMultiplier,
+  getModelForTier,
+  markSweepCompleted,
+  getLastSweepAt,
+  type SurvivalState,
+} from "./survival-engine";
+import { updateSoul, getSoulChildren, incrementSoulPredictions, incrementSoulBets } from "./soul";
+import { deployChildAgent } from "./child-spawner";
 
 export interface AgentAction {
   id: string;
@@ -52,6 +64,8 @@ export interface AgentAction {
   betOutcome?: "YES" | "NO";
   sourcesUsed?: string[];
   txHash?: string;
+  /** Starknet tx hash of the Huginn Registry log_thought() call. Present only on Huginn success. */
+  huginnTxHash?: string;
   reasoningHash?: string;
   reasoning?: string;
   defiDirection?: "BUY" | "SELL";
@@ -60,14 +74,6 @@ export interface AgentAction {
   debateTarget?: string;
 }
 
-/** Compute a SHA-256 hash of reasoning text as a proof-of-reasoning digest. */
-async function hashReasoning(text: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(text);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return "0x" + hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 export interface LoopStatus {
   isRunning: boolean;
@@ -101,7 +107,8 @@ function formatStrk(amount: bigint): string {
 
 function computeBetAmount(
   confidence: number,
-  budget?: AgentBudget
+  budget?: AgentBudget,
+  survivalMultiplier = 1.0
 ): bigint {
   const minStrk = Math.max(0, parseNumber(config.AGENT_BET_MIN_STRK, 5));
   const maxStrk = Math.max(minStrk, parseNumber(config.AGENT_BET_MAX_STRK, 10));
@@ -118,7 +125,9 @@ function computeBetAmount(
 
   const effectiveMin = Math.min(minStrk, cap);
   const betStrk = effectiveMin + confidence * (cap - effectiveMin);
-  let betWei = BigInt(Math.round(betStrk * 1e18));
+  // Apply survival multiplier BEFORE budget check
+  const scaledStrk = betStrk * Math.max(0, survivalMultiplier);
+  let betWei = BigInt(Math.round(scaledStrk * 1e18));
 
   if (budget) {
     const remaining = budget.totalBudget - budget.spent;
@@ -143,6 +152,10 @@ class AgentLoop {
   private marketCreationInterval = 5;
   private defiInterval = 7;
   private debateCounter = 0;
+  /** Last survival state — updated each tick */
+  private lastSurvival: SurvivalState | null = null;
+  /** Count of consecutive thriving ticks for replication guard */
+  private thrivingTickCount = 0;
 
   /** Legacy: start server-side interval (only works in long-lived processes) */
   start(intervalMs?: number) {
@@ -218,7 +231,7 @@ class AgentLoop {
   }
 
   /**
-   * Stateless tick — called by the client-driven polling endpoint.
+   * Stateless tick — called by the client-driven polling endpoint or heartbeat.
    * Picks one agent from the rotation and one random market, runs forecast.
    * Returns the actions generated during this tick.
    */
@@ -243,6 +256,45 @@ class AgentLoop {
       captureEmit(errAction);
       return tickActions;
     }
+
+    // ── Phase B: Survival check ──────────────────────────────────────────
+    const survival = await getSurvivalState(this.tickCount);
+    this.lastSurvival = survival;
+
+    if (survival.tier === "thriving") {
+      this.thrivingTickCount++;
+    } else {
+      this.thrivingTickCount = 0;
+    }
+
+    // Emit survival status every 5 ticks
+    if (this.tickCount % 5 === 0) {
+      captureEmit(this.createAction({
+        agentId: "survival",
+        agentName: "Survival Engine",
+        type: "research",
+        detail: `Tier: ${survival.tier} | ${survival.balanceStrk.toFixed(1)} STRK | model: ${getModelForTier(survival.tier)}`,
+      }));
+    }
+
+    // Update soul with survival state
+    updateSoul({
+      tier: survival.tier,
+      balanceStrk: survival.balanceStrk,
+      model: getModelForTier(survival.tier),
+      tickCount: this.tickCount,
+    });
+
+    if (survival.tier === "dead") {
+      captureEmit(this.createAction({
+        agentId: "survival",
+        agentName: "Survival Engine",
+        type: "error",
+        detail: `DEAD — balance ${survival.balanceStrk.toFixed(2)} STRK. Halting all execution.`,
+      }));
+      return tickActions;
+    }
+    // ── End Phase B ──────────────────────────────────────────────────────
 
     let markets: MarketState[];
     try {
@@ -270,7 +322,18 @@ class AgentLoop {
     // Periodic DeFi pulse (optional)
     const shouldRunDefi = this.tickCount % this.defiInterval === 0;
     if (shouldRunDefi) {
-      await this.runDefiPulse(captureEmit);
+      await this.runDefiPulse(captureEmit, survival);
+    }
+
+    // Phase G: Child replication trigger (only when thriving for 3+ consecutive ticks)
+    if (
+      config.childAgentEnabled &&
+      survival.replicationEligible &&
+      this.thrivingTickCount >= 3 &&
+      this.tickCount % config.childAgentReplicateEvery === 0 &&
+      agentSpawner.list().filter((a) => !a.isBuiltIn).length < config.childAgentMax
+    ) {
+      await this.runChildSpawn(survival, captureEmit);
     }
 
     if (openMarkets.length === 0) return tickActions;
@@ -283,7 +346,7 @@ class AgentLoop {
     // Pick a random market
     const target = openMarkets[Math.floor(Math.random() * openMarkets.length)];
 
-    await this.runAgentOnMarketWithEmit(persona, target, undefined, captureEmit);
+    await this.runAgentOnMarketWithEmit(persona, target, undefined, captureEmit, survival);
 
     return tickActions;
   }
@@ -323,7 +386,7 @@ class AgentLoop {
     const openMarkets = markets.filter((m) => m.status === 0);
 
     if (this.tickCount % this.defiInterval === 0) {
-      await this.runDefiPulse(this.emit.bind(this));
+      await this.runDefiPulse(this.emit.bind(this), this.lastSurvival ?? undefined);
     }
 
     if (openMarkets.length === 0) return;
@@ -347,14 +410,15 @@ class AgentLoop {
     target: MarketState,
     spawned?: SpawnedAgent
   ) {
-    await this.runAgentOnMarketWithEmit(persona, target, spawned, this.emit.bind(this));
+    await this.runAgentOnMarketWithEmit(persona, target, spawned, this.emit.bind(this), this.lastSurvival ?? undefined);
   }
 
   private async runAgentOnMarketWithEmit(
     persona: AgentPersona,
     target: MarketState,
     spawned: SpawnedAgent | undefined,
-    emit: (action: AgentAction) => void
+    emit: (action: AgentAction) => void,
+    survival?: SurvivalState
   ) {
     const agentId = spawned?.id ?? persona.id;
     const agentName = spawned?.name ?? persona.name;
@@ -434,32 +498,47 @@ class AgentLoop {
       return;
     }
 
-    // Record prediction ON-CHAIN if configured
-    let predictionTxHash: string | undefined;
-    if (onChain) {
-      try {
-        const txResult = await recordPrediction(target.id, probability);
-        if (txResult.status === "success") {
-          predictionTxHash = txResult.txHash;
-        }
-      } catch {
-        // On-chain recording failed, continue
-      }
-    }
-
-    // Hash the reasoning text as proof-of-reasoning
-    let proofHash: string | undefined;
+    // Phase E: Update soul with thesis snippet
     if (reasoning) {
-      try {
-        proofHash = await hashReasoning(reasoning);
-      } catch {
-        // Hashing failed, continue without proof
-      }
+      updateSoul({ currentThesis: reasoning.replace(/\s+/g, " ").trim().slice(0, 200) });
     }
+    incrementSoulPredictions();
+
+    // Phase D: use child's own account if available
+    const execAccount = spawned?.account ?? undefined;
+
+    // Record prediction and log Huginn thought concurrently (both non-blocking).
+    // logThoughtOnChain() never throws — it guards internally and returns status.
+    // recordPrediction() is only attempted when onChain; otherwise resolves null.
+    const [predSettled, huginnSettled] = await Promise.allSettled([
+      onChain ? recordPrediction(target.id, probability, execAccount) : Promise.resolve(null),
+      logThoughtOnChain(reasoning),
+    ]);
+
+    const predTxResult =
+      predSettled.status === "fulfilled" ? predSettled.value : null;
+    const huginnResult =
+      huginnSettled.status === "fulfilled" ? huginnSettled.value : null;
+
+    /** Starknet tx hash of the AccuracyTracker record_prediction() call. */
+    const predictionTxHash =
+      predTxResult?.status === "success" ? predTxResult.txHash : undefined;
+    /** Starknet tx hash of the Huginn Registry log_thought() call. Present only on success. */
+    const huginnTxHash =
+      huginnResult?.status === "success" ? huginnResult.txHash : undefined;
+    /** SHA-256 hash of the reasoning text. Present whenever Huginn ran (skip or success). */
+    const reasoningHash = huginnResult?.thoughtHash || undefined;
 
     const reasoningSnippet = reasoning
       ? reasoning.replace(/\s+/g, " ").trim().slice(0, 140)
       : undefined;
+
+    // Append Huginn provenance to the detail string when available
+    const huginnSuffix = huginnTxHash
+      ? ` → Huginn: ${huginnTxHash.slice(0, 14)}...`
+      : huginnResult?.status === "error"
+      ? ` → Huginn: err(${(huginnResult.error ?? "").slice(0, 30)})`
+      : "";
 
     if (predictionTxHash) {
       emit(
@@ -470,9 +549,10 @@ class AgentLoop {
           marketId: target.id,
           question,
           probability,
-          detail: `Predicted ${Math.round(probability * 100)}% YES on "${question}" [tx: ${predictionTxHash.slice(0, 16)}...]`,
+          detail: `Predicted ${Math.round(probability * 100)}% YES on "${question}" [tx: ${predictionTxHash.slice(0, 16)}...]${huginnSuffix}`,
           txHash: predictionTxHash,
-          reasoningHash: proofHash,
+          huginnTxHash,
+          reasoningHash,
           reasoning: reasoningSnippet,
         })
       );
@@ -508,7 +588,8 @@ class AgentLoop {
     const shouldBet = confidence > threshold;
 
     if (shouldBet) {
-      const betAmount = computeBetAmount(confidence, spawned?.budget);
+      const survivalMultiplier = survival ? getBetMultiplier(survival.tier) : 1.0;
+      const betAmount = computeBetAmount(confidence, spawned?.budget, survivalMultiplier);
       if (betAmount > 0n) {
         const outcome = probability > 0.5 ? "YES" : "NO";
         const betDisplay = formatStrk(betAmount);
@@ -521,7 +602,8 @@ class AgentLoop {
               target.address,
               outcomeNum,
               betAmount,
-              config.COLLATERAL_TOKEN_ADDRESS
+              config.COLLATERAL_TOKEN_ADDRESS,
+              execAccount
             );
             if (txResult.status === "success") {
               betTxHash = txResult.txHash;
@@ -550,6 +632,8 @@ class AgentLoop {
             spawned.budget.spent += betAmount;
             spawned.stats.bets++;
           }
+          // Phase E: update soul bet counter
+          incrementSoulBets();
         } else {
           emit(
             this.createAction({
@@ -643,9 +727,14 @@ class AgentLoop {
     return true;
   }
 
-  private async runDefiPulse(emit: (action: AgentAction) => void): Promise<void> {
+  private async runDefiPulse(emit: (action: AgentAction) => void, survival?: SurvivalState): Promise<void> {
     if (config.AGENT_DEFI_ENABLED !== "true") return;
     if (!isAgentConfigured()) return;
+
+    // Phase F: Compute reserve sweep when thriving
+    if (config.computeReserveEnabled && survival?.tier === "thriving") {
+      await this.runComputeSweep(survival, emit);
+    }
 
     let change: number | null = null;
     try {
@@ -794,6 +883,128 @@ class AgentLoop {
         })
       );
     }
+  }
+
+  // ── Phase F: Compute Reserve Sweep ────────────────────────────────────────
+
+  private async runComputeSweep(
+    survival: SurvivalState,
+    emit: (action: AgentAction) => void
+  ): Promise<void> {
+    const hoursSinceLast = (Date.now() - getLastSweepAt()) / 3_600_000;
+    if (hoursSinceLast < 24) return; // max once per 24h
+
+    const thrivingWei = BigInt(
+      Math.round(parseFloat(String((config as any).SURVIVAL_TIER_THRIVING ?? "1000")) * 1e18)
+    );
+    const surplus = Number(survival.balanceWei > thrivingWei ? survival.balanceWei - thrivingWei : 0n) / 1e18;
+    const threshold = parseFloat(String((config as any).COMPUTE_RESERVE_THRESHOLD ?? "200"));
+    if (surplus < threshold) return;
+
+    const pct = parseFloat(String((config as any).COMPUTE_RESERVE_PERCENT ?? "20")) / 100;
+    const sweepAmount = surplus * pct;
+
+    const swapResult = await executeAvnuSwap({
+      sellToken: "STRK",
+      buyToken: "USDC",
+      amount: sweepAmount,
+      slippage: parseNumber(config.AGENT_DEFI_SLIPPAGE, 0.01),
+    });
+
+    if (swapResult.status === "success") {
+      markSweepCompleted();
+      emit(this.createAction({
+        agentId: "compute-reserve",
+        agentName: "Compute Reserve",
+        type: "defi_swap",
+        detail: `Swept ${sweepAmount.toFixed(2)} STRK → USDC (compute reserve). 24h cooldown.`,
+        txHash: swapResult.txHash,
+        defiDirection: "SELL",
+        defiPair: "STRK/USDC",
+        defiAmount: `${sweepAmount.toFixed(2)} STRK`,
+      }));
+    } else {
+      emit(this.createAction({
+        agentId: "compute-reserve",
+        agentName: "Compute Reserve",
+        type: "error",
+        detail: `Compute reserve sweep failed: ${swapResult.error ?? "unknown"}`,
+      }));
+    }
+  }
+
+  // ── Phase G: Child Agent Replication ─────────────────────────────────────
+
+  private async runChildSpawn(
+    survival: SurvivalState,
+    emit: (action: AgentAction) => void
+  ): Promise<void> {
+    if (!config.childAgentEnabled) return;
+
+    const tag = Date.now().toString(36).toUpperCase().slice(-4);
+    const name = `AlphaChild-${tag}`;
+
+    emit(this.createAction({
+      agentId: "replication",
+      agentName: "Replication Engine",
+      type: "market_creation",
+      detail: `Spawning child agent "${name}"…`,
+    }));
+
+    const result = await deployChildAgent({
+      name,
+      model: "claude-sonnet-4-6",
+      fundingStrk: config.childAgentFundStrk,
+    });
+
+    if (result.error || !result.agentAddress) {
+      emit(this.createAction({
+        agentId: "replication",
+        agentName: "Replication Engine",
+        type: "error",
+        detail: `Child spawn failed: ${result.error}`,
+      }));
+      return;
+    }
+
+    // Register child in spawner with its own Account instance
+    const provider = new RpcProvider({ nodeUrl: config.STARKNET_RPC_URL });
+    const childBasePersona = AGENT_PERSONAS[0];
+    const childAccount = new Account({
+      provider,
+      address: result.agentAddress,
+      signer: result.privateKey,
+    });
+
+    const spawned = agentSpawner.spawn({
+      name,
+      customSystemPrompt: childBasePersona.systemPrompt,
+      budgetStrk: config.childAgentFundStrk,
+      maxBetStrk: 5,
+    });
+    spawned.walletAddress = result.agentAddress;
+    spawned.privateKey = result.privateKey; // in-memory only
+    spawned.account = childAccount;
+    spawned.agentId = result.agentId;
+
+    // Log lineage to Huginn
+    await logThoughtOnChain(
+      `Spawned child agent "${name}" at ${result.agentAddress}. ` +
+      `ERC-8004 ID: #${result.agentId}. Parent: ${config.AGENT_ADDRESS ?? "unknown"}. ` +
+      `Funding: ${config.childAgentFundStrk} STRK.`
+    );
+
+    emit(this.createAction({
+      agentId: "replication",
+      agentName: "Replication Engine",
+      type: "market_creation",
+      detail: `Spawned child: "${name}" → ${result.agentAddress} (ERC-8004 #${result.agentId})`,
+      txHash: result.txHash,
+    }));
+
+    // Phase E: update soul children
+    const current = getSoulChildren();
+    updateSoul({ children: [...current, { id: result.agentAddress, name, tier: "healthy" }] });
   }
 }
 

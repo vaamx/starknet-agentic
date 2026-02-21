@@ -1,0 +1,11 @@
+name = "bitsage-heartbeat"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# Cron: fire every minute
+[[triggers]]
+crons = ["* * * * *"]
+
+# Secrets (set via `wrangler secret put`):
+#   AGENT_APP_URL      — deployed app URL
+#   HEARTBEAT_SECRET   — shared secret to authenticate the heartbeat
