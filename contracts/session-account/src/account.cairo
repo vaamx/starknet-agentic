@@ -446,10 +446,6 @@ mod SessionAccount {
                     self._is_session_allowed_for_calls(session_pubkey, outside_execution.calls),
                     'Session: unauthorized selector',
                 );
-                assert(
-                    self._calls_avoid_self(outside_execution.calls),
-                    'Session: self-call blocked',
-                );
             }
 
             // 5. Validate signature (strict OZ SRC-9/SNIP-12 hash only).
