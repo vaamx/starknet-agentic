@@ -54,7 +54,7 @@ export default function Dashboard() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
-  const [autonomousMode, setAutonomousMode] = useState(false);
+  const [autonomousMode, setAutonomousMode] = useState(true);
   const [loopToggling, setLoopToggling] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<MarketCategory>("all");
