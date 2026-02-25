@@ -2,11 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getMarketById,
   getAgentPredictions,
+  registerQuestion,
   getWeightedProbability,
   resolveMarketQuestion,
 } from "@/lib/market-reader";
 import { agentLoop } from "@/lib/agent-loop";
-import { getPersistedLoopActions } from "@/lib/state-store";
+import {
+  getPersistedLoopActions,
+  getPersistedMarketSnapshots,
+} from "@/lib/state-store";
 
 export const runtime = "nodejs";
 
@@ -35,6 +39,27 @@ export async function GET(
   try {
     const { id } = await params;
     const marketId = parseInt(id, 10);
+
+    const [cachedSnapshots, cachedActions] = await Promise.all([
+      getPersistedMarketSnapshots(500),
+      getPersistedLoopActions(500),
+    ]);
+    for (const snapshot of cachedSnapshots) {
+      if (snapshot.question) {
+        registerQuestion(snapshot.id, snapshot.question);
+      }
+    }
+    for (const action of cachedActions) {
+      if (
+        action.type === "market_creation" &&
+        typeof action.marketId === "number" &&
+        Number.isFinite(action.marketId) &&
+        action.question
+      ) {
+        registerQuestion(action.marketId, action.question);
+      }
+    }
+
     const market = await getMarketById(marketId);
 
     if (!market) {

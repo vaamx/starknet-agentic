@@ -151,6 +151,29 @@ const USE_UPSTASH_STATE =
   !!UPSTASH_URL &&
   !!UPSTASH_TOKEN;
 
+export interface StateStoreBackendInfo {
+  requestedBackend: "auto" | "upstash" | "file";
+  effectiveBackend: "upstash" | "file";
+  upstashConfigured: boolean;
+  stateFile: string;
+  upstashStateKey: string;
+}
+
+export function getStateStoreBackendInfo(): StateStoreBackendInfo {
+  const requestedBackend =
+    STATE_BACKEND === "upstash" || STATE_BACKEND === "file"
+      ? STATE_BACKEND
+      : "auto";
+
+  return {
+    requestedBackend,
+    effectiveBackend: USE_UPSTASH_STATE ? "upstash" : "file",
+    upstashConfigured: !!UPSTASH_URL && !!UPSTASH_TOKEN,
+    stateFile: STATE_FILE,
+    upstashStateKey: UPSTASH_STATE_KEY,
+  };
+}
+
 let writeQueue: Promise<void> = Promise.resolve();
 let lastBackendWarningAt = 0;
 

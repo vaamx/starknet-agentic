@@ -14,6 +14,41 @@ const provider = new RpcProvider({
   nodeUrl: config.STARKNET_RPC_URL,
 });
 
+const V1_FALLBACK_ERROR_REGEX =
+  /Result::unwrap failed|starknet_estimateFee|resource_bounds|tip statistics|starting block number|double-quoted property name|estimate fee/i;
+
+function shouldFallbackToV1(message: string): boolean {
+  return V1_FALLBACK_ERROR_REGEX.test(message);
+}
+
+function normalizeTxError(err: unknown): string {
+  const raw =
+    typeof err === "string"
+      ? err
+      : (err as any)?.message ?? String(err ?? "unknown error");
+  const compact = raw.replace(/\s+/g, " ").trim();
+
+  if (
+    /tip statistics|starting block number|double-quoted property name/i.test(
+      compact
+    )
+  ) {
+    return (
+      "RPC fee estimation returned malformed tip-statistics payload. " +
+      "Retry or switch to a different Starknet RPC provider."
+    );
+  }
+
+  if (/starknet_estimateFee|estimate fee|resource_bounds/i.test(compact)) {
+    return (
+      "Fee estimation failed for this transaction/account combination. " +
+      "Retry on the next tick."
+    );
+  }
+
+  return compact.slice(0, 360) || "unknown error";
+}
+
 /** Execute calls as a V3 transaction (starknet.js v8 handles triple gas natively). */
 async function executeV3(account: Account, calls: any[]): Promise<any> {
   try {
@@ -22,12 +57,14 @@ async function executeV3(account: Account, calls: any[]): Promise<any> {
     const message = err?.message ?? String(err);
     // Some account contract versions fail fee estimation for V3 invokes.
     // Fall back to V1 so autonomous predictions/bets can still execute.
-    if (
-      /Result::unwrap failed|starknet_estimateFee|resource_bounds/i.test(message)
-    ) {
-      return await account.execute(calls, {
-        version: ETransactionVersion.V1,
-      });
+    if (shouldFallbackToV1(message)) {
+      try {
+        return await account.execute(calls, {
+          version: ETransactionVersion.V1,
+        });
+      } catch (v1Err: any) {
+        throw new Error(`V3->V1 fallback failed: ${normalizeTxError(v1Err)}`);
+      }
     }
     throw err;
   }
@@ -229,7 +266,7 @@ export async function placeBet(
 
     return { txHash: result.transaction_hash, status: "success" };
   } catch (err: any) {
-    return { txHash: "", status: "error", error: err.message };
+    return { txHash: "", status: "error", error: normalizeTxError(err) };
   }
 }
 
@@ -267,7 +304,7 @@ export async function recordPrediction(
 
     return { txHash: result.transaction_hash, status: "success" };
   } catch (err: any) {
-    return { txHash: "", status: "error", error: err.message };
+    return { txHash: "", status: "error", error: normalizeTxError(err) };
   }
 }
 
@@ -353,7 +390,7 @@ export async function createMarket(
       allowlistError,
     };
   } catch (err: any) {
-    return { txHash: "", status: "error", error: err.message };
+    return { txHash: "", status: "error", error: normalizeTxError(err) };
   }
 }
 
@@ -406,7 +443,7 @@ export async function addAllowedContract(contract: string): Promise<TxResult> {
     await waitForTransactionWithTimeout(result.transaction_hash);
     return { txHash: result.transaction_hash, status: "success" };
   } catch (err: any) {
-    return { txHash: "", status: "error", error: err.message };
+    return { txHash: "", status: "error", error: normalizeTxError(err) };
   }
 }
 

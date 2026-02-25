@@ -17,6 +17,37 @@ export interface DebateResult {
   debateReasoning: string;
 }
 
+const LOW_CREDIT_REGEX =
+  /credit balance is too low|insufficient credit|plans\s*&\s*billing/i;
+const DEBATE_PROVIDER_COOLDOWN_MS = 10 * 60 * 1000;
+let providerCooldownUntil = 0;
+let providerCooldownReason = "";
+
+function buildFallbackDebateMessage(params: {
+  leadProbability: number;
+  reason: string;
+}): string {
+  const estimate = Math.round(params.leadProbability * 100);
+  const reason = params.reason.replace(/\s+/g, " ").trim();
+  return (
+    `Debate fallback active (${reason}). ` +
+    `Holding lead estimate near ${estimate}% until model access recovers. ` +
+    "Stance: UNCERTAIN"
+  );
+}
+
+function extractDebateErrorMessage(err: unknown): string {
+  const raw =
+    typeof err === "string"
+      ? err
+      : (err as any)?.message ?? String(err ?? "unknown error");
+  return raw.replace(/\s+/g, " ").trim();
+}
+
+function shouldEnterCooldown(errMessage: string): boolean {
+  return LOW_CREDIT_REGEX.test(errMessage) || /429|rate limit/i.test(errMessage);
+}
+
 /**
  * Run a full debate round: each agent reviews the Round 1 results from all
  * other agents and may revise their own probability estimate.
@@ -110,9 +141,19 @@ export async function generateDebateExchange(params: {
   leadReasoning: string;
   challenger: AgentPersona;
 }): Promise<string> {
+  if (Date.now() < providerCooldownUntil) {
+    return buildFallbackDebateMessage({
+      leadProbability: params.leadProbability,
+      reason: providerCooldownReason || "provider cooldown",
+    });
+  }
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    throw new Error("Anthropic API key not configured");
+    return buildFallbackDebateMessage({
+      leadProbability: params.leadProbability,
+      reason: "Anthropic API key not configured",
+    });
   }
 
   const client = new Anthropic({ apiKey });
@@ -129,17 +170,32 @@ Their reasoning (excerpt): ${params.leadReasoning}
 
 Your response:`;
 
-  const response = await client.messages.create({
-    model: params.challenger.model || "claude-sonnet-4-5-20250929",
-    max_tokens: 220,
-    system,
-    messages: [{ role: "user", content: userMessage }],
-  });
+  try {
+    const response = await client.messages.create({
+      model: params.challenger.model || "claude-sonnet-4-5-20250929",
+      max_tokens: 220,
+      system,
+      messages: [{ role: "user", content: userMessage }],
+    });
 
-  const content = response.content
-    .map((c: any) => (c.type === "text" ? c.text : ""))
-    .join("")
-    .trim();
+    const content = response.content
+      .map((c: any) => (c.type === "text" ? c.text : ""))
+      .join("")
+      .trim();
 
-  return content || "Stance: UNCERTAIN";
+    return content || "Stance: UNCERTAIN";
+  } catch (err) {
+    const message = extractDebateErrorMessage(err);
+    if (shouldEnterCooldown(message)) {
+      providerCooldownUntil = Date.now() + DEBATE_PROVIDER_COOLDOWN_MS;
+      providerCooldownReason = LOW_CREDIT_REGEX.test(message)
+        ? "Anthropic credits exhausted"
+        : "provider rate limited";
+      return buildFallbackDebateMessage({
+        leadProbability: params.leadProbability,
+        reason: providerCooldownReason,
+      });
+    }
+    throw err;
+  }
 }
