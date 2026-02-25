@@ -74,6 +74,8 @@ export async function POST(request: NextRequest) {
   if (action === "tick") {
     // Client-driven tick: run one agent on one market and return results
     try {
+      const persistedRuntime = await getPersistedLoopRuntime();
+      agentLoop.hydrateRuntime(persistedRuntime);
       const actions = await withTimeout(
         agentLoop.singleTick(),
         config.agentLoopTickTimeoutMs,
