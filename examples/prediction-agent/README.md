@@ -78,7 +78,8 @@ Monitor live: `GET /api/survival` · `GET /api/soul`
 STARKNET_RPC_URL=https://rpc.starknet-testnet.lava.build
 STARKNET_RPC_FALLBACK_URLS=https://rpc2.example,https://rpc3.example
 STARKNET_RPC_FAILOVER_ENABLED=true
-NEXT_PUBLIC_SWARM_LOGO_VARIANT=core
+# tamagotchi | auto | core | oracle | scout
+NEXT_PUBLIC_SWARM_LOGO_VARIANT=tamagotchi
 AGENT_ADDRESS=0x...
 AGENT_PRIVATE_KEY=0x...
 MARKET_FACTORY_ADDRESS=0x...

@@ -235,11 +235,169 @@
   text-shadow: 0 0 8px rgba(0, 229, 204, 0.2);
 }
 
+/* ═══ Tamagotchi Mascot ═══ */
+@keyframes tama-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
+@keyframes tama-blink {
+  0%, 42%, 46%, 100% { transform: scaleY(1); }
+  44% { transform: scaleY(0.15); }
+}
+@keyframes tama-spark {
+  0%, 100% { opacity: 0.35; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.tama-badge {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  animation: tama-bob 2.4s ease-in-out infinite;
+}
+
+.tama-antenna {
+  position: absolute;
+  top: 1px;
+  left: 50%;
+  width: 2px;
+  height: 5px;
+  margin-left: -1px;
+  background: currentColor;
+  opacity: 0.8;
+}
+.tama-antenna::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  width: 3px;
+  height: 3px;
+  margin-left: -1.5px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.tama-shell {
+  width: 24px;
+  height: 22px;
+  margin-top: 4px;
+  border-radius: 7px;
+  border: 1px solid currentColor;
+  background: rgba(6, 19, 39, 0.92);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tama-screen {
+  position: relative;
+  width: 16px;
+  height: 12px;
+  border-radius: 3px;
+  background: rgba(8, 34, 58, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tama-eye {
+  position: absolute;
+  top: 3px;
+  width: 3px;
+  height: 3px;
+  background: currentColor;
+  border-radius: 1px;
+  animation: tama-blink 4.8s step-end infinite;
+}
+.tama-eye-left { left: 3px; }
+.tama-eye-right { right: 3px; }
+
+.tama-mouth {
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  width: 6px;
+  height: 2px;
+  margin-left: -3px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.tama-spark {
+  position: absolute;
+  right: -1px;
+  top: -2px;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: tama-spark 1.6s ease-in-out infinite;
+}
+
+.tama-hyped {
+  color: #64ffe8;
+}
+.tama-hyped .tama-mouth {
+  width: 7px;
+  height: 3px;
+  margin-left: -3.5px;
+}
+
+.tama-focus {
+  color: #7ce8ff;
+}
+.tama-focus .tama-screen::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 8px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.9;
+}
+
+.tama-idle {
+  color: #9dd8ff;
+}
+.tama-idle .tama-mouth {
+  opacity: 0.7;
+}
+
+.tama-alert {
+  color: #f5b942;
+}
+.tama-alert .tama-shell {
+  box-shadow: 0 0 0 1px rgba(245, 185, 66, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.tama-alert .tama-mouth {
+  width: 5px;
+  margin-left: -2.5px;
+}
+
+.tama-offline {
+  color: rgba(255, 255, 255, 0.45);
+}
+.tama-offline .tama-eye {
+  top: 4px;
+  height: 1px;
+  border-radius: 0;
+}
+.tama-offline .tama-mouth {
+  opacity: 0.45;
+}
+
 /* ═══ Reduced Motion ═══ */
 @media (prefers-reduced-motion: reduce) {
   .prob-bar,
   .animate-enter,
-  .ticker-tape {
+  .ticker-tape,
+  .tama-badge,
+  .tama-eye,
+  .tama-spark {
     animation: none !important;
   }
   .prob-bar {

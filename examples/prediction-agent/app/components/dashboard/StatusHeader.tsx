@@ -2,6 +2,7 @@
 
 import WalletConnect from "../WalletConnect";
 import Stat from "./Stat";
+import TamagotchiBadge from "./TamagotchiBadge";
 import { formatVolume, timeAgo } from "./utils";
 import type { Market } from "./types";
 
@@ -43,7 +44,9 @@ export default function StatusHeader({
   onOpenCreator,
 }: StatusHeaderProps) {
   const configuredLogoVariant =
-    process.env.NEXT_PUBLIC_SWARM_LOGO_VARIANT?.toLowerCase() ?? "core";
+    process.env.NEXT_PUBLIC_SWARM_LOGO_VARIANT?.toLowerCase() ?? "tamagotchi";
+  const useTamagotchiLogo =
+    configuredLogoVariant === "tamagotchi" || configuredLogoVariant === "auto";
   const logoSrc =
     SWARM_LOGO_VARIANTS[configuredLogoVariant] ?? SWARM_LOGO_VARIANTS.core;
 
@@ -60,15 +63,25 @@ export default function StatusHeader({
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 sm:gap-4 min-w-0">
             <div className="w-10 h-10 bg-neo-green/15 border border-neo-green/30 flex items-center justify-center shrink-0 rounded-xl shadow-[0_0_24px_rgba(0,229,204,0.18)]">
-              <img
-                src={logoSrc}
-                alt="Starknet Agentic Swarm mascot logo"
-                width={30}
-                height={30}
-                loading="eager"
-                className="w-[30px] h-[30px] select-none"
-                style={{ imageRendering: "pixelated" }}
-              />
+              {useTamagotchiLogo ? (
+                <TamagotchiBadge
+                  autonomousMode={autonomousMode}
+                  marketDataSource={marketDataSource}
+                  marketDataStale={marketDataStale}
+                  activeAgents={activeAgents}
+                  nextTickIn={nextTickIn}
+                />
+              ) : (
+                <img
+                  src={logoSrc}
+                  alt="Starknet Agentic Swarm mascot logo"
+                  width={30}
+                  height={30}
+                  loading="eager"
+                  className="w-[30px] h-[30px] select-none"
+                  style={{ imageRendering: "pixelated" }}
+                />
+              )}
             </div>
             <div className="min-w-0">
               <h1 className="font-heading font-bold text-base sm:text-xl tracking-tight leading-none text-white truncate">
