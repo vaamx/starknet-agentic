@@ -1,0 +1,16 @@
+{
+  ".": "0.1.0",
+  "packages/bitsage-cloud-sdk": "0.1.0",
+  "packages/create-starknet-agent": "0.5.0",
+  "packages/prediction-arb-scanner": "0.1.0",
+  "packages/starknet-a2a": "0.1.0",
+  "packages/starknet-agent-passport": "0.1.0",
+  "packages/starknet-mcp-server": "0.1.0",
+  "packages/starknet-onboarding-utils": "0.1.0",
+  "services/bitsage-cloud": "0.1.0",
+  "skills/starknet-anonymous-wallet": "0.1.0",
+  "skills/starknet-defi": "0.1.0",
+  "skills/starknet-identity": "0.1.0",
+  "skills/starknet-mini-pay": "0.1.0",
+  "skills/starknet-wallet": "0.1.0"
+}

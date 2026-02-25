@@ -46,6 +46,16 @@
         "endpoint": {
           "type": "string",
           "description": "Optional endpoint URL or MCP tool name for this capability"
+        },
+        "mcpTool": {
+          "type": "string",
+          "description": "Optional MCP tool identifier exposed by this capability",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "a2aSkillId": {
+          "type": "string",
+          "description": "Optional A2A skill id exposed for agent cards",
+          "pattern": "^[a-z][a-z0-9-]*$"
         }
       },
       "additionalProperties": false

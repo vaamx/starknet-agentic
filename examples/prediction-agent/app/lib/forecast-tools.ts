@@ -23,12 +23,22 @@ import {
   fetchStarknetOnchain,
 } from "./data-sources/index";
 import { fetchWebSearch } from "./data-sources/web-search";
+import { fetchNewsData } from "./data-sources/news-search";
+import { fetchSocialTrends } from "./data-sources/social-trends";
 
 // ── Event types ────────────────────────────────────────────────────────────
 
 export type AgenticForecastEvent =
   | { type: "tool_call"; toolName: string; toolUseId: string; input: Record<string, unknown> }
-  | { type: "tool_result"; toolName: string; toolUseId: string; result: string; isError?: boolean }
+  | {
+      type: "tool_result";
+      toolName: string;
+      toolUseId: string;
+      result: string;
+      isError?: boolean;
+      source?: string;
+      dataPoints?: number;
+    }
   | { type: "reasoning_chunk"; content: string };
 
 // ── Tool definitions ──────────────────────────────────────────────────────
@@ -44,6 +54,36 @@ const FORECAST_TOOLS: Anthropic.Tool[] = [
         query: {
           type: "string",
           description: "Search query to find relevant information",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "get_news_headlines",
+    description:
+      "Fetch current news headlines for the market topic. Uses Brave News API. Prefer this for geopolitical, macro, regulation, and event-resolution markets.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        question: {
+          type: "string",
+          description: "Question or topic to query for recent news coverage",
+        },
+      },
+      required: ["question"],
+    },
+  },
+  {
+    name: "get_social_signals",
+    description:
+      "Fetch social trend signals from X and Telegram integrations. Use for narrative momentum, sentiment shifts, and breaking chatter.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: {
+          type: "string",
+          description: "Short topic query for social trend extraction",
         },
       },
       required: ["query"],
@@ -137,7 +177,12 @@ const FORECAST_TOOLS: Anthropic.Tool[] = [
 async function executeForecasterTool(
   name: string,
   input: Record<string, unknown>
-): Promise<{ text: string; isError: boolean }> {
+): Promise<{
+  text: string;
+  isError: boolean;
+  source: string;
+  dataPoints: number;
+}> {
   try {
     switch (name) {
       case "web_search": {
@@ -146,7 +191,12 @@ async function executeForecasterTool(
         const result = await fetchTavilySearch(query);
         if (result.data.length > 0) {
           const lines = [result.summary, ...result.data.map((d) => `• ${d.label}: ${d.value}`)];
-          return { text: lines.join("\n"), isError: false };
+          return {
+            text: lines.join("\n"),
+            isError: false,
+            source: result.source,
+            dataPoints: result.data.length,
+          };
         }
         // Brave fallback
         const braveResult = await fetchWebSearch(query);
@@ -154,65 +204,161 @@ async function executeForecasterTool(
           braveResult.summary,
           ...braveResult.data.map((d) => `• ${d.label}: ${d.value}`),
         ];
-        return { text: braveLines.join("\n"), isError: false };
+        return {
+          text: braveLines.join("\n"),
+          isError: false,
+          source: braveResult.source,
+          dataPoints: braveResult.data.length,
+        };
       }
 
       case "get_polymarket_odds": {
         const question = String(input.question ?? "");
         const result = await fetchPolymarketData(question);
         if (result.data.length === 0) {
-          return { text: result.summary, isError: false };
+          return {
+            text: result.summary,
+            isError: false,
+            source: result.source,
+            dataPoints: 0,
+          };
         }
         const lines = [result.summary, ...result.data.map((d) => `• ${d.label}: ${d.value}`)];
-        return { text: lines.join("\n"), isError: false };
+        return {
+          text: lines.join("\n"),
+          isError: false,
+          source: result.source,
+          dataPoints: result.data.length,
+        };
+      }
+
+      case "get_news_headlines": {
+        const question = String(input.question ?? "");
+        const result = await fetchNewsData(question);
+        if (result.data.length === 0) {
+          return {
+            text: result.summary,
+            isError: false,
+            source: result.source,
+            dataPoints: 0,
+          };
+        }
+        const lines = [result.summary, ...result.data.map((d) => `• ${d.label}: ${d.value}`)];
+        return {
+          text: lines.join("\n"),
+          isError: false,
+          source: result.source,
+          dataPoints: result.data.length,
+        };
+      }
+
+      case "get_social_signals": {
+        const query = String(input.query ?? "");
+        const result = await fetchSocialTrends(query);
+        if (result.data.length === 0) {
+          return {
+            text: result.summary,
+            isError: false,
+            source: result.source,
+            dataPoints: 0,
+          };
+        }
+        const lines = [result.summary, ...result.data.map((d) => `• ${d.label}: ${d.value}`)];
+        return {
+          text: lines.join("\n"),
+          isError: false,
+          source: result.source,
+          dataPoints: result.data.length,
+        };
       }
 
       case "get_crypto_prices": {
         const tokens = String(input.tokens ?? "");
         const result = await fetchCryptoPrices(tokens);
         if (result.data.length === 0) {
-          return { text: result.summary, isError: false };
+          return {
+            text: result.summary,
+            isError: false,
+            source: result.source,
+            dataPoints: 0,
+          };
         }
         const lines = [result.summary, ...result.data.map((d) => `• ${d.label}: ${d.value}`)];
-        return { text: lines.join("\n"), isError: false };
+        return {
+          text: lines.join("\n"),
+          isError: false,
+          source: result.source,
+          dataPoints: result.data.length,
+        };
       }
 
       case "get_sports_data": {
         const query = String(input.query ?? "");
         const result = await fetchEspnScores(query);
         if (result.data.length === 0) {
-          return { text: result.summary, isError: false };
+          return {
+            text: result.summary,
+            isError: false,
+            source: result.source,
+            dataPoints: 0,
+          };
         }
         const lines = [result.summary, ...result.data.map((d) => `• ${d.label}: ${d.value}`)];
-        return { text: lines.join("\n"), isError: false };
+        return {
+          text: lines.join("\n"),
+          isError: false,
+          source: result.source,
+          dataPoints: result.data.length,
+        };
       }
 
       case "get_starknet_onchain": {
         const query = String(input.query ?? "");
         const result = await fetchStarknetOnchain(query);
         if (result.data.length === 0) {
-          return { text: result.summary, isError: false };
+          return {
+            text: result.summary,
+            isError: false,
+            source: result.source,
+            dataPoints: 0,
+          };
         }
         const lines = [result.summary, ...result.data.map((d) => `• ${d.label}: ${d.value}`)];
-        return { text: lines.join("\n"), isError: false };
+        return {
+          text: lines.join("\n"),
+          isError: false,
+          source: result.source,
+          dataPoints: result.data.length,
+        };
       }
 
       case "log_reasoning_step": {
         // Visible no-op: forces Claude to commit to intermediate estimates
-        const step = String(input.step ?? "");
         const prob = Number(input.probability_estimate ?? 0);
         return {
           text: `Reasoning step logged. Current estimate: ${(prob * 100).toFixed(1)}% YES. Continue analysis.`,
           isError: false,
+          source: "reasoning_step",
+          dataPoints: 0,
         };
       }
 
       default:
-        return { text: `Unknown tool: ${name}`, isError: true };
+        return {
+          text: `Unknown tool: ${name}`,
+          isError: true,
+          source: name,
+          dataPoints: 0,
+        };
     }
   } catch (err: any) {
     // Never throw — return error as text, Claude continues
-    return { text: `Tool error: ${err?.message ?? String(err)}`, isError: true };
+    return {
+      text: `Tool error: ${err?.message ?? String(err)}`,
+      isError: true,
+      source: name,
+      dataPoints: 0,
+    };
   }
 }
 
@@ -235,6 +381,7 @@ Process:
 
 Rules:
 - Always call at least 2 research tools before concluding
+- For fast-moving or narrative-driven markets, include both get_news_headlines and get_social_signals
 - Use log_reasoning_step after major evidence updates
 - End your final analysis with exactly: **My estimate: XX%**
 - Show your reasoning transparently — users are watching you think
@@ -404,6 +551,8 @@ export async function* agenticForecastMarket(
           : {
               text: `Tool execution threw: ${(settled as PromiseRejectedResult).reason}`,
               isError: true as const,
+              source: toolBlock.name,
+              dataPoints: 0,
             };
 
       yield {
@@ -412,6 +561,8 @@ export async function* agenticForecastMarket(
         toolUseId: toolBlock.id,
         result: toolOutput.text,
         isError: toolOutput.isError,
+        source: toolOutput.source,
+        dataPoints: toolOutput.dataPoints,
       };
 
       toolResults.push({

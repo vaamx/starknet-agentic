@@ -152,11 +152,66 @@ export interface AgentPrediction {
   predictionCount: number;
 }
 
+export interface AgentBrierStats {
+  brierScore: number;
+  predictionCount: number;
+}
+
 export interface LeaderboardEntry {
   agent: string;
   avgBrier: number;
   predictionCount: number;
   rank: number;
+}
+
+function asBigInt(value: unknown): bigint {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number") return BigInt(value);
+  if (typeof value === "string") return BigInt(value);
+  if (value && typeof (value as any).toString === "function") {
+    return BigInt((value as any).toString());
+  }
+  return 0n;
+}
+
+function parseBrierScoreTuple(result: unknown): {
+  cumulative: bigint;
+  predictionCount: bigint;
+} {
+  if (Array.isArray(result) && result.length >= 2) {
+    return {
+      cumulative: asBigInt(result[0]),
+      predictionCount: asBigInt(result[1]),
+    };
+  }
+
+  if (result && typeof result === "object") {
+    const row = result as Record<string, unknown>;
+    const cumulativeRaw =
+      row[0] ??
+      row.cumulative ??
+      row.cumulative_score ??
+      row.total_brier ??
+      row.totalBrier ??
+      row.brier_sum;
+    const predictionCountRaw =
+      row[1] ??
+      row.prediction_count ??
+      row.predictionCount ??
+      row.count;
+
+    if (cumulativeRaw !== undefined && predictionCountRaw !== undefined) {
+      return {
+        cumulative: asBigInt(cumulativeRaw),
+        predictionCount: asBigInt(predictionCountRaw),
+      };
+    }
+  }
+
+  return {
+    cumulative: 0n,
+    predictionCount: 0n,
+  };
 }
 
 /** Get all markets from the factory. */
@@ -237,17 +292,46 @@ export async function getAgentPredictions(marketId: number): Promise<AgentPredic
     const agentRaw = await tracker.get_market_predictor(marketId, i);
     const agent = "0x" + BigInt(agentRaw.toString()).toString(16);
     const prediction = await tracker.get_prediction(agent, marketId);
-    const [cumulative, predCount] = await tracker.get_brier_score(agent);
+    const { cumulative, predictionCount } = parseBrierScoreTuple(
+      await tracker.get_brier_score(agent)
+    );
 
     predictions.push({
       agent,
       marketId,
       predictedProb: fromScaled(BigInt(prediction.toString())),
-      brierScore: averageBrier(BigInt(cumulative.toString()), BigInt(predCount.toString())),
-      predictionCount: Number(predCount),
+      brierScore: averageBrier(cumulative, predictionCount),
+      predictionCount: Number(predictionCount),
     });
   }
   return predictions;
+}
+
+/** Get historical Brier stats for one agent address. */
+export async function getAgentBrierStats(
+  agentAddress: string
+): Promise<AgentBrierStats | null> {
+  if (config.ACCURACY_TRACKER_ADDRESS === "0x0") return null;
+  if (!agentAddress) return null;
+
+  try {
+    const tracker = new Contract({
+      abi: ACCURACY_ABI as any,
+      address: config.ACCURACY_TRACKER_ADDRESS,
+      providerOrAccount: provider,
+    });
+    const { cumulative, predictionCount } = parseBrierScoreTuple(
+      await tracker.get_brier_score(agentAddress)
+    );
+    const count = Number(predictionCount);
+
+    return {
+      brierScore: averageBrier(cumulative, predictionCount),
+      predictionCount: Number.isFinite(count) ? count : 0,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** Get reputation-weighted probability. */
@@ -281,9 +365,11 @@ export async function getOnChainLeaderboard(): Promise<LeaderboardEntry[]> {
         for (let i = 0; i < predCount; i++) {
           const agentRaw = await tracker.get_market_predictor(mId, i);
           const agent = "0x" + BigInt(agentRaw.toString()).toString(16);
-          const [cumulative, pCount] = await tracker.get_brier_score(agent);
-          const cumulativeNum = Number(BigInt(cumulative.toString())) / 1e18;
-          const predCountNum = Number(pCount);
+          const { cumulative, predictionCount } = parseBrierScoreTuple(
+            await tracker.get_brier_score(agent)
+          );
+          const cumulativeNum = Number(cumulative) / 1e18;
+          const predCountNum = Number(predictionCount);
 
           // Use global Brier stats (not per-market) to avoid double-counting
           agentMap.set(agent, {

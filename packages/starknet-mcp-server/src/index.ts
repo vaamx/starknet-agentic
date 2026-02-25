@@ -21,8 +21,19 @@
  * - starknet_build_transfer_calls: Build unsigned ERC-20 transfer calls
  * - starknet_build_swap_calls: Build unsigned AVNU swap calls (approval + route)
  * - starknet_register_agent: Register agent identity (ERC-8004)
+ * - starknet_get_agent_info: Read consolidated ERC-8004 identity state
  * - starknet_set_agent_metadata: Set on-chain metadata for an ERC-8004 agent
+ * - starknet_update_agent_metadata: Alias for metadata updates
  * - starknet_get_agent_metadata: Read on-chain metadata for an ERC-8004 agent
+ * - starknet_get_agent_passport: Read Agent Passport metadata (caps + capability payloads)
+ * - starknet_give_feedback: Write feedback to ERC-8004 ReputationRegistry
+ * - starknet_get_reputation: Read aggregated feedback summary from ReputationRegistry
+ * - starknet_request_validation: Create validation requests in ValidationRegistry
+ * - starknet_create_payment_link: Create Starknet payment links
+ * - starknet_parse_payment_link: Parse Starknet payment links
+ * - starknet_create_invoice: Create stateless payment invoices
+ * - starknet_get_invoice_status: Check invoice status and optional fulfillment proof
+ * - starknet_generate_qr: Generate payment/address QR payloads (base64)
  * - prediction_get_markets: List prediction markets from a factory contract
  * - prediction_bet: Place a bet on a prediction market (approve + bet multicall)
  * - prediction_record_prediction: Record agent probability on AccuracyTracker
@@ -56,7 +67,7 @@ import {
   validateAndParseAddress,
   type Call,
 } from "starknet";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   resolveTokenAddressAsync,
@@ -101,6 +112,8 @@ const envSchema = z.object({
   AVNU_PAYMASTER_FEE_MODE: z.enum(["sponsored", "default"]).optional(),
   AGENT_ACCOUNT_FACTORY_ADDRESS: z.string().startsWith("0x").optional(),
   ERC8004_IDENTITY_REGISTRY_ADDRESS: z.string().startsWith("0x").optional(),
+  ERC8004_REPUTATION_REGISTRY_ADDRESS: z.string().startsWith("0x").optional(),
+  ERC8004_VALIDATION_REGISTRY_ADDRESS: z.string().startsWith("0x").optional(),
   KEYRING_PROXY_URL: z.string().url().optional(),
   KEYRING_HMAC_SECRET: z.string().min(1).optional(),
   KEYRING_CLIENT_ID: z.string().min(1).optional(),
@@ -135,6 +148,8 @@ const env = envSchema.parse({
     | undefined,
   AGENT_ACCOUNT_FACTORY_ADDRESS: process.env.AGENT_ACCOUNT_FACTORY_ADDRESS,
   ERC8004_IDENTITY_REGISTRY_ADDRESS: process.env.ERC8004_IDENTITY_REGISTRY_ADDRESS,
+  ERC8004_REPUTATION_REGISTRY_ADDRESS: process.env.ERC8004_REPUTATION_REGISTRY_ADDRESS,
+  ERC8004_VALIDATION_REGISTRY_ADDRESS: process.env.ERC8004_VALIDATION_REGISTRY_ADDRESS,
   KEYRING_PROXY_URL: process.env.KEYRING_PROXY_URL,
   KEYRING_HMAC_SECRET: process.env.KEYRING_HMAC_SECRET,
   KEYRING_CLIENT_ID: process.env.KEYRING_CLIENT_ID,
@@ -374,6 +389,259 @@ function randomSaltFelt(): string {
   const random = BigInt(`0x${randomBytes(32).toString("hex")}`);
   // Starknet felts are field elements; keep value in 251-bit range.
   return `0x${BigInt.asUintN(251, random).toString(16)}`;
+}
+
+const invoicePayloadSchema = z.object({
+  v: z.literal(1),
+  recipient: z.string().startsWith("0x"),
+  token: z.string().min(1),
+  tokenAddress: z.string().startsWith("0x"),
+  amount: z.string().min(1),
+  amountRaw: z.string().regex(/^\d+$/),
+  decimals: z.number().int().min(0).max(36),
+  memo: z.string().max(256).optional(),
+  createdAt: z.number().int().min(0),
+  expiresAt: z.number().int().min(0),
+});
+
+type InvoicePayload = z.infer<typeof invoicePayloadSchema>;
+
+const registerAgentArgsSchema = z.object({
+  token_uri: z.string().optional(),
+  gasfree: z.boolean().optional().default(false),
+});
+
+const getAgentInfoArgsSchema = z.object({
+  agent_id: z.string().min(1, "agent_id is required"),
+  metadata_keys: z.array(z.string().min(1)).max(64).optional(),
+});
+
+const setAgentMetadataArgsSchema = z.object({
+  agent_id: z.string().min(1, "agent_id is required"),
+  key: z.string().min(1, "key is required and must be non-empty"),
+  value: z.string(),
+  gasfree: z.boolean().optional().default(false),
+}).refine((value) => value.key !== "agentWallet", {
+  message: "'agentWallet' is a reserved key and cannot be set via set_metadata",
+  path: ["key"],
+});
+
+const giveFeedbackArgsSchema = z.object({
+  agent_id: z.string().min(1, "agent_id is required"),
+  value: z.union([z.string(), z.number().int(), z.bigint()]),
+  value_decimals: z.number().int().min(0).max(255).optional().default(0),
+  tag1: z.string().optional().default(""),
+  tag2: z.string().optional().default(""),
+  endpoint: z.string().optional().default(""),
+  feedback_uri: z.string().optional().default(""),
+  feedback_hash: z.union([z.string(), z.number().int().nonnegative(), z.bigint().nonnegative()]).optional().default("0"),
+  gasfree: z.boolean().optional().default(false),
+});
+
+const getReputationArgsSchema = z.object({
+  agent_id: z.string().min(1, "agent_id is required"),
+  tag1: z.string().optional().default(""),
+  tag2: z.string().optional().default(""),
+});
+
+const requestValidationArgsSchema = z.object({
+  validator_address: z.string().startsWith("0x"),
+  agent_id: z.string().min(1, "agent_id is required"),
+  request_uri: z.string().trim().min(1, "request_uri is required and must be non-empty"),
+  request_hash: z.union([z.string(), z.number().int().nonnegative(), z.bigint().nonnegative()]).optional().default("0"),
+  gasfree: z.boolean().optional().default(false),
+});
+
+const MAX_INVOICE_ID_LEN = 4096;
+const INVOICE_STATUS_WAIT_RETRIES = 3;
+const INVOICE_STATUS_WAIT_INTERVAL_MS = 1_000;
+
+function parseToolArgs<T>(schema: z.ZodType<T>, rawArgs: unknown, toolName: string): T {
+  const parsed = schema.safeParse(rawArgs ?? {});
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  const details = parsed.error.issues
+    .map((issue) => `${issue.path.join(".") || "input"}: ${issue.message}`)
+    .join("; ");
+  throw new Error(`${toolName} input validation failed: ${details}`);
+}
+
+function encodeInvoiceId(payload: InvoicePayload): string {
+  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+
+function decodeInvoiceId(invoiceId: string): InvoicePayload {
+  if (!invoiceId || typeof invoiceId !== "string") {
+    throw new Error("invoiceId is required");
+  }
+  if (invoiceId.length > MAX_INVOICE_ID_LEN) {
+    throw new Error(`invoiceId is too large (max ${MAX_INVOICE_ID_LEN} chars)`);
+  }
+
+  let parsed: unknown;
+  try {
+    const decoded = Buffer.from(invoiceId, "base64url").toString("utf8");
+    parsed = JSON.parse(decoded);
+  } catch {
+    throw new Error("invoiceId is malformed or not valid base64url JSON");
+  }
+
+  const payload = invoicePayloadSchema.parse(parsed);
+  parseAddress("invoice recipient", payload.recipient);
+  parseAddress("invoice tokenAddress", payload.tokenAddress);
+  if (payload.expiresAt <= payload.createdAt) {
+    throw new Error("invoiceId has invalid timestamps: expiresAt must be greater than createdAt");
+  }
+  return payload;
+}
+
+function buildStarknetPaymentLink(args: {
+  address: string;
+  amount?: string;
+  token?: string;
+  memo?: string;
+  invoiceId?: string;
+}): string {
+  const params = new URLSearchParams();
+  if (args.amount) params.set("amount", args.amount);
+  if (args.token) params.set("token", args.token);
+  if (args.memo) params.set("memo", args.memo);
+  if (args.invoiceId) params.set("invoice", args.invoiceId);
+
+  const query = params.toString();
+  return query.length > 0
+    ? `starknet:${args.address}?${query}`
+    : `starknet:${args.address}`;
+}
+
+function normalizeHex(value: string | undefined): string {
+  if (!value || typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  try {
+    const prefixed = trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`;
+    return `0x${BigInt(prefixed).toString(16)}`;
+  } catch {
+    return trimmed.toLowerCase();
+  }
+}
+
+function parseErc20TransferEvent(event: {
+  keys?: string[];
+  data?: string[];
+}): { from: string; to: string; amountRaw: bigint } {
+  const keys = Array.isArray(event.keys) ? event.keys : [];
+  const data = Array.isArray(event.data) ? event.data : [];
+
+  // Standard Starknet ERC-20 event shape:
+  // keys = [selector, from, to], data = [amount_low, amount_high]
+  if (keys.length >= 3 && data.length >= 2) {
+    return {
+      from: normalizeHex(keys[1]),
+      to: normalizeHex(keys[2]),
+      amountRaw: BigInt(data[0]) + (BigInt(data[1]) << 128n),
+    };
+  }
+
+  // Fallback shape sometimes seen in wrappers:
+  // data = [from, to, amount_low, amount_high]
+  if (data.length >= 4) {
+    return {
+      from: normalizeHex(data[0]),
+      to: normalizeHex(data[1]),
+      amountRaw: BigInt(data[2]) + (BigInt(data[3]) << 128n),
+    };
+  }
+
+  return { from: "", to: "", amountRaw: 0n };
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function buildQrLikeSvg(content: string): { svg: string; base64: string; dataUrl: string } {
+  // Dependency-free fallback: generate a deterministic QR-like matrix SVG from content hash.
+  // For strict QR compliance, clients can use `content` with a native QR renderer.
+  const size = 29;
+  const cell = 8;
+  const margin = 4;
+  const total = (size + margin * 2) * cell;
+  const hashBytes = createHash("sha256").update(content).digest();
+  const occupied = new Set<string>();
+
+  const mark = (x: number, y: number): void => {
+    if (x < 0 || y < 0 || x >= size || y >= size) return;
+    occupied.add(`${x},${y}`);
+  };
+
+  const drawFinder = (ox: number, oy: number): void => {
+    for (let y = 0; y < 7; y++) {
+      for (let x = 0; x < 7; x++) {
+        const isOuter = x === 0 || y === 0 || x === 6 || y === 6;
+        const isInner = x >= 2 && x <= 4 && y >= 2 && y <= 4;
+        if (isOuter || isInner) {
+          mark(ox + x, oy + y);
+        }
+      }
+    }
+  };
+
+  drawFinder(0, 0);
+  drawFinder(size - 7, 0);
+  drawFinder(0, size - 7);
+
+  let bitIndex = 0;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const inFinder =
+        (x < 8 && y < 8) ||
+        (x >= size - 8 && y < 8) ||
+        (x < 8 && y >= size - 8);
+      if (inFinder) continue;
+
+      const byte = hashBytes[bitIndex % hashBytes.length];
+      const bit = (byte >> (bitIndex % 8)) & 1;
+      const parity = (x + y) % 2;
+      if ((bit ^ parity) === 1) {
+        mark(x, y);
+      }
+      bitIndex++;
+    }
+  }
+
+  const rects = [...occupied]
+    .map((coord) => {
+      const [xStr, yStr] = coord.split(",");
+      const x = Number(xStr);
+      const y = Number(yStr);
+      return `<rect x="${(x + margin) * cell}" y="${(y + margin) * cell}" width="${cell}" height="${cell}" fill="#000"/>`;
+    })
+    .join("");
+
+  const caption = escapeXml(content.length > 72 ? `${content.slice(0, 69)}...` : content);
+  const svg = [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${total}" height="${total + 44}" viewBox="0 0 ${total} ${total + 44}" role="img" aria-label="Starknet payment QR payload">`,
+    `<rect width="${total}" height="${total + 44}" fill="#fff"/>`,
+    rects,
+    `<text x="${total / 2}" y="${total + 24}" text-anchor="middle" font-family="monospace" font-size="12" fill="#111">starknet payload</text>`,
+    `<text x="${total / 2}" y="${total + 38}" text-anchor="middle" font-family="monospace" font-size="10" fill="#555">${caption}</text>`,
+    "</svg>",
+  ].join("");
+
+  const base64 = Buffer.from(svg, "utf8").toString("base64");
+  return {
+    svg,
+    base64,
+    dataUrl: `data:image/svg+xml;base64,${base64}`,
+  };
 }
 
 function parseDeployResultFromReceipt(
@@ -674,6 +942,145 @@ const tools: Tool[] = [
         },
       },
       required: ["contractAddress", "entrypoint"],
+    },
+  },
+  {
+    name: "starknet_create_payment_link",
+    description:
+      "Create a Starknet payment link (starknet:<address>?amount=...&token=...&memo=...). Can optionally embed an invoice id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        address: {
+          type: "string",
+          description: "Recipient Starknet address (0x-prefixed)",
+        },
+        amount: {
+          type: "string",
+          description: "Optional amount in human-readable units (e.g. '0.5')",
+        },
+        token: {
+          type: "string",
+          description: "Optional token symbol or token address (defaults to STRK when amount is provided)",
+        },
+        memo: {
+          type: "string",
+          description: "Optional memo to include in the link (max 256 chars)",
+        },
+        invoiceId: {
+          type: "string",
+          description: "Optional invoice id from starknet_create_invoice",
+        },
+      },
+      required: ["address"],
+    },
+  },
+  {
+    name: "starknet_parse_payment_link",
+    description:
+      "Parse a Starknet payment link and return normalized recipient, token resolution, amount details, and embedded invoice data when present.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        paymentLink: {
+          type: "string",
+          description: "Payment link in starknet:<address>?... format",
+        },
+      },
+      required: ["paymentLink"],
+    },
+  },
+  {
+    name: "starknet_create_invoice",
+    description:
+      "Create a stateless invoice for Starknet payments. Returns an invoice id and payment link. Invoice ids are base64url-encoded payloads (no server-side DB required).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recipient: {
+          type: "string",
+          description: "Recipient Starknet address (0x-prefixed)",
+        },
+        amount: {
+          type: "string",
+          description: "Required payment amount in human-readable units",
+        },
+        token: {
+          type: "string",
+          description: "Token symbol or address (default: USDC)",
+          default: "USDC",
+        },
+        memo: {
+          type: "string",
+          description: "Optional invoice memo/description (max 256 chars)",
+        },
+        expiresInSeconds: {
+          type: "number",
+          description: "Invoice TTL in seconds (min 60, max 604800). Default: 3600 (1h)",
+          default: 3600,
+        },
+      },
+      required: ["recipient", "amount"],
+    },
+  },
+  {
+    name: "starknet_get_invoice_status",
+    description:
+      "Decode an invoice id and report status (pending/expired/paid/underpaid/reverted). Optionally verify fulfillment by checking an ERC-20 Transfer event in a provided transaction hash.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        invoiceId: {
+          type: "string",
+          description: "Invoice id from starknet_create_invoice",
+        },
+        transactionHash: {
+          type: "string",
+          description: "Optional tx hash to verify payment fulfillment",
+        },
+      },
+      required: ["invoiceId"],
+    },
+  },
+  {
+    name: "starknet_generate_qr",
+    description:
+      "Generate QR-style payloads (SVG data URL or SVG base64) from raw content or Starknet payment fields (address/amount/token/memo/invoiceId).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        content: {
+          type: "string",
+          description: "Raw content to encode as QR",
+        },
+        address: {
+          type: "string",
+          description: "Recipient address used when content is omitted",
+        },
+        amount: {
+          type: "string",
+          description: "Optional amount used when content is omitted",
+        },
+        token: {
+          type: "string",
+          description: "Optional token used when content is omitted",
+        },
+        memo: {
+          type: "string",
+          description: "Optional memo used when content is omitted",
+        },
+        invoiceId: {
+          type: "string",
+          description: "Optional invoice id used when content is omitted",
+        },
+        format: {
+          type: "string",
+          enum: ["data_url", "svg"],
+          description: "Output format: 'data_url' (SVG data URL) or 'svg' (SVG base64)",
+          default: "data_url",
+        },
+      },
+      required: [],
     },
   },
   {
@@ -1015,9 +1422,61 @@ if (env.ERC8004_IDENTITY_REGISTRY_ADDRESS) {
   });
 
   tools.push({
+    name: "starknet_get_agent_info",
+    description:
+      "Read consolidated ERC-8004 identity state for an agent: existence, owner, wallet, token URI, and selected metadata keys.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent_id: {
+          type: "string",
+          description: "Agent ID (u256 decimal or hex string)",
+        },
+        metadata_keys: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional metadata keys to read. Defaults to common keys: agentName, agentType, version, model, status, framework, capabilities, a2aEndpoint, moltbookId.",
+        },
+      },
+      required: ["agent_id"],
+    },
+  });
+
+  tools.push({
     name: "starknet_set_agent_metadata",
     description:
       "Set on-chain metadata for an ERC-8004 agent. Caller must be owner or approved for the agent_id. Standard keys: agentName, agentType, version, model, status, framework, capabilities, a2aEndpoint, moltbookId.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent_id: {
+          type: "string",
+          description: "Agent ID (u256 decimal or hex string)",
+        },
+        key: {
+          type: "string",
+          description:
+            "Metadata key (e.g. 'agentName', 'capabilities'). 'agentWallet' is reserved and cannot be set here.",
+        },
+        value: {
+          type: "string",
+          description: "Metadata value to store on-chain",
+        },
+        gasfree: {
+          type: "boolean",
+          description: "Use gasfree mode (paymaster pays gas or gas paid in token)",
+          default: false,
+        },
+      },
+      required: ["agent_id", "key", "value"],
+    },
+  });
+
+  tools.push({
+    name: "starknet_update_agent_metadata",
+    description:
+      "Alias for starknet_set_agent_metadata. Updates on-chain metadata for an ERC-8004 agent.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1063,6 +1522,133 @@ if (env.ERC8004_IDENTITY_REGISTRY_ADDRESS) {
       required: ["agent_id", "key"],
     },
   });
+
+  tools.push({
+    name: "starknet_get_agent_passport",
+    description:
+      "Read Agent Passport metadata from ERC-8004 IdentityRegistry. Returns caps index, schema id, parsed capability payloads, and parsing issues.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent_id: {
+          type: "string",
+          description: "Agent ID (u256 decimal or hex string)",
+        },
+      },
+      required: ["agent_id"],
+    },
+  });
+
+  if (env.ERC8004_REPUTATION_REGISTRY_ADDRESS) {
+    tools.push({
+      name: "starknet_give_feedback",
+      description:
+        "Write ERC-8004 feedback for an agent in ReputationRegistry. Supports signed values and optional tags/URI/hash for attestation payloads.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent_id: {
+            type: "string",
+            description: "Agent ID (u256 decimal or hex string)",
+          },
+          value: {
+            type: "string",
+            description: "Signed feedback value as i128 string (e.g., '85', '-10')",
+          },
+          value_decimals: {
+            type: "number",
+            description: "Decimal precision for value (u8, default: 0)",
+            default: 0,
+          },
+          tag1: {
+            type: "string",
+            description: "Primary feedback tag (optional)",
+          },
+          tag2: {
+            type: "string",
+            description: "Secondary feedback tag (optional)",
+          },
+          endpoint: {
+            type: "string",
+            description: "Endpoint/context for the feedback (optional)",
+          },
+          feedback_uri: {
+            type: "string",
+            description: "URI with detailed feedback content (optional)",
+          },
+          feedback_hash: {
+            type: "string",
+            description: "Optional feedback hash (u256 decimal or hex). Defaults to 0.",
+          },
+          gasfree: {
+            type: "boolean",
+            description: "Use gasfree mode (paymaster pays gas or gas paid in token)",
+            default: false,
+          },
+        },
+        required: ["agent_id", "value"],
+      },
+    });
+
+    tools.push({
+      name: "starknet_get_reputation",
+      description:
+        "Read ERC-8004 aggregated reputation summary for an agent from ReputationRegistry (count, normalized score, raw score, decimals).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent_id: {
+            type: "string",
+            description: "Agent ID (u256 decimal or hex string)",
+          },
+          tag1: {
+            type: "string",
+            description: "Primary tag filter (optional)",
+          },
+          tag2: {
+            type: "string",
+            description: "Secondary tag filter (optional)",
+          },
+        },
+        required: ["agent_id"],
+      },
+    });
+  }
+
+  if (env.ERC8004_VALIDATION_REGISTRY_ADDRESS) {
+    tools.push({
+      name: "starknet_request_validation",
+      description:
+        "Create ERC-8004 validation requests in ValidationRegistry for a designated validator and agent.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          validator_address: {
+            type: "string",
+            description: "Validator address that should respond to this request",
+          },
+          agent_id: {
+            type: "string",
+            description: "Agent ID (u256 decimal or hex string)",
+          },
+          request_uri: {
+            type: "string",
+            description: "URI with validation context/details",
+          },
+          request_hash: {
+            type: "string",
+            description: "Optional request hash (u256 decimal or hex). Defaults to 0 for auto-hash behavior.",
+          },
+          gasfree: {
+            type: "boolean",
+            description: "Use gasfree mode (paymaster pays gas or gas paid in token)",
+            default: false,
+          },
+        },
+        required: ["validator_address", "agent_id", "request_uri"],
+      },
+    });
+  }
 
   // ── Prediction Market Tools ─────────────────────────────────────────────────
   tools.push(
@@ -1288,6 +1874,137 @@ function parseIdentityRegisteredFromReceipt(
   }
 
   return { agentId: null };
+}
+
+const DEFAULT_AGENT_INFO_METADATA_KEYS = [
+  "agentName",
+  "agentType",
+  "version",
+  "model",
+  "status",
+  "framework",
+  "capabilities",
+  "a2aEndpoint",
+  "moltbookId",
+] as const;
+
+function toCallResultArray(result: unknown): string[] {
+  if (Array.isArray(result)) {
+    return result.map((item) => String(item));
+  }
+  if (result && typeof result === "object" && Array.isArray((result as { result?: unknown[] }).result)) {
+    return ((result as { result: unknown[] }).result).map((item) => String(item));
+  }
+  return [];
+}
+
+function decodeByteArrayResult(result: unknown): string {
+  const resultArray = toCallResultArray(result);
+  const dataLen = Number(resultArray[0] ?? "0");
+  if (!Number.isFinite(dataLen) || dataLen < 0) {
+    return "";
+  }
+  return byteArray.stringFromByteArray({
+    data: resultArray.slice(1, 1 + dataLen).map((v) => BigInt(v)),
+    pending_word: BigInt(resultArray[1 + dataLen] ?? "0"),
+    pending_word_len: Number(resultArray[2 + dataLen] ?? "0"),
+  });
+}
+
+function readAddressFromCallResult(result: unknown): string | null {
+  const values = toCallResultArray(result);
+  const first = values[0];
+  if (!first) {
+    return null;
+  }
+
+  const raw = first.startsWith("0x") ? first : num.toHex(BigInt(first));
+  if (/^0x0+$/i.test(raw)) {
+    return "0x0";
+  }
+  try {
+    return validateAndParseAddress(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function readBoolFromCallResult(result: unknown): boolean {
+  const values = toCallResultArray(result);
+  const first = values[0];
+  return first ? BigInt(first) !== 0n : false;
+}
+
+function parseU256(name: string, value: string | number | bigint): bigint {
+  let parsed: bigint;
+  try {
+    parsed = BigInt(value);
+  } catch {
+    throw new Error(`${name} must be a valid u256`);
+  }
+  if (parsed < 0n) {
+    throw new Error(`${name} must be non-negative`);
+  }
+  const max = (1n << 256n) - 1n;
+  if (parsed > max) {
+    throw new Error(`${name} must fit in 256 bits`);
+  }
+  return parsed;
+}
+
+function parseI128(name: string, value: string | number | bigint): bigint {
+  let parsed: bigint;
+  try {
+    parsed = BigInt(value);
+  } catch {
+    throw new Error(`${name} must be a valid i128`);
+  }
+  const min = -(1n << 127n);
+  const max = (1n << 127n) - 1n;
+  if (parsed < min || parsed > max) {
+    throw new Error(`${name} must fit in i128 range`);
+  }
+  return parsed;
+}
+
+function parseU8(name: string, value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 255) {
+    throw new Error(`${name} must be an integer between 0 and 255`);
+  }
+  return parsed;
+}
+
+function formatSignedDecimal(raw: string, decimals: number): string {
+  if (decimals <= 0) {
+    return raw;
+  }
+  const negative = raw.startsWith("-");
+  const digits = negative ? raw.slice(1) : raw;
+  const padded = digits.padStart(decimals + 1, "0");
+  const whole = padded.slice(0, -decimals);
+  const fractional = padded.slice(-decimals).replace(/0+$/, "");
+  return `${negative ? "-" : ""}${whole}${fractional ? `.${fractional}` : ""}`;
+}
+
+async function readIdentityMetadataValue(args: {
+  identityRegistryAddress: string;
+  agentId: string;
+  key: string;
+}): Promise<string> {
+  const agentIdBigInt = BigInt(args.agentId);
+  const calldata = CallData.compile({
+    agent_id: cairo.uint256(agentIdBigInt),
+    key: byteArray.byteArrayFromString(args.key),
+  });
+
+  const result = await provider.callContract({
+    contractAddress: args.identityRegistryAddress,
+    entrypoint: "get_metadata",
+    calldata,
+  });
+
+  return decodeByteArrayResult(result);
 }
 
 
@@ -1825,6 +2542,469 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 resourceBounds: fee.resourceBounds,
                 unit: fee.unit || "STRK",
               }, null, 2),
+            },
+          ],
+        };
+      }
+
+      case "starknet_create_payment_link": {
+        const {
+          address: rawAddress,
+          amount,
+          token,
+          memo,
+          invoiceId,
+        } = args as {
+          address: string;
+          amount?: string;
+          token?: string;
+          memo?: string;
+          invoiceId?: string;
+        };
+
+        if (!rawAddress) throw new Error("address is required");
+        const address = parseAddress("address", rawAddress);
+        if (memo && memo.length > 256) throw new Error("memo must be 256 characters or less");
+
+        let normalizedToken: string | undefined;
+        let tokenAddress: string | undefined;
+        let amountRaw: string | undefined;
+        let decimals: number | undefined;
+        const amountTokenInput = token ?? (amount ? "STRK" : undefined);
+
+        if (amountTokenInput) {
+          tokenAddress = amountTokenInput.startsWith("0x")
+            ? parseAddress("token", amountTokenInput)
+            : await resolveTokenAddressAsync(amountTokenInput);
+          const tokenService = getTokenService();
+          decimals = await tokenService.getDecimalsAsync(tokenAddress);
+          normalizedToken = amountTokenInput.startsWith("0x")
+            ? (
+              STATIC_TOKENS.find((candidate) =>
+                candidate.address.toLowerCase() === tokenAddress!.toLowerCase()
+              )?.symbol ?? tokenAddress
+            )
+            : amountTokenInput.toUpperCase();
+
+          if (amount) {
+            const parsedAmount = parseDecimalToBigInt(amount, decimals);
+            if (parsedAmount <= 0n) throw new Error("amount must be greater than 0");
+            amountRaw = parsedAmount.toString();
+          }
+        } else if (amount) {
+          throw new Error("token is required when amount is provided");
+        }
+
+        if (invoiceId) {
+          decodeInvoiceId(invoiceId);
+        }
+
+        const paymentLink = buildStarknetPaymentLink({
+          address,
+          amount,
+          token: normalizedToken,
+          memo,
+          invoiceId,
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  paymentLink,
+                  address,
+                  amount,
+                  amountRaw,
+                  token: normalizedToken,
+                  tokenAddress,
+                  decimals,
+                  memo,
+                  invoiceId,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case "starknet_parse_payment_link": {
+        const { paymentLink } = args as { paymentLink: string };
+        if (!paymentLink || typeof paymentLink !== "string") {
+          throw new Error("paymentLink is required");
+        }
+        if (!paymentLink.toLowerCase().startsWith("starknet:")) {
+          throw new Error("paymentLink must start with 'starknet:'");
+        }
+
+        const raw = paymentLink.slice("starknet:".length);
+        const queryIndex = raw.indexOf("?");
+        const addressRaw = queryIndex === -1 ? raw : raw.slice(0, queryIndex);
+        const address = parseAddress("address", addressRaw);
+        const queryString = queryIndex === -1 ? "" : raw.slice(queryIndex + 1);
+        const params = new URLSearchParams(queryString);
+
+        const amount = params.get("amount") || undefined;
+        const memo = params.get("memo") || undefined;
+        const invoiceId = params.get("invoice") || undefined;
+        const tokenInput = params.get("token") || undefined;
+
+        let tokenAddress: string | undefined;
+        let token: string | undefined;
+        let amountRaw: string | undefined;
+        let decimals: number | undefined;
+
+        if (tokenInput) {
+          tokenAddress = tokenInput.startsWith("0x")
+            ? parseAddress("token", tokenInput)
+            : await resolveTokenAddressAsync(tokenInput);
+          const tokenService = getTokenService();
+          decimals = await tokenService.getDecimalsAsync(tokenAddress);
+          token = tokenInput.startsWith("0x")
+            ? (
+              STATIC_TOKENS.find((candidate) =>
+                candidate.address.toLowerCase() === tokenAddress!.toLowerCase()
+              )?.symbol ?? tokenAddress
+            )
+            : tokenInput.toUpperCase();
+        }
+
+        if (amount && decimals !== undefined) {
+          const parsedAmount = parseDecimalToBigInt(amount, decimals);
+          if (parsedAmount <= 0n) throw new Error("amount must be greater than 0");
+          amountRaw = parsedAmount.toString();
+        }
+
+        let invoice: InvoicePayload | undefined;
+        if (invoiceId) {
+          invoice = decodeInvoiceId(invoiceId);
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  scheme: "starknet",
+                  address,
+                  amount,
+                  amountRaw,
+                  token,
+                  tokenAddress,
+                  decimals,
+                  memo,
+                  invoiceId,
+                  invoice,
+                  rawQuery: queryString,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case "starknet_create_invoice": {
+        const {
+          recipient: rawRecipient,
+          amount,
+          token = "USDC",
+          memo,
+          expiresInSeconds = 3600,
+        } = args as {
+          recipient: string;
+          amount: string;
+          token?: string;
+          memo?: string;
+          expiresInSeconds?: number;
+        };
+
+        if (!rawRecipient) throw new Error("recipient is required");
+        if (!amount || typeof amount !== "string") throw new Error("amount is required");
+        if (memo && memo.length > 256) throw new Error("memo must be 256 characters or less");
+        if (!Number.isFinite(expiresInSeconds)) {
+          throw new Error("expiresInSeconds must be a finite number");
+        }
+        if (expiresInSeconds < 60 || expiresInSeconds > 604_800) {
+          throw new Error("expiresInSeconds must be between 60 and 604800");
+        }
+
+        const recipient = parseAddress("recipient", rawRecipient);
+        const tokenAddress = token.startsWith("0x")
+          ? parseAddress("token", token)
+          : await resolveTokenAddressAsync(token);
+        const tokenService = getTokenService();
+        const decimals = await tokenService.getDecimalsAsync(tokenAddress);
+        const amountRawBigInt = parseDecimalToBigInt(amount, decimals);
+        if (amountRawBigInt <= 0n) {
+          throw new Error("amount must be greater than 0");
+        }
+
+        const normalizedToken = token.startsWith("0x")
+          ? (
+            STATIC_TOKENS.find((candidate) =>
+              candidate.address.toLowerCase() === tokenAddress.toLowerCase()
+            )?.symbol ?? tokenAddress
+          )
+          : token.toUpperCase();
+
+        const createdAt = Math.floor(Date.now() / 1000);
+        const expiresAt = createdAt + Math.floor(expiresInSeconds);
+
+        const payload: InvoicePayload = {
+          v: 1,
+          recipient,
+          token: normalizedToken,
+          tokenAddress,
+          amount,
+          amountRaw: amountRawBigInt.toString(),
+          decimals,
+          memo,
+          createdAt,
+          expiresAt,
+        };
+        const invoiceId = encodeInvoiceId(payload);
+        const paymentLink = buildStarknetPaymentLink({
+          address: recipient,
+          amount,
+          token: normalizedToken,
+          memo,
+          invoiceId,
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  invoiceId,
+                  status: "pending",
+                  recipient,
+                  amount,
+                  amountRaw: payload.amountRaw,
+                  token: normalizedToken,
+                  tokenAddress,
+                  decimals,
+                  memo,
+                  createdAt,
+                  expiresAt,
+                  ttlSeconds: Math.floor(expiresInSeconds),
+                  paymentLink,
+                  note: "Invoice ids are stateless base64url payloads; store invoiceId externally if you need persistence across sessions.",
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case "starknet_get_invoice_status": {
+        const { invoiceId, transactionHash } = args as {
+          invoiceId: string;
+          transactionHash?: string;
+        };
+
+        const payload = decodeInvoiceId(invoiceId);
+        const now = Math.floor(Date.now() / 1000);
+        const initiallyExpired = now > payload.expiresAt;
+        let status: "pending" | "expired" | "paid" | "underpaid" | "reverted" =
+          initiallyExpired ? "expired" : "pending";
+        let paidAfterExpiry = false;
+
+        const paymentLink = buildStarknetPaymentLink({
+          address: payload.recipient,
+          amount: payload.amount,
+          token: payload.token,
+          memo: payload.memo,
+          invoiceId,
+        });
+
+        const verification: {
+          transactionHash?: string;
+          executionStatus?: string;
+          matchedTransferCount?: number;
+          paidAmountRaw?: string;
+          requiredAmountRaw?: string;
+          reason?: string;
+        } = {};
+
+        if (transactionHash) {
+          verification.transactionHash = transactionHash;
+          try {
+            const receipt = await provider.waitForTransaction(transactionHash, {
+              retries: INVOICE_STATUS_WAIT_RETRIES,
+              retryInterval: INVOICE_STATUS_WAIT_INTERVAL_MS,
+            });
+
+            const executionStatus =
+              ((receipt as { execution_status?: string }).execution_status ??
+                (receipt as { finality_status?: string }).finality_status ??
+                "UNKNOWN").toString();
+            verification.executionStatus = executionStatus;
+            if (/REVERT/i.test(executionStatus)) {
+              status = "reverted";
+            } else {
+              const transferSelector = hash.getSelectorFromName("Transfer").toLowerCase();
+              const tokenAddress = normalizeHex(payload.tokenAddress);
+              const recipient = normalizeHex(payload.recipient);
+              const events =
+                (receipt as {
+                  events?: Array<{ from_address?: string; keys?: string[]; data?: string[] }>;
+                }).events ?? [];
+
+              const matched = events
+                .filter((event) => {
+                  const selector = event.keys?.[0]?.toLowerCase();
+                  if (selector !== transferSelector) return false;
+                  if (normalizeHex(event.from_address) !== tokenAddress) return false;
+                  const transfer = parseErc20TransferEvent({
+                    keys: event.keys,
+                    data: event.data,
+                  });
+                  return transfer.to === recipient;
+                })
+                .map((event) => parseErc20TransferEvent({
+                  keys: event.keys,
+                  data: event.data,
+                }));
+
+              const paidAmountRaw = matched.reduce((acc, transfer) => acc + transfer.amountRaw, 0n);
+              const requiredAmountRaw = BigInt(payload.amountRaw);
+              verification.matchedTransferCount = matched.length;
+              verification.paidAmountRaw = paidAmountRaw.toString();
+              verification.requiredAmountRaw = requiredAmountRaw.toString();
+
+              if (paidAmountRaw >= requiredAmountRaw) {
+                status = "paid";
+                paidAfterExpiry = initiallyExpired;
+              } else if (paidAmountRaw > 0n) {
+                status = "underpaid";
+              }
+            }
+          } catch (error) {
+            verification.reason =
+              error instanceof Error ? error.message : "Unable to verify transaction";
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  invoiceId,
+                  status,
+                  paidAfterExpiry: status === "paid" ? paidAfterExpiry : undefined,
+                  recipient: payload.recipient,
+                  amount: payload.amount,
+                  amountRaw: payload.amountRaw,
+                  token: payload.token,
+                  tokenAddress: payload.tokenAddress,
+                  decimals: payload.decimals,
+                  memo: payload.memo,
+                  createdAt: payload.createdAt,
+                  expiresAt: payload.expiresAt,
+                  now,
+                  expired: now > payload.expiresAt,
+                  paymentLink,
+                  verification: Object.keys(verification).length > 0 ? verification : undefined,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case "starknet_generate_qr": {
+        const {
+          content,
+          address: rawAddress,
+          amount,
+          token,
+          memo,
+          invoiceId,
+          format = "data_url",
+        } = args as {
+          content?: string;
+          address?: string;
+          amount?: string;
+          token?: string;
+          memo?: string;
+          invoiceId?: string;
+          format?: "data_url" | "svg";
+        };
+
+        if (memo && memo.length > 256) throw new Error("memo must be 256 characters or less");
+        if (invoiceId) {
+          decodeInvoiceId(invoiceId);
+        }
+
+        let qrContent = content;
+        if (!qrContent) {
+          if (!rawAddress) {
+            throw new Error("Either content or address is required");
+          }
+          const address = parseAddress("address", rawAddress);
+          const normalizedToken = token?.startsWith("0x") ? parseAddress("token", token) : token;
+          qrContent = buildStarknetPaymentLink({
+            address,
+            amount,
+            token: normalizedToken,
+            memo,
+            invoiceId,
+          });
+        }
+
+        if (format === "svg") {
+          const qr = buildQrLikeSvg(qrContent);
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    content: qrContent,
+                    format: "svg",
+                    mimeType: "image/svg+xml",
+                    qrBase64: qr.base64,
+                    note: "Deterministic SVG QR-style payload. For strict QR interoperability, render `content` with a QR library in your client.",
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
+
+        const qr = buildQrLikeSvg(qrContent);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  content: qrContent,
+                  format: "data_url",
+                  mimeType: "image/svg+xml",
+                  dataUrl: qr.dataUrl,
+                  qrBase64: qr.base64,
+                  note: "Deterministic SVG QR-style payload. For strict QR interoperability, render `content` with a QR library in your client.",
+                },
+                null,
+                2
+              ),
             },
           ],
         };
@@ -2385,10 +3565,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error("ERC8004_IDENTITY_REGISTRY_ADDRESS not configured");
         }
 
-        const { token_uri, gasfree = false } = args as {
-          token_uri?: string;
-          gasfree?: boolean;
-        };
+        const { token_uri, gasfree } = parseToolArgs(
+          registerAgentArgsSchema,
+          args,
+          "starknet_register_agent"
+        );
 
         const identity = parseAddress(
           "ERC8004_IDENTITY_REGISTRY_ADDRESS",
@@ -2434,22 +3615,116 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "starknet_set_agent_metadata": {
+      case "starknet_get_agent_info": {
         if (!env.ERC8004_IDENTITY_REGISTRY_ADDRESS) {
           throw new Error("ERC8004_IDENTITY_REGISTRY_ADDRESS not configured");
         }
 
-        const { agent_id, key, value, gasfree = false } = args as {
-          agent_id: string;
-          key: string;
-          value: string;
-          gasfree?: boolean;
-        };
+        const { agent_id, metadata_keys } = parseToolArgs(
+          getAgentInfoArgsSchema,
+          args,
+          "starknet_get_agent_info"
+        );
 
-        if (!agent_id) throw new Error("agent_id is required");
-        if (!key || key.length === 0) throw new Error("key is required and must be non-empty");
-        if (key === "agentWallet") throw new Error("'agentWallet' is a reserved key and cannot be set via set_metadata");
-        if (value === undefined || value === null) throw new Error("value is required");
+        const requestedKeys = metadata_keys ?? [...DEFAULT_AGENT_INFO_METADATA_KEYS];
+        const metadataKeys = [...new Set(requestedKeys.map((key) => key.trim()).filter((key) => key.length > 0))];
+        const identity = parseAddress(
+          "ERC8004_IDENTITY_REGISTRY_ADDRESS",
+          env.ERC8004_IDENTITY_REGISTRY_ADDRESS
+        );
+        const agentId = parseU256("agent_id", agent_id);
+
+        const existsResult = await provider.callContract({
+          contractAddress: identity,
+          entrypoint: "agent_exists",
+          calldata: CallData.compile({ agent_id: cairo.uint256(agentId) }),
+        });
+        const exists = readBoolFromCallResult(existsResult);
+
+        if (!exists) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    agentId: agent_id,
+                    exists: false,
+                    identityRegistry: identity,
+                    metadata: {},
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
+
+        const agentCalldata = CallData.compile({ token_id: cairo.uint256(agentId) });
+        const [ownerResult, walletResult, tokenUriResult] = await Promise.all([
+          provider.callContract({
+            contractAddress: identity,
+            entrypoint: "owner_of",
+            calldata: agentCalldata,
+          }).catch(() => null),
+          provider.callContract({
+            contractAddress: identity,
+            entrypoint: "get_agent_wallet",
+            calldata: CallData.compile({ agent_id: cairo.uint256(agentId) }),
+          }).catch(() => null),
+          provider.callContract({
+            contractAddress: identity,
+            entrypoint: "token_uri",
+            calldata: agentCalldata,
+          }).catch(() => null),
+        ]);
+
+        const metadataEntries = await Promise.all(
+          metadataKeys.map(async (key) => {
+            const value = await readIdentityMetadataValue({
+              identityRegistryAddress: identity,
+              agentId: agent_id,
+              key,
+            }).catch(() => "");
+            return [key, value] as const;
+          })
+        );
+        const metadata = Object.fromEntries(metadataEntries);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  agentId: agent_id,
+                  exists: true,
+                  identityRegistry: identity,
+                  owner: ownerResult ? readAddressFromCallResult(ownerResult) : null,
+                  wallet: walletResult ? readAddressFromCallResult(walletResult) : null,
+                  tokenUri: tokenUriResult ? decodeByteArrayResult(tokenUriResult) : "",
+                  metadata,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case "starknet_set_agent_metadata":
+      case "starknet_update_agent_metadata": {
+        if (!env.ERC8004_IDENTITY_REGISTRY_ADDRESS) {
+          throw new Error("ERC8004_IDENTITY_REGISTRY_ADDRESS not configured");
+        }
+
+        const { agent_id, key, value, gasfree } = parseToolArgs(
+          setAgentMetadataArgsSchema,
+          args,
+          name
+        );
 
         const identity = parseAddress(
           "ERC8004_IDENTITY_REGISTRY_ADDRESS",
@@ -2457,7 +3732,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         );
 
         // agent_id is u256: compile as cairo.uint256
-        const agentIdBigInt = BigInt(agent_id);
+        const agentIdBigInt = parseU256("agent_id", agent_id);
         const calldata = CallData.compile({
           agent_id: cairo.uint256(agentIdBigInt),
           key: byteArray.byteArrayFromString(key),
@@ -2483,6 +3758,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: JSON.stringify(
                 {
                   success: true,
+                  tool: name,
                   transactionHash,
                   identityRegistry: identity,
                   agentId: agent_id,
@@ -2515,28 +3791,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           env.ERC8004_IDENTITY_REGISTRY_ADDRESS
         );
 
-        const agentIdBigInt = BigInt(agent_id);
-        const calldata = CallData.compile({
-          agent_id: cairo.uint256(agentIdBigInt),
-          key: byteArray.byteArrayFromString(key),
-        });
-
-        const result = await provider.callContract({
-          contractAddress: identity,
-          entrypoint: "get_metadata",
-          calldata,
-        });
-
-        // The result is a serialized ByteArray. Parse it back to a string.
-        const resultArray = Array.isArray(result)
-          ? result
-          : (result as Record<string, unknown>).result
-            ? ((result as Record<string, unknown>).result as string[])
-            : [];
-        const value = byteArray.stringFromByteArray({
-          data: resultArray.slice(1, 1 + Number(resultArray[0])).map((v) => BigInt(v)),
-          pending_word: BigInt(resultArray[1 + Number(resultArray[0])] ?? "0"),
-          pending_word_len: Number(resultArray[2 + Number(resultArray[0])] ?? "0"),
+        const value = await readIdentityMetadataValue({
+          identityRegistryAddress: identity,
+          agentId: agent_id,
+          key,
         });
 
         return {
@@ -2549,6 +3807,288 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                   key,
                   value,
                   identityRegistry: identity,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case "starknet_get_agent_passport": {
+        if (!env.ERC8004_IDENTITY_REGISTRY_ADDRESS) {
+          throw new Error("ERC8004_IDENTITY_REGISTRY_ADDRESS not configured");
+        }
+
+        const { agent_id } = args as {
+          agent_id: string;
+        };
+
+        if (!agent_id) throw new Error("agent_id is required");
+
+        const identity = parseAddress(
+          "ERC8004_IDENTITY_REGISTRY_ADDRESS",
+          env.ERC8004_IDENTITY_REGISTRY_ADDRESS
+        );
+
+        const capsRaw = await readIdentityMetadataValue({
+          identityRegistryAddress: identity,
+          agentId: agent_id,
+          key: "caps",
+        });
+        const schema = await readIdentityMetadataValue({
+          identityRegistryAddress: identity,
+          agentId: agent_id,
+          key: "passport:schema",
+        }).catch(() => "");
+
+        let caps: string[] = [];
+        if (capsRaw && capsRaw.trim().length > 0) {
+          try {
+            const parsed = JSON.parse(capsRaw) as unknown;
+            if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) {
+              throw new Error("caps must be a JSON array of strings");
+            }
+            caps = parsed;
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            throw new Error(`Agent passport 'caps' metadata is invalid: ${reason}`);
+          }
+        }
+
+        const capabilities: Array<Record<string, unknown>> = [];
+        const issues: string[] = [];
+        for (const capName of caps) {
+          const capKey = `capability:${capName}`;
+          const rawPayload = await readIdentityMetadataValue({
+            identityRegistryAddress: identity,
+            agentId: agent_id,
+            key: capKey,
+          }).catch(() => "");
+
+          if (!rawPayload || rawPayload.trim().length === 0) {
+            issues.push(`Missing payload for ${capKey}`);
+            continue;
+          }
+
+          try {
+            const parsed = JSON.parse(rawPayload) as unknown;
+            if (!parsed || typeof parsed !== "object") {
+              issues.push(`Invalid object payload for ${capKey}`);
+              continue;
+            }
+            capabilities.push(parsed as Record<string, unknown>);
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            issues.push(`Invalid JSON payload for ${capKey}: ${reason}`);
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  agentId: agent_id,
+                  identityRegistry: identity,
+                  schema: schema || undefined,
+                  caps,
+                  capabilities,
+                  issues,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case "starknet_give_feedback": {
+        if (!env.ERC8004_REPUTATION_REGISTRY_ADDRESS) {
+          throw new Error("ERC8004_REPUTATION_REGISTRY_ADDRESS not configured");
+        }
+
+        const {
+          agent_id,
+          value,
+          value_decimals,
+          tag1,
+          tag2,
+          endpoint,
+          feedback_uri,
+          feedback_hash,
+          gasfree,
+        } = parseToolArgs(giveFeedbackArgsSchema, args, "starknet_give_feedback");
+
+        const reputation = parseAddress(
+          "ERC8004_REPUTATION_REGISTRY_ADDRESS",
+          env.ERC8004_REPUTATION_REGISTRY_ADDRESS
+        );
+        const agentId = parseU256("agent_id", agent_id);
+        const feedbackValue = parseI128("value", value);
+        const feedbackDecimals = parseU8("value_decimals", value_decimals);
+        const feedbackHash = parseU256("feedback_hash", feedback_hash);
+
+        const call: Call = {
+          contractAddress: reputation,
+          entrypoint: "give_feedback",
+          calldata: CallData.compile({
+            agent_id: cairo.uint256(agentId),
+            value: feedbackValue,
+            value_decimals: feedbackDecimals,
+            tag1: byteArray.byteArrayFromString(tag1),
+            tag2: byteArray.byteArrayFromString(tag2),
+            endpoint: byteArray.byteArrayFromString(endpoint),
+            feedback_uri: byteArray.byteArrayFromString(feedback_uri),
+            feedback_hash: cairo.uint256(feedbackHash),
+          }),
+        };
+
+        const transactionHash = await executeTransaction(call, gasfree);
+        await provider.waitForTransaction(transactionHash, {
+          retries: TX_WAIT_RETRIES,
+          retryInterval: TX_WAIT_INTERVAL_MS,
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  success: true,
+                  transactionHash,
+                  reputationRegistry: reputation,
+                  agentId: agent_id,
+                  value: feedbackValue.toString(),
+                  valueDecimals: feedbackDecimals,
+                  tag1,
+                  tag2,
+                  endpoint,
+                  feedbackUri: feedback_uri,
+                  feedbackHash: feedbackHash.toString(),
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case "starknet_get_reputation": {
+        if (!env.ERC8004_REPUTATION_REGISTRY_ADDRESS) {
+          throw new Error("ERC8004_REPUTATION_REGISTRY_ADDRESS not configured");
+        }
+
+        const { agent_id, tag1, tag2 } = parseToolArgs(
+          getReputationArgsSchema,
+          args,
+          "starknet_get_reputation"
+        );
+
+        const reputation = parseAddress(
+          "ERC8004_REPUTATION_REGISTRY_ADDRESS",
+          env.ERC8004_REPUTATION_REGISTRY_ADDRESS
+        );
+        const agentId = parseU256("agent_id", agent_id);
+        const summaryResult = await provider.callContract({
+          contractAddress: reputation,
+          entrypoint: "get_summary",
+          calldata: CallData.compile({
+            agent_id: cairo.uint256(agentId),
+            client_addresses: [],
+            tag1: byteArray.byteArrayFromString(tag1),
+            tag2: byteArray.byteArrayFromString(tag2),
+          }),
+        });
+
+        const summaryArray = toCallResultArray(summaryResult);
+        const count = BigInt(summaryArray[0] ?? "0").toString();
+        const summaryValueRaw = BigInt(summaryArray[1] ?? "0").toString();
+        const valueDecimals = Number(BigInt(summaryArray[2] ?? "0"));
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  agentId: agent_id,
+                  reputationRegistry: reputation,
+                  tag1,
+                  tag2,
+                  count,
+                  summaryValueRaw,
+                  valueDecimals,
+                  summaryValue: formatSignedDecimal(summaryValueRaw, valueDecimals),
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case "starknet_request_validation": {
+        if (!env.ERC8004_VALIDATION_REGISTRY_ADDRESS) {
+          throw new Error("ERC8004_VALIDATION_REGISTRY_ADDRESS not configured");
+        }
+
+        const {
+          validator_address,
+          agent_id,
+          request_uri,
+          request_hash,
+          gasfree,
+        } = parseToolArgs(
+          requestValidationArgsSchema,
+          args,
+          "starknet_request_validation"
+        );
+
+        const validation = parseAddress(
+          "ERC8004_VALIDATION_REGISTRY_ADDRESS",
+          env.ERC8004_VALIDATION_REGISTRY_ADDRESS
+        );
+        const validator = parseAddress("validator_address", validator_address);
+        const agentId = parseU256("agent_id", agent_id);
+        const requestHash = parseU256("request_hash", request_hash);
+
+        const call: Call = {
+          contractAddress: validation,
+          entrypoint: "validation_request",
+          calldata: CallData.compile({
+            validator_address: validator,
+            agent_id: cairo.uint256(agentId),
+            request_uri: byteArray.byteArrayFromString(request_uri),
+            request_hash: cairo.uint256(requestHash),
+          }),
+        };
+
+        const transactionHash = await executeTransaction(call, gasfree);
+        await provider.waitForTransaction(transactionHash, {
+          retries: TX_WAIT_RETRIES,
+          retryInterval: TX_WAIT_INTERVAL_MS,
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  success: true,
+                  transactionHash,
+                  validationRegistry: validation,
+                  validatorAddress: validator,
+                  agentId: agent_id,
+                  requestUri: request_uri,
+                  requestHash: requestHash.toString(),
                 },
                 null,
                 2

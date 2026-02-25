@@ -392,10 +392,47 @@ jobs:
       - name: Run onboarding smoke checks
         run: pnpm --dir examples/onboard-agent smoke
 
+  prediction-agent-launch:
+    name: Prediction Agent Launch Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Validate prediction-agent env template
+        run: pnpm --filter prediction-agent preflight -- --env-file .env.example --allow-placeholders --skip-test --skip-build
+
+      - name: Build prediction-agent
+        run: pnpm --filter prediction-agent build
+
+      - name: Test prediction-agent guardrails
+        run: pnpm --filter prediction-agent test
+
+      - name: Chaos hardening gate
+        run: |
+          pnpm --filter prediction-agent chaos:sim -- \
+            --strict \
+            --min-failover-success-rate 0.6 \
+            --max-consensus-block-rate 0.5 \
+            --max-consensus-avg-abs-delta-pct 12
+
   all-checks:
     name: All Checks Passed
     runs-on: ubuntu-latest
-    needs: [secret-scan, typecheck, lint, test, cairo-check, cairo-test-erc8004, cairo-test-agent-account, cairo-test-huginn, cairo-test-session-account, website-build, validate-skills, onboarding-smoke]
+    needs: [secret-scan, typecheck, lint, test, cairo-check, cairo-test-erc8004, cairo-test-agent-account, cairo-test-huginn, cairo-test-session-account, website-build, validate-skills, onboarding-smoke, prediction-agent-launch]
     steps:
       - name: Success
         run: echo "All CI checks passed!"

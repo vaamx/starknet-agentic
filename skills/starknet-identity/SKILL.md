@@ -10,7 +10,7 @@ user-invocable: true
 
 # Starknet Identity Skill
 
-Register and manage AI agent identities on Starknet using the ERC-8004 standard.
+Register and manage AI agent identities on Starknet using the ERC-8004 standard with MCP tools as the default execution path.
 
 ## Overview
 
@@ -22,21 +22,92 @@ ERC-8004 defines three interconnected on-chain registries for AI agents:
 
 Reference implementation: [erc8004-cairo](https://github.com/Akashneelesh/erc8004-cairo)
 
+## MCP Tools Used
+
+| Tool | Use Case | Key Inputs |
+|------|----------|------------|
+| `starknet_register_agent` | Register new ERC-8004 identity | `token_uri?`, `gasfree?` |
+| `starknet_get_agent_info` | Read consolidated identity state (exists, owner, wallet, token URI, metadata) | `agent_id`, `metadata_keys?` |
+| `starknet_set_agent_metadata` | Set on-chain metadata | `agent_id`, `key`, `value`, `gasfree?` |
+| `starknet_update_agent_metadata` | Alias for metadata updates | `agent_id`, `key`, `value`, `gasfree?` |
+| `starknet_get_agent_metadata` | Read on-chain metadata | `agent_id`, `key` |
+| `starknet_get_agent_passport` | Read canonical Agent Passport (`caps`, `capability:<name>`, `passport:schema`) | `agent_id` |
+| `starknet_give_feedback` | Submit reputation feedback entries | `agent_id`, `value`, `value_decimals?`, `tag1?`, `tag2?`, `feedback_uri?`, `gasfree?` |
+| `starknet_get_reputation` | Read aggregated reputation summary | `agent_id`, `tag1?`, `tag2?` |
+| `starknet_request_validation` | Create validation requests | `validator_address`, `agent_id`, `request_uri`, `request_hash?`, `gasfree?` |
+| `starknet_call_contract` | Read fallback for advanced/custom view calls | `contractAddress`, `entrypoint`, `calldata?` |
+| `starknet_invoke_contract` | Write fallback for advanced/custom flows | `contractAddress`, `entrypoint`, `calldata`, `gasfree?` |
+
 ## Prerequisites
 
 ```bash
-npm install starknet
+npm install starknet@^8.9.1
 ```
 
+Environment variables:
+```bash
+STARKNET_RPC_URL=https://starknet-sepolia.public.blastapi.io
+STARKNET_ACCOUNT_ADDRESS=0x...
+STARKNET_PRIVATE_KEY=0x...
+IDENTITY_REGISTRY_ADDRESS=0x72eb37b0389e570bf8b158ce7f0e1e3489de85ba43ab3876a0594df7231631
+REPUTATION_REGISTRY_ADDRESS=0x5a68b5e121a014b9fc39455d4d3e0eb79fe2327329eb734ab637cee4c55c78e
+VALIDATION_REGISTRY_ADDRESS=0x7c8ac08e98d8259e1507a2b4b719f7071104001ed7152d4e9532a6850a62a4f
+```
+
+## Validation Scripts
+
+Bundled scripts under `skills/starknet-identity/scripts/`:
+
+- `register-agent.ts` - register a new identity and print parsed `agentId`
+- `set-metadata.ts` - update metadata (including `caps` JSON validation)
+- `query-reputation.ts` - aggregated reputation + per-client counts
+- `query-validation.ts` - validation summary + request status
+
 ## Agent Registration
+
+### MCP Recommended (Production Path)
+
+```typescript
+// Register identity (mint ERC-8004 NFT)
+const registration = await mcpClient.callTool({
+  name: "starknet_register_agent",
+  arguments: {
+    token_uri: "ipfs://QmYourAgentSpecHash",
+  },
+});
+
+// Store key metadata
+await mcpClient.callTool({
+  name: "starknet_set_agent_metadata",
+  arguments: {
+    agent_id: registration.agentId,
+    key: "agentName",
+    value: "MyTradingAgent",
+  },
+});
+
+// Read metadata back for verification
+const metadata = await mcpClient.callTool({
+  name: "starknet_get_agent_metadata",
+  arguments: {
+    agent_id: registration.agentId,
+    key: "agentName",
+  },
+});
+```
 
 ### Register a New Agent
 
 ```typescript
-import { Account, RpcProvider, Contract, CallData } from "starknet";
+import { Account, RpcProvider, Contract, CallData, ETransactionVersion, byteArray } from "starknet";
 
 const provider = new RpcProvider({ nodeUrl: process.env.STARKNET_RPC_URL });
-const account = new Account({ provider, address, signer: privateKey });
+const account = new Account({
+  provider,
+  address,
+  signer: privateKey,
+  transactionVersion: ETransactionVersion.V3,
+});
 
 const identityRegistry = new Contract({
   abi: identityRegistryAbi,
@@ -59,12 +130,15 @@ const { transaction_hash } = await account.execute({
   contractAddress: registryAddress,
   entrypoint: "register_with_metadata",
   calldata: CallData.compile({
-    token_uri: tokenUri,
-    metadata: metadata,
+    token_uri: byteArray.byteArrayFromString(tokenUri),
+    metadata: metadata.map((entry) => ({
+      key: byteArray.byteArrayFromString(entry.key),
+      value: byteArray.byteArrayFromString(entry.value),
+    })),
   }),
 });
 
-const receipt = await account.waitForTransaction(transaction_hash);
+const receipt = await provider.waitForTransaction(transaction_hash);
 // Parse agent_id from events
 ```
 
@@ -94,11 +168,13 @@ await account.execute({
   entrypoint: "set_metadata",
   calldata: CallData.compile({
     agent_id: agentId,
-    key: "status",
-    value: "upgraded",
+    key: byteArray.byteArrayFromString("status"),
+    value: byteArray.byteArrayFromString("upgraded"),
   }),
 });
 ```
+
+Do not set `agentWallet` through `set_metadata`; it is reserved for wallet-authenticated flows.
 
 ## Reputation System
 
@@ -155,8 +231,8 @@ const reputationRegistry = new Contract({
 const [count, avgScore] = await reputationRegistry.get_summary(
   agentId,
   [], // all client addresses (or filter specific ones)
-  0,  // tag1 filter (0 = all)
-  0,  // tag2 filter (0 = all)
+  "", // tag1 filter (empty = all)
+  "", // tag2 filter (empty = all)
 );
 
 // Read specific feedback
@@ -218,11 +294,11 @@ await validatorAccount.execute({
 const [validationCount, avgValidationScore] = await validationRegistry.get_summary(
   agentId,
   [], // all validators
-  0,  // tag filter
+  "", // tag filter (empty = all)
 );
 
 // Get specific validation
-const [validator, agentId_, response, tag, lastUpdate] =
+const [validator, agentId_, response, responseHash, tag, lastUpdate] =
   await validationRegistry.get_validation_status(requestHash);
 ```
 
@@ -289,12 +365,41 @@ Serve at `/.well-known/agent.json` for A2A discovery.
 - Signatures include chain ID and expiry to prevent replay attacks
 - Agent identity (NFT) is transferable -- new owner inherits reputation
 
+## MCP vs Direct Execution Boundaries
+
+Use MCP for:
+
+- Agent registration (`starknet_register_agent`)
+- Metadata set/get (`starknet_set_agent_metadata`, `starknet_get_agent_metadata`)
+- Generic contract reads/writes (`starknet_call_contract`, `starknet_invoke_contract`)
+
+Use direct contract logic in this skill for:
+
+- Reputation authorization payload composition and signature workflows
+- Validation request/response lifecycle helpers
+- Specialized analytics across feedback/validation history
+
+## Production Checklist
+
+1. Register identity and persist `(agentId, transactionHash)` in your agent state.
+2. Enforce metadata key allowlist and block reserved key `agentWallet`.
+3. Validate JSON fields (`caps`, `capabilities`) before writing on-chain.
+4. Treat feedback/validation signatures as expiring credentials; rotate frequently.
+5. Reconcile ownership transfers and re-verify metadata authority after transfer events.
+6. Serve and monitor `/.well-known/agent.json` for A2A discovery consistency.
+
 ## Agent Passport
 
-The Agent Passport convention uses the ERC-8004 `caps` metadata key to publish agent capabilities as a JSON array:
+Agent Passport on ERC-8004 uses three canonical metadata keys:
+
+- `caps`: JSON array of capability names
+- `capability:<name>`: JSON payload for that capability
+- `passport:schema`: schema id (`https://starknet-agentic.dev/schemas/agent-passport.schema.json`)
+
+`caps` remains the index, while `capability:<name>` stores structured capability payloads.
 
 ```typescript
-// Set Agent Passport capabilities
+// Set Agent Passport capability index
 await account.execute({
   contractAddress: registryAddress,
   entrypoint: "set_metadata",
@@ -305,7 +410,28 @@ await account.execute({
   }),
 });
 
-// Read Agent Passport capabilities
+// Set one capability payload
+await account.execute({
+  contractAddress: registryAddress,
+  entrypoint: "set_metadata",
+  calldata: CallData.compile({
+    agent_id: agentId,
+    key: byteArray.byteArrayFromString("capability:swap"),
+    value: byteArray.byteArrayFromString(
+      JSON.stringify({
+        name: "swap",
+        category: "defi",
+        version: "1.0.0",
+        description: "Swap tokens via AVNU",
+        endpoint: "mcp://@starknet-agentic/mcp-server/starknet_swap",
+        mcpTool: "starknet_swap",
+        a2aSkillId: "swap",
+      })
+    ),
+  }),
+});
+
+// Read Agent Passport index
 const capsRaw = await identityRegistry.get_metadata(agentId, "caps");
 const capabilities = JSON.parse(capsRaw); // ["swap", "stake", "lend", "transfer"]
 ```
@@ -325,7 +451,14 @@ const passport = new IdentityRegistryPassportClient({
 
 await passport.publishCapability({
   agentId: 1n,
-  capability: { name: "swap", description: "Execute token swaps via avnu", version: "1.0" },
+  capability: {
+    name: "swap",
+    category: "defi",
+    description: "Execute token swaps via AVNU",
+    version: "1.0.0",
+    mcpTool: "starknet_swap",
+    a2aSkillId: "swap",
+  },
 });
 ```
 
@@ -344,13 +477,18 @@ await passport.publishCapability({
 
 ## Deployed Addresses
 
-### Sepolia Testnet
+Source: `contracts/erc8004-cairo/README.md` (as checked on 2026-02-24).  
+Current v1 launch scope is Sepolia only.
+
+### Sepolia
 
 | Contract | Address | Notes |
 |----------|---------|-------|
-| IdentityRegistry | See deployment logs | ERC-721 agent NFTs |
-| ReputationRegistry | See deployment logs | Feedback system |
-| ValidationRegistry | See deployment logs | Third-party assessments |
+| IdentityRegistry | `0x72eb37b0389e570bf8b158ce7f0e1e3489de85ba43ab3876a0594df7231631` | ERC-721 agent identities |
+| ReputationRegistry | `0x5a68b5e121a014b9fc39455d4d3e0eb79fe2327329eb734ab637cee4c55c78e` | Feedback and scoring |
+| ValidationRegistry | `0x7c8ac08e98d8259e1507a2b4b719f7071104001ed7152d4e9532a6850a62a4f` | Third-party validations |
+
+Mainnet publishing for this skill is intentionally deferred until the mainnet onboarding workstream is approved.
 
 > Deploy using: `cd contracts/erc8004-cairo && bash scripts/deploy_sepolia.sh`
 

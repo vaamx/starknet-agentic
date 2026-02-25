@@ -24,6 +24,8 @@ export default function AgentSpawnerForm({
   const [personaId, setPersonaId] = useState("alpha");
   const [budgetStrk, setBudgetStrk] = useState("300");
   const [maxBetStrk, setMaxBetStrk] = useState("10");
+  const [sovereignMode, setSovereignMode] = useState(true);
+  const [spawnServer, setSpawnServer] = useState(true);
   const [selectedSources, setSelectedSources] = useState<string[]>([
     "polymarket",
     "coingecko",
@@ -77,6 +79,8 @@ export default function AgentSpawnerForm({
           budgetStrk: parseFloat(budgetStrk) || 300,
           maxBetStrk: parseFloat(maxBetStrk) || 10,
           preferredSources: selectedSources,
+          sovereign: sovereignMode,
+          spawnServer: sovereignMode ? spawnServer : false,
         }),
       });
 
@@ -99,6 +103,28 @@ export default function AgentSpawnerForm({
         maxBetStrk: parseFloat(maxBetStrk) || 10,
         createdAt: data.agent.createdAt ?? Date.now(),
         status: "running",
+        walletAddress: data.agent.walletAddress,
+        agentId: data.agent.agentId,
+        runtime: data.agent.runtime
+          ? {
+              provider: data.agent.runtime.provider,
+              machineId: data.agent.runtime.machineId,
+              flyMachineId: data.agent.runtime.flyMachineId,
+              tier: data.agent.runtime.tier,
+              region: data.agent.runtime.region,
+              preferredRegions: data.agent.runtime.preferredRegions,
+              regionFailureLog: data.agent.runtime.regionFailureLog,
+              status: data.agent.runtime.status,
+              createdAt: data.agent.runtime.createdAt,
+              lastHeartbeatAt: data.agent.runtime.lastHeartbeatAt ?? null,
+              consecutiveHeartbeatFailures:
+                data.agent.runtime.consecutiveHeartbeatFailures,
+              failoverCount: data.agent.runtime.failoverCount,
+              lastFailoverAt: data.agent.runtime.lastFailoverAt ?? null,
+              depositTxHash: data.agent.runtime.depositTxHash,
+              lastError: data.agent.runtime.lastError,
+            }
+          : undefined,
       };
 
       try {
@@ -220,6 +246,28 @@ export default function AgentSpawnerForm({
                     className="neo-input w-full"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs text-white/70">
+                  <input
+                    type="checkbox"
+                    checked={sovereignMode}
+                    onChange={(e) => setSovereignMode(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  Deploy as sovereign child (on-chain wallet + autonomous identity)
+                </label>
+                <label className="flex items-center gap-2 text-xs text-white/60">
+                  <input
+                    type="checkbox"
+                    checked={spawnServer}
+                    disabled={!sovereignMode}
+                    onChange={(e) => setSpawnServer(e.target.checked)}
+                    className="h-4 w-4 disabled:opacity-40"
+                  />
+                  Provision dedicated server runtime
+                </label>
               </div>
 
               {/* Data Sources */}

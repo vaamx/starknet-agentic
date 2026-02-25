@@ -7,19 +7,23 @@ can spawn child agents when thriving.
 ## What it does
 
 - **Autonomous loop** — heartbeat-driven (Conway / Cloudflare Worker / GH Actions)
-- **Multi-persona forecasting** — 5 AI agents research, debate, then bet on-chain
+- **Multi-persona forecasting** — 5 AI agents research, debate, then Brier-weight consensus before betting
 - **Survival-gated** — self-throttles model and bet size based on STRK balance
 - **Huginn thought provenance** — every reasoning trace hashed and stored on Starknet
 - **OpenClaw A2A mesh** — peers can POST forecasts; agent can delegate to peers
 - **X-402 payment gating** — optional STRK micropayments per forecast call
-- **Child replication** — spawns new agents when thriving
+- **Child replication** — spawns new agents when thriving, optionally provisioning dedicated BitsagE Cloud runtimes with region failover
 
 ## Quick start
 
 ```bash
 cp .env.example .env
 # fill in STARKNET_RPC_URL, AGENT_ADDRESS, AGENT_PRIVATE_KEY, MARKET_FACTORY_ADDRESS
-pnpm install && pnpm dev
+pnpm install
+pnpm dev
+
+# before launch (env + tests + production build)
+pnpm preflight
 ```
 
 ## Heartbeat drivers
@@ -49,9 +53,14 @@ Monitor live: `GET /api/survival` · `GET /api/soul`
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/heartbeat` | POST | Trigger one agent loop tick (requires `HEARTBEAT_SECRET`) |
+| `/api/health` | GET | Launch/readiness health summary (healthy/degraded/unhealthy) |
+| `/api/metrics` | GET | Runtime/consensus telemetry (`?format=json` or `?format=prometheus`) |
+| `/api/alerts/test` | POST | Synthetic alert trigger/resolve test (requires alert test secret; dry-run by default) |
 | `/api/predict` | POST | Single-agent forecast (SSE stream) |
 | `/api/multi-predict` | POST | Multi-agent debate forecast (SSE stream) |
 | `/api/markets` | GET | List all on-chain prediction markets |
+| `/api/agents` | POST | Spawn agent (`sovereign=true` deploys child wallet; `spawnServer=true` provisions runtime) |
+| `/api/agents/:id` | POST | Agent control (`stop`, `pause`, `resume`, `provision_runtime`) |
 | `/api/survival` | GET | STRK balance, tier, model, multiplier |
 | `/api/soul` | GET | SOUL.md — agent self-description (markdown) |
 | `/api/resolve` | POST | Resolve a market via oracle |
@@ -69,9 +78,36 @@ AGENT_ADDRESS=0x...
 AGENT_PRIVATE_KEY=0x...
 MARKET_FACTORY_ADDRESS=0x...
 ANTHROPIC_API_KEY=sk-ant-...
+AGENT_MIN_EVIDENCE_SOURCES=2
+AGENT_MIN_EVIDENCE_POINTS=4
+AGENT_CONSENSUS_ENABLED=true
+AGENT_CONSENSUS_MAX_PEERS=8
+AGENT_CONSENSUS_BRIER_FLOOR=0.05
+AGENT_CONSENSUS_LEAD_WEIGHT=1.0
+AGENT_CONSENSUS_MIN_PEERS=1
+AGENT_CONSENSUS_MIN_PEER_PREDICTIONS=3
+AGENT_CONSENSUS_MIN_TOTAL_PEER_WEIGHT=2
+AGENT_CONSENSUS_MAX_SHIFT_PCT=15
+AGENT_CONSENSUS_AUTOTUNE_ENABLED=true
+AGENT_CONSENSUS_AUTOTUNE_WINDOW=24
+AGENT_CONSENSUS_AUTOTUNE_MIN_SAMPLES=6
+AGENT_CONSENSUS_AUTOTUNE_DRIFT_LOW=0.01
+AGENT_CONSENSUS_AUTOTUNE_DRIFT_HIGH=0.08
+AGENT_CONSENSUS_AUTOTUNE_MAX_SHIFT_FLOOR_PCT=5
+AGENT_CONSENSUS_AUTOTUNE_MIN_PEERS_CAP=4
+AGENT_CONSENSUS_AUTOTUNE_MIN_PEER_PREDICTIONS_CAP=8
+AGENT_CONSENSUS_AUTOTUNE_MIN_TOTAL_PEER_WEIGHT_CAP=12
 
 # Heartbeat auth
 HEARTBEAT_SECRET=your-secret
+
+# Rate limiting (recommended for production)
+RATE_LIMIT_BACKEND=memory            # or upstash
+RATE_LIMIT_GLOBAL_PER_MIN=120
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+OPENCLAW_ALLOW_PRIVATE_PEERS=false
+OPENCLAW_FORECAST_TTL_HOURS=72
 
 # Survival tiers (STRK amounts)
 SURVIVAL_TIER_THRIVING=1000
@@ -80,6 +116,7 @@ SURVIVAL_TIER_LOW=10
 SURVIVAL_TIER_CRITICAL=1
 
 # Optional: Huginn on-chain thought provenance
+# Source of truth (Sepolia): contracts/huginn-registry/deployments/sepolia.json
 HUGINN_REGISTRY_ADDRESS=0x...
 
 # Optional: X-402 payment gating
@@ -89,12 +126,69 @@ X402_ENABLED=false
 CHILD_AGENT_ENABLED=false
 CHILD_AGENT_FACTORY_ADDRESS=0x2f69e566802910359b438ccdb3565dce304a7cc52edbf9fd246d6ad2cd89ce4
 
+# Optional: child runtime provisioning (each spawned child gets its own server)
+BITSAGE_CLOUD_API_URL=
+BITSAGE_CLOUD_API_TOKEN=
+BITSAGE_CLOUD_ESCROW_ADDRESS=
+CHILD_AGENT_SERVER_PROVIDER=bitsage-cloud
+CHILD_AGENT_SERVER_ENABLED=false
+CHILD_AGENT_SERVER_TIER=nano
+CHILD_AGENT_SERVER_REGIONS=iad,sfo,fra
+CHILD_AGENT_SERVER_ESCROW_DEPOSIT_STRK=0
+CHILD_AGENT_SERVER_HEARTBEAT_EVERY=3
+CHILD_AGENT_SERVER_FAILOVER_AFTER_FAILURES=2
+CHILD_AGENT_SERVER_MAX_FAILOVERS=5
+CHILD_AGENT_SERVER_FAILOVER_COOLDOWN_SECS=180
+CHILD_AGENT_SERVER_REGION_QUARANTINE_SECS=600
+
+# Optional: metrics alerting hooks (webhook / Slack / PagerDuty)
+AGENT_ALERTING_ENABLED=false
+AGENT_ALERT_WEBHOOK_URL=
+AGENT_ALERT_SLACK_WEBHOOK_URL=
+AGENT_ALERT_PAGERDUTY_ROUTING_KEY=
+AGENT_ALERT_WEBHOOK_MIN_SEVERITY=info
+AGENT_ALERT_SLACK_MIN_SEVERITY=warning
+AGENT_ALERT_PAGERDUTY_MIN_SEVERITY=critical
+AGENT_ALERT_TEST_SECRET=
+AGENT_ALERT_COOLDOWN_SECS=600
+AGENT_ALERT_ACTION_WINDOW=200
+AGENT_ALERT_MIN_CONSENSUS_SAMPLES=10
+AGENT_ALERT_ERROR_RATE_THRESHOLD=0.25
+AGENT_ALERT_CONSENSUS_BLOCK_RATE_THRESHOLD=0.35
+AGENT_ALERT_CONSENSUS_CLAMP_RATE_THRESHOLD=0.4
+AGENT_ALERT_FAILOVER_EVENTS_THRESHOLD=3
+AGENT_ALERT_HEARTBEAT_ERRORS_THRESHOLD=4
+AGENT_ALERT_QUARANTINED_REGIONS_THRESHOLD=2
+AGENT_ALERT_REQUEST_TIMEOUT_MS=8000
+
 # Optional: research tools
 TAVILY_API_KEY=tvly-...
-BRAVE_API_KEY=...
+BRAVE_SEARCH_API_KEY=...
 ```
 
 See `.env.example` for the full list.
+
+## Launch operations
+
+- Launch closure runner (preflight + chaos + alerts + smoke + operator confirmations):
+  - `pnpm --filter prediction-agent launch:closure -- --base-url https://your-agent.example`
+  - Production-hard gate (enforces Upstash + alert channels + real alert delivery):
+    - `pnpm --filter prediction-agent launch:closure -- --production --strict --live-alerts --yes --base-url https://your-agent.example --market-id <id>`
+  - Add `--yes --live-alerts` for non-interactive production windows
+- Secret-store audit only:
+  - `pnpm --filter prediction-agent secrets:audit -- --require-upstash --require-alert-channels`
+- One-command preflight: `pnpm --filter prediction-agent preflight`
+- Preflight with production gate requirements:
+  - `pnpm --filter prediction-agent preflight -- --require-upstash --require-alert-channels`
+- Template-only validation (without real secrets): `pnpm --filter prediction-agent preflight -- --env-file .env.example --allow-placeholders --skip-test --skip-build`
+- Deterministic chaos hardening run: `pnpm --filter prediction-agent chaos:sim -- --strict --min-failover-success-rate 0.6 --max-consensus-block-rate 0.5`
+- Alert pipeline dry-run check:
+  - `curl -X POST http://localhost:3001/api/alerts/test -H "content-type: application/json" -H "x-heartbeat-secret: $AGENT_ALERT_TEST_SECRET" -d '{"mode":"roundtrip","severity":"warning","dryRun":true}'`
+- Deployed smoke checks (health/status/heartbeat/manifests/predict):
+  - `pnpm --filter prediction-agent smoke:deployed -- --base-url https://your-agent.example --heartbeat-secret "$HEARTBEAT_SECRET"`
+  - Add `--skip-predict` if forecasting dependencies are intentionally disabled
+- Preflight and go-live checklist: `LAUNCH_CHECKLIST.md`
+- CI launch gate: `.github/workflows/ci.yml` job `prediction-agent-launch`
 
 ## Architecture
 

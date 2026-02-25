@@ -160,6 +160,19 @@ export default function OpenClawConnections() {
         signal: abort.signal,
       });
 
+      if (!res.ok) {
+        let errorMessage = `HTTP ${res.status}`;
+        try {
+          const data = await res.json();
+          if (typeof data?.error === "string") {
+            errorMessage = data.error;
+          }
+        } catch {
+          // Ignore JSON parsing issues.
+        }
+        throw new Error(errorMessage);
+      }
+
       const reader = res.body?.getReader();
       if (!reader) throw new Error("No stream");
 

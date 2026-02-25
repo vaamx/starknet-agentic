@@ -7,7 +7,15 @@
  */
 
 import 'dotenv/config';
-import { RpcProvider, Contract } from 'starknet';
+import {
+  formatError,
+  getContract,
+  getProvider,
+  parseAgentId,
+  requiredEnv,
+  shortAddress,
+  toBigIntSafe,
+} from './_shared.js';
 
 const REPUTATION_REGISTRY_ABI = [
   {
@@ -53,23 +61,18 @@ async function main() {
     process.exit(1);
   }
 
-  const rpcUrl = process.env.STARKNET_RPC_URL;
-  const reputationAddress = process.env.REPUTATION_REGISTRY_ADDRESS;
-
-  if (!rpcUrl || !reputationAddress) {
-    console.error('Missing required env vars: STARKNET_RPC_URL, REPUTATION_REGISTRY_ADDRESS');
-    process.exit(1);
-  }
-
-  const provider = new RpcProvider({ nodeUrl: rpcUrl });
-  const contract = new Contract(REPUTATION_REGISTRY_ABI, reputationAddress, provider);
-  const agentId = BigInt(agentIdStr);
+  const provider = getProvider();
+  const reputationAddress = requiredEnv('REPUTATION_REGISTRY_ADDRESS');
+  const contract = getContract(REPUTATION_REGISTRY_ABI, reputationAddress, provider);
+  const agentId = parseAgentId(agentIdStr);
 
   console.log(`\nQuerying reputation for agent #${agentId}...`);
+  console.log(`Registry: ${shortAddress(reputationAddress)}`);
 
   try {
     // Get all clients who have given feedback
-    const clients: string[] = await contract.get_clients(agentId);
+    const clientsResult = await contract.get_clients(agentId);
+    const clients = Array.isArray(clientsResult) ? clientsResult.map((v) => String(v)) : [];
     const clientCount = Array.isArray(clients) ? clients.length : 0;
     console.log(`\n  Unique clients: ${clientCount}`);
 
@@ -81,25 +84,29 @@ async function main() {
         '',
         '',
       );
-      const divisor = 10 ** Number(valueDecimals);
-      const avgScore = divisor > 0 ? Number(summaryValue) / divisor : Number(summaryValue);
+      const summaryBig = toBigIntSafe(summaryValue);
+      const decimals = Number(toBigIntSafe(valueDecimals));
+      const divisor = decimals > 0 ? 10 ** decimals : 1;
+      const avgScore = Number(summaryBig) / divisor;
 
-      console.log(`  Total feedback entries: ${count}`);
-      console.log(`  Aggregate score: ${avgScore} (raw: ${summaryValue}, decimals: ${valueDecimals})`);
+      console.log(`  Total feedback entries: ${toBigIntSafe(count)}`);
+      console.log(`  Aggregate score: ${avgScore} (raw: ${summaryBig}, decimals: ${decimals})`);
 
       // Show per-client breakdown
       console.log(`\n  Per-client breakdown:`);
       for (const client of clients) {
         const lastIdx = await contract.get_last_index(agentId, client);
-        const shortAddr = `${String(client).slice(0, 10)}...${String(client).slice(-6)}`;
-        console.log(`    ${shortAddr}: ${lastIdx} feedback entries`);
+        console.log(`    ${shortAddress(String(client), 8)}: ${toBigIntSafe(lastIdx)} feedback entries`);
       }
     } else {
       console.log('  No feedback received yet.');
     }
-  } catch (error: any) {
-    console.error(`\n  Error querying reputation: ${error.message || error}`);
+  } catch (error) {
+    console.error(`\n  Error querying reputation: ${formatError(error)}`);
   }
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  console.error(`Error: ${formatError(error)}`);
+  process.exit(1);
+});

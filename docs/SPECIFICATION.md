@@ -23,9 +23,9 @@ This specification describes both implemented features and planned designs:
 | Agent Account Contract | **Tested** | 110 tests across 4 test suites |
 | Agent Registry (ERC-8004) | **Production** | 131+ unit + 47 E2E tests, deployed on Sepolia |
 | Huginn Registry Contract | **Functional** | Starknet-native reasoning registry at `contracts/huginn-registry/` |
-| MCP Server | **Production** | 9 tools implemented |
+| MCP Server | **Production** | 23 tools implemented |
 | A2A Adapter | **Functional** | Basic implementation complete |
-| Skills | **Mixed** | 6 skills in repo (complete + template + onboarding) |
+| Skills | **Mixed** | Core v1 runtime skills + specialized packs in `skills/` |
 | Framework Extensions | **Planned** | Deferred to v2.0 |
 
 See [ROADMAP.md](ROADMAP.md) for detailed implementation plan.
@@ -252,9 +252,44 @@ This section clarifies v1 invariants for `contracts/huginn-registry/`:
   - One submitted proof per `thought_hash` (replay blocked).
   - Tradeoff: first-logger semantics can be front-run if `thought_hash` is predictable. Clients should include caller-specific salting/domain separation in hash construction.
 
+### 3.9 Agent Passport Metadata Standard (ERC-8004 Convention)
+
+`@starknet-agentic/agent-passport` is the v1 standard for publishing agent capabilities through ERC-8004 metadata.
+
+Canonical metadata keys:
+
+| Key | Value Type | Purpose |
+|-----|------------|---------|
+| `caps` | JSON string array | Canonical index of capability names |
+| `capability:<name>` | JSON string object | Capability payload for a named capability |
+| `passport:schema` | JSON string | Schema id for capability payload validation |
+
+Canonical schema id:
+
+`https://starknet-agentic.dev/schemas/agent-passport.schema.json`
+
+Capability payload fields:
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `name` | string | yes | Pattern: `^[a-z][a-z0-9-]*$` |
+| `category` | enum | yes | One of `defi`, `trading`, `identity`, `messaging`, `payments`, `prediction` |
+| `version` | string | no | Semver-like pattern: `x.y` or `x.y.z` |
+| `description` | string | no | Max 256 chars |
+| `endpoint` | string | no | API/MCP/A2A endpoint |
+| `mcpTool` | string | no | Pattern: `^[a-z][a-z0-9_]*$` |
+| `a2aSkillId` | string | no | Pattern: `^[a-z][a-z0-9-]*$` |
+
+Rules:
+
+- `caps` and `capability:<name>` must stay synchronized.
+- Capability names must be unique within a passport.
+- Unknown fields are rejected by schema validation (`additionalProperties: false`).
+- `agentWallet` remains a reserved metadata key and is out of scope for passport writes.
+
 ## 4. MCP Server
 
-**Status:** Production-ready at `packages/starknet-mcp-server/` (1,600+ lines, 9 tools implemented).
+**Status:** Production-ready at `packages/starknet-mcp-server/` (1,600+ lines, 23 core tools implemented).
 
 ### 4.1 Tool Definitions
 
@@ -267,8 +302,22 @@ Current registered tool inventory in `packages/starknet-mcp-server/src/index.ts`
 5. `starknet_invoke_contract`
 6. `starknet_swap`
 7. `starknet_get_quote`
-8. `starknet_estimate_fee`
-9. `x402_starknet_sign_payment_required`
+8. `starknet_register_agent`
+9. `starknet_get_agent_info`
+10. `starknet_set_agent_metadata`
+11. `starknet_update_agent_metadata`
+12. `starknet_get_agent_metadata`
+13. `starknet_get_agent_passport`
+14. `starknet_give_feedback`
+15. `starknet_get_reputation`
+16. `starknet_request_validation`
+17. `starknet_estimate_fee`
+18. `starknet_create_payment_link`
+19. `starknet_parse_payment_link`
+20. `starknet_create_invoice`
+21. `starknet_get_invoice_status`
+22. `starknet_generate_qr`
+23. `x402_starknet_sign_payment_required`
 
 ### 4.2 Transport
 
@@ -331,15 +380,15 @@ Current monorepo packages:
 |---------|------|-------|
 | `starknet-mcp-server` | Tool execution surface (MCP) | Core infrastructure |
 | `starknet-a2a` | A2A protocol adapter | Core infrastructure |
-| `starknet-agent-passport` | ERC-8004 identity helper/ABI wrapper | Core infrastructure |
+| `starknet-agent-passport` | ERC-8004 passport metadata standard + client utilities | Core infrastructure |
 | `x402-starknet` | x402 payment integration | Core infrastructure |
 | `prediction-arb-scanner` | Prediction-market scanner application | App-layer package |
 
 ## 6. Skills Marketplace
 
-**Status:** 6 skills in `skills/` directory.
+**Status:** Mixed. V1 core runtime skills are Sepolia-first and MCP-first where MCP coverage exists; standalone execution is explicitly documented when MCP coverage is not yet available.
 
-Current skill directories:
+Core v1 runtime skills:
 
 - `huginn-onboard`
 - `starknet-anonymous-wallet`
@@ -347,6 +396,8 @@ Current skill directories:
 - `starknet-identity`
 - `starknet-mini-pay`
 - `starknet-wallet`
+
+Additional specialized skills are maintained in `skills/` and indexed in `skills/README.md`.
 
 ### 6.1 Skill Directory Structure
 
@@ -374,13 +425,35 @@ user-invocable: boolean # Can users explicitly invoke
 ---
 ```
 
-### 6.3 Planned Additional Skills
+### 6.3 MCP ↔ Skill Architecture (v1 Baseline)
+
+Canonical separation:
+
+- **MCP tools execute capabilities**: on-chain writes/reads, API calls, signing, and strongly typed interfaces with schema validation and tests.
+- **Skills provide guidance**: when to use a tool, sequencing, risk controls, recovery guidance, and domain strategy.
+- **V1 network baseline**: Sepolia-first; mainnet runbooks and activation are deferred.
+
+Authoring rules:
+
+1. If a capability exists in MCP, skill content should reference it in a `MCP Tools Used` section and avoid duplicating execution logic.
+2. If no MCP coverage exists yet, the skill may include scripts, but must include `Standalone Execution (No MCP Tool Yet)` with rationale and migration trigger.
+3. Standalone scripts are acceptable for local validation helpers or external protocol gaps; they are not a replacement for reusable MCP execution surfaces.
+
+Current v1 mapping:
+
+| Skill | Execution Pattern | v1 Status |
+|-------|-------------------|-----------|
+| `starknet-wallet` | MCP-first (`starknet_get_balance`, `starknet_get_balances`, `starknet_transfer`, `starknet_call_contract`, `starknet_invoke_contract`, `starknet_estimate_fee`) | Reference pattern |
+| `starknet-defi` | MCP-first (`starknet_swap`, `starknet_get_quote`) with avnu strategy guidance | Aligned |
+| `starknet-identity` | MCP-first (`starknet_register_agent`, `starknet_get_agent_info`, `starknet_update_agent_metadata`, `starknet_give_feedback`, `starknet_get_reputation`, `starknet_request_validation`, `starknet_get_agent_passport`) | Aligned |
+| `starknet-anonymous-wallet` | Standalone scripts for Typhoon flows (no MCP Typhoon tools yet) | Allowed deviation (documented) |
+| `huginn-onboard` | Standalone onboarding flow (no MCP Huginn onboarding tool yet) | Allowed deviation (documented) |
+| `starknet-mini-pay` | MCP-first for payment links/invoices/QR; standalone scripts retained as fallback | Aligned (hybrid) |
+
+### 6.4 Planned Additional Skill Tracks
 
 | Skill | Description | Priority |
 |-------|-------------|----------|
-| starknet-wallet | Wallet creation, transfers, session keys | P0 |
-| starknet-defi | Swaps, staking, lending, DCA | P0 |
-| starknet-identity | Agent registration, reputation, validation | P0 |
 | starknet-nft | NFT minting, transfers, marketplace | P1 |
 | starknet-gaming | Dojo/Torii integration, game worlds | P1 |
 | starknet-bridge | Cross-chain token bridges | P1 |

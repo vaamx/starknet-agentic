@@ -7,21 +7,44 @@ import { recordPrediction } from "@/lib/starknet-executor";
 import { logThoughtOnChain } from "@/lib/huginn-executor";
 import { requireX402 } from "@/lib/x402-middleware";
 import { config } from "@/lib/config";
+import { z } from "zod";
+import { enforceRateLimit, jsonError } from "@/lib/api-guard";
 
 export const maxDuration = 60;
+const predictBodySchema = z.object({
+  marketId: z.number().int().min(1),
+});
+
+function isStreamClosedError(err: unknown): boolean {
+  const message = String((err as any)?.message ?? err ?? "");
+  return (
+    message.includes("Controller is already closed") ||
+    message.includes("ReadableStream is already closed") ||
+    message.includes("Invalid state")
+  );
+}
 
 export async function POST(request: NextRequest) {
+  const rateLimited = await enforceRateLimit(request, "predict", {
+    windowMs: 60_000,
+    maxRequests: 30,
+  });
+  if (rateLimited) return rateLimited;
+
   // Phase C: X-402 payment check — must happen BEFORE opening the SSE stream
   const paymentResult = await requireX402(request, "predict", config.x402PricePredict);
   if (paymentResult instanceof Response) return paymentResult; // HTTP 402
 
-  const body = await request.json();
-  const marketId = body.marketId as number;
+  let marketId: number;
+  try {
+    const body = predictBodySchema.parse(await request.json());
+    marketId = body.marketId;
+  } catch (err: any) {
+    return jsonError("Invalid request body", 400, err?.issues ?? err?.message);
+  }
+
   if (!process.env.ANTHROPIC_API_KEY) {
-    return new Response(JSON.stringify({ error: "Anthropic API key not configured" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonError("Anthropic API key not configured", 400);
   }
 
   // Return the stream immediately, do all work inside
@@ -94,7 +117,17 @@ export async function POST(request: NextRequest) {
               );
             } else if (event.type === "tool_result") {
               controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify({ type: "tool_result", toolName: event.toolName, toolUseId: event.toolUseId, result: event.result, isError: event.isError })}\n\n`)
+                encoder.encode(
+                  `data: ${JSON.stringify({
+                    type: "tool_result",
+                    toolName: event.toolName,
+                    toolUseId: event.toolUseId,
+                    result: event.result,
+                    isError: event.isError,
+                    source: event.source,
+                    dataPoints: event.dataPoints,
+                  })}\n\n`
+                )
               );
             }
           } else {
@@ -167,14 +200,25 @@ export async function POST(request: NextRequest) {
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
       } catch (err: any) {
+        if (isStreamClosedError(err)) {
+          return;
+        }
         const msg = err.message || String(err);
         console.error("[predict] Error:", msg, err.stack);
-        controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({ type: "error", message: msg })}\n\n`
-          )
-        );
-        controller.close();
+        try {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "error", message: msg })}\n\n`
+            )
+          );
+        } catch {
+          // Client likely disconnected; no-op.
+        }
+        try {
+          controller.close();
+        } catch {
+          // Stream may already be closed.
+        }
       }
     },
   });
@@ -184,6 +228,7 @@ export async function POST(request: NextRequest) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }

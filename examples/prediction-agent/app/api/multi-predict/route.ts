@@ -8,6 +8,8 @@ import type { DataSourceName } from "@/lib/data-sources/index";
 import { runDebateRound, type Round1Result } from "@/lib/agent-debate";
 import { requireX402 } from "@/lib/x402-middleware";
 import { config } from "@/lib/config";
+import { z } from "zod";
+import { enforceRateLimit, jsonError } from "@/lib/api-guard";
 
 /**
  * Multi-agent forecast endpoint.
@@ -16,22 +18,33 @@ import { config } from "@/lib/config";
  * Final output: reputation-weighted consensus from Round 2 estimates.
  */
 export const maxDuration = 60;
+const multiPredictBodySchema = z.object({
+  marketId: z.number().int().min(1),
+});
 
 export async function POST(request: NextRequest) {
+  const rateLimited = await enforceRateLimit(request, "multi_predict", {
+    windowMs: 60_000,
+    maxRequests: 12,
+  });
+  if (rateLimited) return rateLimited;
+
   // Phase C: X-402 payment check — must happen BEFORE opening the SSE stream
   const paymentResult = await requireX402(request, "multi_predict", config.x402PriceMultiPredict);
   if (paymentResult instanceof Response) return paymentResult; // HTTP 402
 
-  const body = await request.json();
-  const marketId = body.marketId as number;
+  let marketId: number;
+  try {
+    const body = multiPredictBodySchema.parse(await request.json());
+    marketId = body.marketId;
+  } catch (err: any) {
+    return jsonError("Invalid request body", 400, err?.issues ?? err?.message);
+  }
 
   const market = await getMarketById(marketId);
 
   if (!market) {
-    return new Response(JSON.stringify({ error: "Market not found" }), {
-      status: 404,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonError("Market not found", 404);
   }
 
   const predictions = await getAgentPredictions(marketId);
@@ -44,10 +57,7 @@ export async function POST(request: NextRequest) {
 
   const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
   if (!hasApiKey) {
-    return new Response(JSON.stringify({ error: "Anthropic API key not configured" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonError("Anthropic API key not configured", 400);
   }
 
   const encoder = new TextEncoder();
@@ -157,7 +167,16 @@ export async function POST(request: NextRequest) {
               } else if (event.type === "tool_result") {
                 controller.enqueue(
                   encoder.encode(
-                    `data: ${JSON.stringify({ type: "tool_result", agentId: persona.id, toolName: event.toolName, toolUseId: event.toolUseId, result: event.result, isError: event.isError })}\n\n`
+                    `data: ${JSON.stringify({
+                      type: "tool_result",
+                      agentId: persona.id,
+                      toolName: event.toolName,
+                      toolUseId: event.toolUseId,
+                      result: event.result,
+                      isError: event.isError,
+                      source: event.source,
+                      dataPoints: event.dataPoints,
+                    })}\n\n`
                   )
                 );
               }
@@ -296,6 +315,7 @@ export async function POST(request: NextRequest) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }

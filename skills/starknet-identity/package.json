@@ -16,10 +16,11 @@
   "scripts": {
     "register-agent": "tsx scripts/register-agent.ts",
     "query-reputation": "tsx scripts/query-reputation.ts",
-    "set-metadata": "tsx scripts/set-metadata.ts"
+    "set-metadata": "tsx scripts/set-metadata.ts",
+    "query-validation": "tsx scripts/query-validation.ts"
   },
   "dependencies": {
-    "starknet": "^6.23.1",
+    "starknet": "^8.9.1",
     "dotenv": "^16.0.0"
   },
   "devDependencies": {
