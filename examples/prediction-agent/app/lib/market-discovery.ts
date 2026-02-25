@@ -6,6 +6,8 @@ import { fetchPolymarketData } from "./data-sources/polymarket";
 import { fetchCryptoPrices } from "./data-sources/crypto-prices";
 import { fetchNewsData } from "./data-sources/news-search";
 import { fetchRssFeeds } from "./data-sources/rss-feeds";
+import { fetchEspnScores } from "./data-sources/espn-live";
+import type { DataPoint } from "./data-sources";
 import {
   categorizeMarket,
   estimateEngagementScore,
@@ -37,6 +39,29 @@ function extractUsdPrice(value: string): number | null {
   if (!match) return null;
   const num = parseFloat(match[1].replace(/,/g, ""));
   return isNaN(num) ? null : num;
+}
+
+function buildSportsQuestionFromEspn(result: {
+  summary: string;
+  data: DataPoint[];
+}): string | null {
+  const teamRows = result.data.filter((point) =>
+    /\(home\)|\(away\)/i.test(point.label)
+  );
+  if (teamRows.length < 2) return null;
+
+  const teamNames = teamRows
+    .map((point) => point.label.replace(/\s+\((home|away)\)/i, "").trim())
+    .filter(Boolean);
+  if (teamNames.length < 2) return null;
+
+  const [teamA, teamB] = teamNames;
+  const summary = result.summary.toLowerCase();
+  if (summary.includes("final:")) return null;
+  if (summary.includes("live:")) {
+    return normalizeQuestion(`Will ${teamA} beat ${teamB} in this NFL game`);
+  }
+  return normalizeQuestion(`Will ${teamA} beat ${teamB} in their next NFL matchup`);
 }
 
 /**
@@ -131,6 +156,24 @@ export async function discoverMarkets(
       }
     } catch {
       // Ignore if news unavailable
+    }
+  }
+
+  // Sports suggestions from live/upcoming ESPN data.
+  if (!category || category === "sports") {
+    try {
+      const espn = await fetchEspnScores("NFL live games");
+      const question = buildSportsQuestionFromEspn(espn);
+      if (question) {
+        pushSuggestion({
+          question,
+          category: "sports",
+          suggestedResolutionDays: 7,
+          reasoning: espn.summary,
+        });
+      }
+    } catch {
+      // Ignore ESPN failures.
     }
   }
 

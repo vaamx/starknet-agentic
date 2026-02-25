@@ -112,6 +112,10 @@ RATE_LIMIT_BACKEND=memory            # or upstash
 RATE_LIMIT_GLOBAL_PER_MIN=120
 UPSTASH_REDIS_REST_URL=
 UPSTASH_REDIS_REST_TOKEN=
+# State persistence (critical on serverless)
+AGENT_STATE_BACKEND=auto             # auto | upstash | file
+AGENT_STATE_UPSTASH_KEY=starknet-agentic:prediction-agent:state:v1
+AGENT_STATE_FILE=                    # optional local file path when backend=file
 OPENCLAW_ALLOW_PRIVATE_PEERS=false
 OPENCLAW_FORECAST_TTL_HOURS=72
 

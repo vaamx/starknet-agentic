@@ -57,9 +57,10 @@ export interface MarketContext {
 export async function* researchAndForecast(
   persona: AgentPersona,
   question: string,
-  marketContext: MarketContext
+  marketContext: MarketContext,
+  sourceOverrides?: DataSourceName[]
 ): AsyncGenerator<ResearchEvent, ForecastResult> {
-  const sources = persona.preferredSources ?? [
+  const sources = sourceOverrides ?? persona.preferredSources ?? [
     "polymarket",
     "coingecko",
     "news",
