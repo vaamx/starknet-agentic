@@ -268,6 +268,15 @@ export async function getMarketState(id: number, address: string): Promise<Marke
     market.get_implied_probs(),
     market.get_market_info(),
   ]);
+  const statusNum = Number(status);
+  let winningOutcome: number | undefined;
+  if (statusNum === 2) {
+    try {
+      winningOutcome = Number(await market.get_winning_outcome());
+    } catch {
+      winningOutcome = undefined;
+    }
+  }
 
   return {
     id,
@@ -277,12 +286,13 @@ export async function getMarketState(id: number, address: string): Promise<Marke
     oracle: "0x" + BigInt(info[2].toString()).toString(16),
     collateralToken: "0x" + BigInt(info[3].toString()).toString(16),
     feeBps: Number(info[4]),
-    status: Number(status),
+    status: statusNum,
     totalPool: BigInt(totalPool.toString()),
     yesPool: BigInt(probs[1]?.[1]?.toString() ?? "0"),
     noPool: BigInt(probs[0]?.[1]?.toString() ?? "0"),
     impliedProbYes: fromScaled(BigInt(probs[1]?.[1]?.toString() ?? "500000000000000000")),
     impliedProbNo: fromScaled(BigInt(probs[0]?.[1]?.toString() ?? "500000000000000000")),
+    winningOutcome,
   };
 }
 
