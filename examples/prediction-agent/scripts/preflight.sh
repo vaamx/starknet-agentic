@@ -27,7 +27,7 @@ Options:
   --skip-test             Skip `pnpm test`
   --skip-build            Skip `pnpm build`
   --allow-placeholders    Treat placeholder env values as warnings (for template validation)
-  --require-upstash       Fail when RATE_LIMIT_BACKEND is not `upstash`
+  --require-upstash       Fail unless both rate-limit backend and state backend are Upstash
   --require-alert-channels
                            Fail unless AGENT_ALERTING_ENABLED=true and at least one channel is configured
   -h, --help              Show this help
@@ -144,6 +144,8 @@ validate_env() {
   require_var ANTHROPIC_API_KEY
   require_var HEARTBEAT_SECRET
 
+  local needs_upstash_credentials=0
+
   require_var RATE_LIMIT_BACKEND
   case "${RATE_LIMIT_BACKEND:-}" in
     memory)
@@ -154,8 +156,7 @@ validate_env() {
       fi
       ;;
     upstash)
-      require_var UPSTASH_REDIS_REST_URL
-      require_var UPSTASH_REDIS_REST_TOKEN
+      needs_upstash_credentials=1
       ;;
     "")
       ;;
@@ -163,6 +164,40 @@ validate_env() {
       add_error "RATE_LIMIT_BACKEND must be one of: memory, upstash"
       ;;
   esac
+
+  local state_backend="${AGENT_STATE_BACKEND:-auto}"
+  case "${state_backend}" in
+    auto)
+      if (( REQUIRE_UPSTASH )); then
+        add_error "AGENT_STATE_BACKEND must be upstash when --require-upstash is enabled"
+      else
+        add_warning "AGENT_STATE_BACKEND=auto may silently fall back to file storage if Upstash is unavailable"
+      fi
+      ;;
+    upstash)
+      needs_upstash_credentials=1
+      require_var AGENT_STATE_UPSTASH_KEY
+      ;;
+    file)
+      if (( REQUIRE_UPSTASH )); then
+        add_error "AGENT_STATE_BACKEND=file is not allowed when --require-upstash is enabled"
+      else
+        add_warning "AGENT_STATE_BACKEND=file is not multi-replica safe on serverless deploys"
+      fi
+      ;;
+    *)
+      add_error "AGENT_STATE_BACKEND must be one of: auto, upstash, file"
+      ;;
+  esac
+
+  if (( REQUIRE_UPSTASH )); then
+    needs_upstash_credentials=1
+  fi
+
+  if (( needs_upstash_credentials )); then
+    require_var UPSTASH_REDIS_REST_URL
+    require_var UPSTASH_REDIS_REST_TOKEN
+  fi
 
   if [[ -n "${RATE_LIMIT_GLOBAL_PER_MIN:-}" ]]; then
     if [[ ! "${RATE_LIMIT_GLOBAL_PER_MIN}" =~ ^[0-9]+$ ]]; then

@@ -18,6 +18,8 @@ Production checklist for the Starknet superforecasting prediction agent.
 
 - [ ] `RATE_LIMIT_BACKEND` is explicitly set (`memory` or `upstash`).
 - [ ] If using Upstash: `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` configured.
+- [ ] `AGENT_STATE_BACKEND=upstash` for multi-replica/serverless persistence.
+- [ ] `AGENT_STATE_UPSTASH_KEY` configured and stable across replicas.
 - [ ] `RATE_LIMIT_GLOBAL_PER_MIN` tuned for expected traffic.
 - [ ] Verify 429 behavior on `/api/predict`, `/api/multi-predict`, `/api/openclaw/*`, `/api/heartbeat`.
 

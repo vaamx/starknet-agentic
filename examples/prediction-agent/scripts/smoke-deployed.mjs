@@ -16,6 +16,7 @@ function usage() {
 Options:
   --base-url <url>               Base app URL (default: ${DEFAULT_BASE_URL})
   --heartbeat-secret <secret>    Heartbeat secret (fallback: HEARTBEAT_SECRET env)
+  --require-upstash              Fail unless deployment reports Upstash rate limiting + state backend
   --market-id <id>               Explicit market ID for /api/predict
   --skip-predict                 Skip /api/predict SSE smoke call
   --strict                       Treat warnings as failures (exit 1)
@@ -29,6 +30,7 @@ function parseArgs(argv) {
   const opts = {
     baseUrl: DEFAULT_BASE_URL,
     heartbeatSecret: process.env.HEARTBEAT_SECRET || "",
+    requireUpstash: false,
     marketId: null,
     skipPredict: false,
     strict: false,
@@ -49,6 +51,9 @@ function parseArgs(argv) {
       case "--heartbeat-secret":
         if (!argv[i + 1]) throw new Error("Missing value for --heartbeat-secret");
         opts.heartbeatSecret = argv[++i];
+        break;
+      case "--require-upstash":
+        opts.requireUpstash = true;
         break;
       case "--market-id": {
         const raw = argv[++i];
@@ -242,6 +247,7 @@ async function main() {
   console.log("");
 
   let marketsPayload = null;
+  let healthPayload = null;
 
   // 1) Health
   try {
@@ -253,12 +259,33 @@ async function main() {
     } else if (json.status === "unhealthy") {
       rec.fail("GET /api/health", "status=unhealthy");
     } else if (json.status === "degraded") {
+      healthPayload = json;
       rec.warn("GET /api/health", "status=degraded");
     } else {
+      healthPayload = json;
       rec.pass("GET /api/health", `status=${json.status}`);
     }
   } catch (err) {
     rec.fail("GET /api/health", String(err));
+  }
+
+  if (opts.requireUpstash) {
+    if (!healthPayload || typeof healthPayload !== "object") {
+      rec.fail("upstash-cutover", "health payload unavailable");
+    } else {
+      const rateLimitUpstash = healthPayload.upstashRateLimitEnabled === true;
+      const stateBackend = String(healthPayload.stateStoreBackend ?? "unknown");
+      const stateDistributed = healthPayload.stateStoreDistributed === true;
+      const stateConfigured = healthPayload.stateStoreUpstashConfigured === true;
+      if (rateLimitUpstash && stateBackend === "upstash" && stateDistributed && stateConfigured) {
+        rec.pass("upstash-cutover", "rate-limit=upstash state-backend=upstash distributed=true");
+      } else {
+        rec.fail(
+          "upstash-cutover",
+          `rate-limit-upstash=${rateLimitUpstash} state-backend=${stateBackend} state-distributed=${stateDistributed} state-configured=${stateConfigured}`
+        );
+      }
+    }
   }
 
   // 2) Status

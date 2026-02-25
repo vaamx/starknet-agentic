@@ -221,6 +221,7 @@ See `.env.example` for the full list.
   - `curl -X POST http://localhost:3001/api/alerts/test -H "content-type: application/json" -H "x-heartbeat-secret: $AGENT_ALERT_TEST_SECRET" -d '{"mode":"roundtrip","severity":"warning","dryRun":true}'`
 - Deployed smoke checks (health/status/heartbeat/manifests/predict):
   - `pnpm --filter prediction-agent smoke:deployed -- --base-url https://your-agent.example --heartbeat-secret "$HEARTBEAT_SECRET"`
+  - Add `--require-upstash` to hard-fail unless `/api/health` reports both Upstash rate limiting and Upstash state persistence.
   - Add `--skip-predict` if forecasting dependencies are intentionally disabled
 - Preflight and go-live checklist: `LAUNCH_CHECKLIST.md`
 - CI launch gate: `.github/workflows/ci.yml` job `prediction-agent-launch`

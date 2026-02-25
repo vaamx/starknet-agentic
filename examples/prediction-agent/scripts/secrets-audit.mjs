@@ -16,7 +16,7 @@ Checks required production secrets and launch env keys.
 
 Options:
   --env-file <path>           Env file to load before auditing (default: .env)
-  --require-upstash         Require RATE_LIMIT_BACKEND=upstash and Upstash keys
+  --require-upstash         Require Upstash for both rate limiting and persisted state
   --require-alert-channels  Require AGENT_ALERTING_ENABLED=true and at least one channel
   --json                    Print machine-readable JSON result
   -h, --help                Show help
@@ -126,6 +126,7 @@ function main() {
 
   const errors = [];
   const warnings = [];
+  let needsUpstashCredentials = opts.requireUpstash;
 
   function requireKey(name) {
     const value = process.env[name];
@@ -159,6 +160,30 @@ function main() {
     } else {
       warnings.push("RATE_LIMIT_BACKEND=memory is not multi-replica safe");
     }
+  } else if (rateLimitBackend === "upstash") {
+    needsUpstashCredentials = true;
+  }
+
+  const stateBackend = process.env.AGENT_STATE_BACKEND || "auto";
+  if (!["auto", "upstash", "file"].includes(stateBackend)) {
+    errors.push("AGENT_STATE_BACKEND must be auto, upstash, or file");
+  } else if (stateBackend === "auto") {
+    if (opts.requireUpstash) {
+      errors.push("AGENT_STATE_BACKEND=auto but --require-upstash is enabled");
+    } else {
+      warnings.push(
+        "AGENT_STATE_BACKEND=auto may fall back to local file state if Upstash is unavailable"
+      );
+    }
+  } else if (stateBackend === "file") {
+    if (opts.requireUpstash) {
+      errors.push("AGENT_STATE_BACKEND=file but --require-upstash is enabled");
+    } else {
+      warnings.push("AGENT_STATE_BACKEND=file is not multi-replica safe");
+    }
+  } else if (stateBackend === "upstash") {
+    needsUpstashCredentials = true;
+    requireKey("AGENT_STATE_UPSTASH_KEY");
   }
 
   const globalRate = process.env.RATE_LIMIT_GLOBAL_PER_MIN;
@@ -171,7 +196,7 @@ function main() {
     }
   }
 
-  if (rateLimitBackend === "upstash" || opts.requireUpstash) {
+  if (needsUpstashCredentials) {
     const url = requireKey("UPSTASH_REDIS_REST_URL");
     if (url && !isHttpUrl(url)) {
       errors.push("UPSTASH_REDIS_REST_URL must be a valid http(s) URL");
