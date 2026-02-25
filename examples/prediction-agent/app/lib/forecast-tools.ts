@@ -622,7 +622,16 @@ export async function* agenticForecastMarket(
   // ── Extract probability ────────────────────────────────────────────────
   const probability = extractProbability(fullReasoning);
   if (probability === null) {
-    throw new Error("Agentic forecaster: model response missing probability");
+    const fallbackProbability =
+      typeof context.currentMarketProb === "number"
+        ? context.currentMarketProb
+        : 0.5;
+    const fallbackReasoning =
+      (fullReasoning?.trim() || "Model returned reasoning without a numeric estimate.") +
+      `\n\nFallback probability applied: ${(fallbackProbability * 100).toFixed(
+        1
+      )}% YES (model output missing explicit estimate).`;
+    return { reasoning: fallbackReasoning, probability: fallbackProbability };
   }
 
   return { reasoning: fullReasoning, probability };
