@@ -1369,26 +1369,31 @@ class AgentLoop {
             ` (${consensusPeerCount} peers, w=${consensusPeerWeightTotal.toFixed(1)})]`
         : "";
 
-    if (predictionTxHash) {
-      emit(
-        this.createAction({
-          agentId,
-          agentName,
-          type: "prediction",
-          marketId: target.id,
-          question,
-          probability,
-          detail:
-            `Predicted ${Math.round(probability * 100)}% YES on "${question}"` +
-            `${consensusSuffix} [tx: ${predictionTxHash.slice(0, 16)}...]${huginnSuffix}`,
-          txHash: predictionTxHash,
-          huginnTxHash,
-          reasoningHash,
-          reasoning: reasoningSnippet,
-          consensusMeta: predictionConsensusMeta,
-        })
-      );
-    } else {
+    const predictionDetailBase =
+      `Predicted ${Math.round(probability * 100)}% YES on "${question}"` +
+      `${consensusSuffix}`;
+    const predictionDetail = predictionTxHash
+      ? `${predictionDetailBase} [tx: ${predictionTxHash.slice(0, 16)}...]${huginnSuffix}`
+      : `${predictionDetailBase} [off-chain only]${huginnSuffix}`;
+
+    emit(
+      this.createAction({
+        agentId,
+        agentName,
+        type: "prediction",
+        marketId: target.id,
+        question,
+        probability,
+        detail: predictionDetail,
+        txHash: predictionTxHash,
+        huginnTxHash,
+        reasoningHash,
+        reasoning: reasoningSnippet,
+        consensusMeta: predictionConsensusMeta,
+      })
+    );
+
+    if (!predictionTxHash) {
       emit(
         this.createAction({
           agentId,
