@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMarkets, resolveMarketQuestion } from "@/lib/market-reader";
+import {
+  getMarkets,
+  registerQuestion,
+  resolveMarketQuestion,
+} from "@/lib/market-reader";
 import { config } from "@/lib/config";
 import { getOnChainActivityCounts } from "@/lib/event-indexer";
 import {
@@ -62,6 +66,11 @@ export async function GET(request: NextRequest) {
   const factoryAddress = config.MARKET_FACTORY_ADDRESS ?? "0x0";
   const factoryConfigured = factoryAddress !== "0x0" && factoryAddress !== "";
   const cachedSnapshots = await getPersistedMarketSnapshots(500);
+  for (const snapshot of cachedSnapshots) {
+    if (snapshot.question) {
+      registerQuestion(snapshot.id, snapshot.question);
+    }
+  }
 
   try {
     const markets = await withTimeout(getMarkets(), 10_000, []);
