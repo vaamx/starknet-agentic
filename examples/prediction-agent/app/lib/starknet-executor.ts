@@ -1,4 +1,10 @@
-import { Account, RpcProvider, CallData, shortString } from "starknet";
+import {
+  Account,
+  RpcProvider,
+  CallData,
+  shortString,
+  ETransactionVersion,
+} from "starknet";
 import { config } from "./config";
 import { toScaled } from "./accuracy";
 import { SessionKeySigner } from "./session-key-signer";
@@ -10,7 +16,21 @@ const provider = new RpcProvider({
 
 /** Execute calls as a V3 transaction (starknet.js v8 handles triple gas natively). */
 async function executeV3(account: Account, calls: any[]): Promise<any> {
-  return account.execute(calls);
+  try {
+    return await account.execute(calls);
+  } catch (err: any) {
+    const message = err?.message ?? String(err);
+    // Some account contract versions fail fee estimation for V3 invokes.
+    // Fall back to V1 so autonomous predictions/bets can still execute.
+    if (
+      /Result::unwrap failed|starknet_estimateFee|resource_bounds/i.test(message)
+    ) {
+      return await account.execute(calls, {
+        version: ETransactionVersion.V1,
+      });
+    }
+    throw err;
+  }
 }
 
 const TX_WAIT_TIMEOUT_MS = 12_000;
