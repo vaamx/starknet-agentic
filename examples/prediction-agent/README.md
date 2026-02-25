@@ -58,7 +58,7 @@ Monitor live: `GET /api/survival` · `GET /api/soul`
 | `/api/alerts/test` | POST | Synthetic alert trigger/resolve test (requires alert test secret; dry-run by default) |
 | `/api/predict` | POST | Single-agent forecast (SSE stream) |
 | `/api/multi-predict` | POST | Multi-agent debate forecast (SSE stream) |
-| `/api/markets` | GET | List all on-chain prediction markets |
+| `/api/markets` | GET | List markets (`?status=open|all|resolved&limit=20`) with cache fallback |
 | `/api/agents` | POST | Spawn agent (`sovereign=true` deploys child wallet; `spawnServer=true` provisions runtime) |
 | `/api/agents/:id` | POST | Agent control (`stop`, `pause`, `resume`, `provision_runtime`) |
 | `/api/survival` | GET | STRK balance, tier, model, multiplier |
