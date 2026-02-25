@@ -161,7 +161,8 @@ export function getBetMultiplier(tier: SurvivalTier): number {
     case "thriving":  return 2.0;
     case "healthy":   return 1.0;
     case "low":       return 0.5;
-    case "critical":  return 0.0;
+    // Keep minimal market participation in critical mode instead of going fully silent.
+    case "critical":  return 0.2;
     case "dead":      return 0.0;
   }
 }
