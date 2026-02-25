@@ -60,8 +60,9 @@ export default function StatusHeader({
   return (
     <>
       <header className="border-b border-white/10 bg-[#060d1f]/90 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3.5">
+          <div className="flex items-start sm:items-center justify-between gap-3 sm:gap-4">
+            <div className="flex items-center gap-3 sm:gap-4 min-w-0">
             <div className="w-10 h-10 bg-neo-green/15 border border-neo-green/30 flex items-center justify-center shrink-0 rounded-xl shadow-[0_0_24px_rgba(0,229,204,0.18)]">
               {useTamagotchiLogo ? (
                 <TamagotchiBadge
@@ -93,7 +94,7 @@ export default function StatusHeader({
             </div>
           </div>
 
-          <div className="flex items-center flex-wrap gap-2 justify-end">
+            <div className="flex items-center flex-wrap gap-2 justify-end max-w-[62%] sm:max-w-none">
             <nav className="hidden lg:flex items-center gap-4 mr-1">
               <a href="#markets-heading" className="text-[11px] font-mono text-white/55 hover:text-white">
                 Markets
@@ -114,8 +115,8 @@ export default function StatusHeader({
                 aria-pressed={autonomousMode}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-mono transition-colors ${
                   autonomousMode
-                    ? "border-neo-green/50 bg-neo-green/10 text-neo-green"
-                    : "border-white/20 text-white/50 hover:border-white/40"
+                  ? "border-neo-green/50 bg-neo-green/10 text-neo-green"
+                  : "border-white/20 text-white/50 hover:border-white/40"
                 } ${loopToggling ? "opacity-50 cursor-not-allowed" : ""}`}
               >
                 <span
@@ -126,17 +127,17 @@ export default function StatusHeader({
                 {loopToggling
                   ? "..."
                   : autonomousMode
-                    ? "Autonomous ON"
-                    : "Autonomous OFF"}
+                  ? "Autonomous ON"
+                  : "Autonomous OFF"}
               </button>
               <span
-                className="w-5 h-5 flex items-center justify-center border border-white/20 text-[10px] font-mono text-white/50 bg-white/5 rounded-full"
+                className="hidden sm:flex w-5 h-5 items-center justify-center border border-white/20 text-[10px] font-mono text-white/50 bg-white/5 rounded-full"
                 aria-hidden="true"
               >
                 ?
               </span>
               <div
-                className="absolute right-0 top-full mt-2 w-64 text-[10px] text-white/70 bg-neo-dark/90 border border-white/10 p-2 shadow-neo hidden group-hover:block rounded-lg"
+                className="hidden sm:block absolute right-0 top-full mt-2 w-64 text-[10px] text-white/70 bg-neo-dark/90 border border-white/10 p-2 shadow-neo opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity rounded-lg"
                 role="tooltip"
               >
                 Runs the agent loop every 60s to research markets, record predictions,
@@ -195,11 +196,51 @@ export default function StatusHeader({
             </button>
           </div>
         </div>
+
+          <div className="mt-3 flex sm:hidden items-center gap-2 overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <a
+              href="#markets-heading"
+              className="neo-btn-secondary text-[10px] py-1.5 px-3 border-white/20"
+            >
+              Markets
+            </a>
+            <a
+              href="#operations-heading"
+              className="neo-btn-secondary text-[10px] py-1.5 px-3 border-white/20"
+            >
+              Agents
+            </a>
+            <a
+              href="#trade-log-heading"
+              className="neo-btn-secondary text-[10px] py-1.5 px-3 border-white/20"
+            >
+              Activity
+            </a>
+            <button
+              type="button"
+              onClick={onOpenSpawner}
+              className="neo-btn-secondary text-[10px] py-1.5 px-3 border-neo-purple/30 text-neo-purple"
+            >
+              + Spawn
+            </button>
+            <button
+              type="button"
+              onClick={onOpenCreator}
+              className="neo-btn-primary text-[10px] py-1.5 px-3"
+            >
+              + Market
+            </button>
+          </div>
+        </div>
       </header>
 
       <div className="border-b border-white/10 bg-[#081327]/70 text-white">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-3 sm:gap-6" role="status" aria-live="polite">
+          <div
+            className="flex items-center gap-4 sm:gap-6 overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            role="status"
+            aria-live="polite"
+          >
             <Stat label="Live Markets" value={markets.length.toString()} />
             {filteredCount !== markets.length && (
               <Stat label="Shown" value={filteredCount.toString()} />
@@ -209,7 +250,11 @@ export default function StatusHeader({
             {customAgentCount > 0 && (
               <Stat label="Custom Agents" value={customAgentCount.toString()} />
             )}
-            {autonomousMode && <Stat label="Mode" value="AUTONOMOUS" accent />}
+            {autonomousMode && (
+              <div className="hidden sm:flex">
+                <Stat label="Mode" value="AUTONOMOUS" accent />
+              </div>
+            )}
           </div>
           <div className="hidden md:flex items-center gap-4 text-[10px] font-mono text-white/30">
             {lastUpdatedAt ? (

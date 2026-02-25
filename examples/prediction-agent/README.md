@@ -26,6 +26,12 @@ pnpm dev
 pnpm preflight
 ```
 
+## Mobile wallet support
+
+- The dashboard now uses a mobile wallet bottom-sheet flow.
+- On mobile browsers without injected wallets, users get install/open guidance for Argent and Braavos plus one-tap URL copy.
+- Best UX on mobile is opening the app URL inside the wallet's in-app browser.
+
 ## Heartbeat drivers
 
 The agent loop runs on external ticks — not a long-lived server process:
