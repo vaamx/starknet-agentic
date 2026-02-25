@@ -93,6 +93,9 @@ export interface PersistedLoopRuntimeState {
   tickCount: number;
   lastTickAt: number | null;
   intervalMs: number;
+  agentRotationIndex?: number;
+  debateCounter?: number;
+  actionCounter?: number;
   updatedAt: number;
 }
 
@@ -184,10 +187,10 @@ function normalizeState(raw: unknown): PersistedPredictionAgentState {
     : [];
 
   const loopRuntime = isObject(raw.loopRuntime)
-    ? {
-        tickCount:
-          typeof raw.loopRuntime.tickCount === "number" &&
-          Number.isFinite(raw.loopRuntime.tickCount)
+      ? {
+          tickCount:
+            typeof raw.loopRuntime.tickCount === "number" &&
+            Number.isFinite(raw.loopRuntime.tickCount)
             ? raw.loopRuntime.tickCount
             : 0,
         lastTickAt:
@@ -195,15 +198,30 @@ function normalizeState(raw: unknown): PersistedPredictionAgentState {
           Number.isFinite(raw.loopRuntime.lastTickAt)
             ? raw.loopRuntime.lastTickAt
             : null,
-        intervalMs:
-          typeof raw.loopRuntime.intervalMs === "number" &&
-          Number.isFinite(raw.loopRuntime.intervalMs)
-            ? raw.loopRuntime.intervalMs
-            : 60_000,
-        updatedAt:
-          typeof raw.loopRuntime.updatedAt === "number" &&
-          Number.isFinite(raw.loopRuntime.updatedAt)
-            ? raw.loopRuntime.updatedAt
+          intervalMs:
+            typeof raw.loopRuntime.intervalMs === "number" &&
+            Number.isFinite(raw.loopRuntime.intervalMs)
+              ? raw.loopRuntime.intervalMs
+              : 60_000,
+          agentRotationIndex:
+            typeof raw.loopRuntime.agentRotationIndex === "number" &&
+            Number.isFinite(raw.loopRuntime.agentRotationIndex)
+              ? raw.loopRuntime.agentRotationIndex
+              : 0,
+          debateCounter:
+            typeof raw.loopRuntime.debateCounter === "number" &&
+            Number.isFinite(raw.loopRuntime.debateCounter)
+              ? raw.loopRuntime.debateCounter
+              : 0,
+          actionCounter:
+            typeof raw.loopRuntime.actionCounter === "number" &&
+            Number.isFinite(raw.loopRuntime.actionCounter)
+              ? raw.loopRuntime.actionCounter
+              : 0,
+          updatedAt:
+            typeof raw.loopRuntime.updatedAt === "number" &&
+            Number.isFinite(raw.loopRuntime.updatedAt)
+              ? raw.loopRuntime.updatedAt
             : Date.now(),
       }
     : null;
@@ -432,7 +450,15 @@ export async function setPersistedLoopRuntime(
   runtime: PersistedLoopRuntimeState
 ): Promise<void> {
   await queueWrite(async (state) => {
-    state.loopRuntime = runtime;
+    state.loopRuntime = {
+      tickCount: runtime.tickCount,
+      lastTickAt: runtime.lastTickAt ?? null,
+      intervalMs: runtime.intervalMs,
+      agentRotationIndex: runtime.agentRotationIndex ?? 0,
+      debateCounter: runtime.debateCounter ?? 0,
+      actionCounter: runtime.actionCounter ?? 0,
+      updatedAt: runtime.updatedAt,
+    };
     await writeState(state);
   });
 }

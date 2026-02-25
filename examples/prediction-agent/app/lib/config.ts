@@ -70,7 +70,7 @@ const envSchema = z.object({
   AGENT_DEFI_BUY_TOKEN: z.string().default("ETH"),
   AGENT_DEFI_SLIPPAGE: z.string().default("0.01"),
   AGENT_DEBATE_ENABLED: z.string().default("true"),
-  AGENT_DEBATE_INTERVAL: z.string().default("3"),
+  AGENT_DEBATE_INTERVAL: z.string().default("2"),
   // Autonomous loop config
   POLYMARKET_ENABLED: z.string().default("true"),
   DATA_REFRESH_INTERVAL_MS: z.string().default("300000"),
@@ -132,7 +132,7 @@ const envSchema = z.object({
   AGENT_TOOL_USE_ENABLED: z.string().default("true"),
   AGENT_TOOL_MAX_TURNS: z
     .string()
-    .default("8")
+    .default("5")
     .refine(
       (val) => {
         const n = parseInt(val, 10);

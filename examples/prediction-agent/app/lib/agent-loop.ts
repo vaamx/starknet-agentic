@@ -74,6 +74,7 @@ import {
   appendPersistedLoopAction,
   setPersistedLoopRuntime,
   type PersistedLoopAction,
+  type PersistedLoopRuntimeState,
 } from "./state-store";
 
 export interface AgentActionConsensusMeta {
@@ -357,6 +358,22 @@ class AgentLoop {
     };
   }
 
+  hydrateRuntime(runtime: PersistedLoopRuntimeState | null | undefined): void {
+    if (!runtime) return;
+    const uninitialized = this.tickCount === 0 && this.lastTickAt === null;
+    if (!uninitialized) return;
+
+    this.tickCount = Math.max(0, runtime.tickCount);
+    this.lastTickAt =
+      typeof runtime.lastTickAt === "number" && Number.isFinite(runtime.lastTickAt)
+        ? runtime.lastTickAt
+        : null;
+    this.intervalMs = Math.max(5_000, runtime.intervalMs || this.intervalMs);
+    this.agentRotationIndex = Math.max(0, runtime.agentRotationIndex ?? 0);
+    this.debateCounter = Math.max(0, runtime.debateCounter ?? 0);
+    this.actionCounter = Math.max(0, runtime.actionCounter ?? 0);
+  }
+
   getActionLog(limit?: number): AgentAction[] {
     const n = limit ?? 50;
     return this.actionLog.slice(-n);
@@ -428,6 +445,9 @@ class AgentLoop {
       tickCount: this.tickCount,
       lastTickAt: this.lastTickAt,
       intervalMs: this.intervalMs,
+      agentRotationIndex: this.agentRotationIndex,
+      debateCounter: this.debateCounter,
+      actionCounter: this.actionCounter,
       updatedAt: Date.now(),
     }).catch(() => {
       // Best-effort runtime snapshot.
@@ -512,12 +532,73 @@ class AgentLoop {
       (m) => m.status === 0 && m.resolutionTime > nowSec
     );
 
+    const openCategoryCounts = {
+      sports: 0,
+      crypto: 0,
+      politics: 0,
+      tech: 0,
+      other: 0,
+    };
+    for (const market of openMarkets) {
+      const category = categorizeMarket(
+        resolveMarketQuestion(market.id, market.questionHash)
+      );
+      if (category !== "all") {
+        openCategoryCounts[category] =
+          (openCategoryCounts[category] ?? 0) + 1;
+      }
+    }
+    const nonCryptoOpenCount =
+      openCategoryCounts.sports +
+      openCategoryCounts.politics +
+      openCategoryCounts.tech +
+      openCategoryCounts.other;
+
+    let rebalanceCategory:
+      | "politics"
+      | "sports"
+      | "tech"
+      | "other"
+      | undefined;
+    if (openMarkets.length >= 5 && nonCryptoOpenCount === 0) {
+      const priority: Array<"politics" | "sports" | "tech" | "other"> = [
+        "politics",
+        "sports",
+        "tech",
+        "other",
+      ];
+      rebalanceCategory = priority[0];
+    } else if (
+      openMarkets.length >= 8 &&
+      openCategoryCounts.crypto / Math.max(1, openMarkets.length) >= 0.75
+    ) {
+      const priority: Array<"politics" | "sports" | "tech" | "other"> = [
+        "politics",
+        "sports",
+        "tech",
+        "other",
+      ];
+      rebalanceCategory = [...priority].sort((a, b) => {
+        const aCount = openCategoryCounts[a] ?? 0;
+        const bCount = openCategoryCounts[b] ?? 0;
+        if (aCount === bCount) return priority.indexOf(a) - priority.indexOf(b);
+        return aCount - bCount;
+      })[0];
+    }
+
     // Every N ticks, or whenever no active markets remain, attempt market creation.
+    const shouldRebalanceCreate =
+      !!rebalanceCategory && this.tickCount % 2 === 0;
     const shouldCreate =
       openMarkets.length === 0 ||
-      this.tickCount % this.marketCreationInterval === 0;
+      this.tickCount % this.marketCreationInterval === 0 ||
+      shouldRebalanceCreate;
     if (shouldCreate) {
-      const created = await this.runMarketCreation(captureEmit, markets);
+      const created = await this.runMarketCreation(
+        captureEmit,
+        markets,
+        rebalanceCategory
+      );
       if (created) return tickActions;
     }
 
@@ -614,6 +695,9 @@ class AgentLoop {
       tickCount: this.tickCount,
       lastTickAt: this.lastTickAt,
       intervalMs: this.intervalMs,
+      agentRotationIndex: this.agentRotationIndex,
+      debateCounter: this.debateCounter,
+      actionCounter: this.actionCounter,
       updatedAt: Date.now(),
     }).catch(() => {
       // Best-effort runtime snapshot.
@@ -1271,13 +1355,14 @@ class AgentLoop {
 
   private async runMarketCreation(
     emit: (action: AgentAction) => void,
-    existingMarkets?: MarketState[]
+    existingMarkets?: MarketState[],
+    forcedCategory?: "politics" | "sports" | "tech" | "other"
   ): Promise<boolean> {
     if (!isAgentConfigured() || config.MARKET_FACTORY_ADDRESS === "0x0") {
       return false;
     }
 
-    let suggestedCategory: string | undefined;
+    let suggestedCategory: string | undefined = forcedCategory;
     const openCategoryCounts = {
       sports: 0,
       crypto: 0,
@@ -1307,18 +1392,20 @@ class AgentLoop {
     );
     const cryptoShare = openCategoryCounts.crypto / openTotal;
 
-    try {
-      const sources: DataSourceName[] = ["news", "social", "coingecko", "github", "rss"];
-      const research = await gatherResearch("trending markets", sources);
-      const combined = research
-        .map((r) => `${r.summary} ${r.data.map((d) => d.label).join(" ")}`)
-        .join(" ");
-      const cat = categorizeMarket(combined);
-      if (cat !== "other" && cat !== "all") {
-        suggestedCategory = cat;
+    if (!forcedCategory) {
+      try {
+        const sources: DataSourceName[] = ["news", "social", "coingecko", "github", "rss"];
+        const research = await gatherResearch("trending markets", sources);
+        const combined = research
+          .map((r) => `${r.summary} ${r.data.map((d) => d.label).join(" ")}`)
+          .join(" ");
+        const cat = categorizeMarket(combined);
+        if (cat !== "other" && cat !== "all") {
+          suggestedCategory = cat;
+        }
+      } catch {
+        // Research failed, proceed without category bias
       }
-    } catch {
-      // Research failed, proceed without category bias
     }
 
     const categoryFloorOrder: Array<
@@ -1336,7 +1423,10 @@ class AgentLoop {
       return aCount - bCount;
     })[0];
 
-    if (!suggestedCategory || (suggestedCategory === "crypto" && cryptoShare >= 0.45)) {
+    if (
+      !suggestedCategory ||
+      (suggestedCategory === "crypto" && cryptoShare >= 0.45)
+    ) {
       suggestedCategory = leastRepresented;
     }
 
@@ -1400,6 +1490,9 @@ class AgentLoop {
     }
 
     let detail = `Created new market: "${questionRaw}"`;
+    if (forcedCategory) {
+      detail += ` [rebalance:${forcedCategory}]`;
+    }
     if (result.allowlistTxHash) {
       detail += " (allowlist updated)";
     } else if (result.allowlistError) {
