@@ -184,6 +184,18 @@ function parseNumber(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function normalizeAgentErrorMessage(raw: unknown): string {
+  const message =
+    typeof raw === "string"
+      ? raw
+      : (raw as any)?.message ?? String(raw ?? "unknown error");
+  const compact = message.replace(/\s+/g, " ").trim();
+  if (/credit balance is too low|insufficient credit|plans\s*&\s*billing/i.test(compact)) {
+    return "Anthropic credits exhausted";
+  }
+  return compact.slice(0, 260) || "unknown error";
+}
+
 const ALL_DATA_SOURCE_NAMES = new Set<DataSourceName>([
   "polymarket",
   "coingecko",
@@ -1198,13 +1210,16 @@ class AgentLoop {
         }
       }
     } catch (err: any) {
-      const errMessage = err?.message ?? "unknown error";
+      const errMessage = normalizeAgentErrorMessage(err);
       const fallbackEvidenceGate = checkResearchGate(
         researchCoverage,
         Math.max(1, config.agentMinEvidenceSources - 1),
         Math.max(2, Math.floor(config.agentMinEvidencePoints / 2))
       );
+      const modelQuotaOrBillingIssue =
+        errMessage === "Anthropic credits exhausted";
       const canFallback =
+        modelQuotaOrBillingIssue ||
         fallbackEvidenceGate.ok &&
         (/timed out|missing probability|tool/i.test(errMessage) ||
           researchCoverage.totalDataPoints > 0);
