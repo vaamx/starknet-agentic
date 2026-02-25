@@ -120,7 +120,8 @@ export async function GET(
         (a) =>
           a.marketId === marketId &&
           a.type === "prediction" &&
-          !!a.txHash
+          typeof a.probability === "number" &&
+          Number.isFinite(a.probability)
       );
     const latestAgentTake = latestAction
       ? {
