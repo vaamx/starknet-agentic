@@ -97,7 +97,10 @@ export default function Dashboard() {
     setLoadError(null);
 
     try {
-      const marketsRes = await fetchWithTimeout("/api/markets", 12_000);
+      const marketsRes = await fetchWithTimeout(
+        "/api/markets?status=open&limit=20",
+        12_000
+      );
       if (!marketsRes.ok) {
         throw new Error(`Markets API failed: HTTP ${marketsRes.status}`);
       }

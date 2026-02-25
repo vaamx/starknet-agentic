@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getMarkets, resolveMarketQuestion } from "@/lib/market-reader";
 import { config } from "@/lib/config";
 import { getOnChainActivityCounts } from "@/lib/event-indexer";
@@ -27,7 +27,38 @@ async function withTimeout<T>(
   }
 }
 
-export async function GET() {
+type StatusFilter = "open" | "all" | "resolved";
+
+function parseStatusFilter(raw: string | null): StatusFilter {
+  if (raw === "all" || raw === "resolved") return raw;
+  return "open";
+}
+
+function parseLimit(raw: string | null): number {
+  const parsed = Number.parseInt(raw ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 20;
+  return Math.min(parsed, 200);
+}
+
+function applyMarketWindow<T extends { id: number; status: number; resolutionTime: number }>(
+  markets: T[],
+  statusFilter: StatusFilter,
+  limit: number
+): T[] {
+  const nowSec = Math.floor(Date.now() / 1000);
+  let filtered = markets;
+  if (statusFilter === "open") {
+    filtered = markets.filter((m) => m.status === 0 && m.resolutionTime > nowSec);
+  } else if (statusFilter === "resolved") {
+    filtered = markets.filter((m) => m.status === 2 || m.resolutionTime <= nowSec);
+  }
+
+  return filtered.sort((a, b) => b.id - a.id).slice(0, limit);
+}
+
+export async function GET(request: NextRequest) {
+  const statusFilter = parseStatusFilter(request.nextUrl.searchParams.get("status"));
+  const limit = parseLimit(request.nextUrl.searchParams.get("limit"));
   const factoryAddress = config.MARKET_FACTORY_ADDRESS ?? "0x0";
   const factoryConfigured = factoryAddress !== "0x0" && factoryAddress !== "";
   const cachedSnapshots = await getPersistedMarketSnapshots(500);
@@ -43,10 +74,23 @@ export async function GET() {
       .filter((a) => a !== "0x0" && !a.startsWith("0xpending"));
     const tradeCounts =
       addresses.length > 0
-        ? await withTimeout(getOnChainActivityCounts(addresses), 6_000, {})
+        ? await withTimeout(getOnChainActivityCounts(addresses), 1_500, {})
         : {};
 
-    const enriched = markets.map((m) => ({
+    const enriched = applyMarketWindow(
+      markets.map((m) => ({
+        ...m,
+        question: resolveMarketQuestion(m.id, m.questionHash),
+        totalPool: m.totalPool.toString(),
+        yesPool: m.yesPool.toString(),
+        noPool: m.noPool.toString(),
+        tradeCount: tradeCounts[m.address] ?? 0,
+      })),
+      statusFilter,
+      limit
+    );
+
+    const fullSnapshot = markets.map((m) => ({
       ...m,
       question: resolveMarketQuestion(m.id, m.questionHash),
       totalPool: m.totalPool.toString(),
@@ -55,7 +99,7 @@ export async function GET() {
       tradeCount: tradeCounts[m.address] ?? 0,
     }));
     await setPersistedMarketSnapshots(
-      enriched.map((m) => ({
+      fullSnapshot.map((m) => ({
         id: m.id,
         address: m.address,
         questionHash: m.questionHash,
@@ -85,24 +129,28 @@ export async function GET() {
     });
   } catch (err: any) {
     if (cachedSnapshots.length > 0) {
-      const markets = cachedSnapshots.map((snapshot) => ({
-        id: snapshot.id,
-        address: snapshot.address,
-        questionHash: snapshot.questionHash,
-        question: snapshot.question,
-        resolutionTime: snapshot.resolutionTime,
-        oracle: snapshot.oracle,
-        collateralToken: snapshot.collateralToken,
-        feeBps: snapshot.feeBps,
-        status: snapshot.status,
-        totalPool: snapshot.totalPool,
-        yesPool: snapshot.yesPool,
-        noPool: snapshot.noPool,
-        impliedProbYes: snapshot.impliedProbYes,
-        impliedProbNo: snapshot.impliedProbNo,
-        winningOutcome: snapshot.winningOutcome,
-        tradeCount: snapshot.tradeCount ?? 0,
-      }));
+      const markets = applyMarketWindow(
+        cachedSnapshots.map((snapshot) => ({
+          id: snapshot.id,
+          address: snapshot.address,
+          questionHash: snapshot.questionHash,
+          question: snapshot.question,
+          resolutionTime: snapshot.resolutionTime,
+          oracle: snapshot.oracle,
+          collateralToken: snapshot.collateralToken,
+          feeBps: snapshot.feeBps,
+          status: snapshot.status,
+          totalPool: snapshot.totalPool,
+          yesPool: snapshot.yesPool,
+          noPool: snapshot.noPool,
+          impliedProbYes: snapshot.impliedProbYes,
+          impliedProbNo: snapshot.impliedProbNo,
+          winningOutcome: snapshot.winningOutcome,
+          tradeCount: snapshot.tradeCount ?? 0,
+        })),
+        statusFilter,
+        limit
+      );
       return NextResponse.json({
         markets,
         factoryConfigured,
