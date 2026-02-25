@@ -15,6 +15,8 @@ const starknetAddressOrZero = (label: string) =>
 
 const envSchema = z.object({
   STARKNET_RPC_URL: z.string().url().default("https://rpc.starknet-testnet.lava.build"),
+  STARKNET_RPC_FALLBACK_URLS: z.string().default(""),
+  STARKNET_RPC_FAILOVER_ENABLED: z.string().default("true"),
   STARKNET_CHAIN_ID: z.string().default("SN_SEPOLIA"),
   AGENT_PRIVATE_KEY: z.string().optional(),
   AGENT_ADDRESS: z.string().optional(),
@@ -210,6 +212,27 @@ const envSchema = z.object({
 
 const rawConfig = envSchema.parse(process.env);
 
+function parseRpcFallbackUrls(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .filter((value) => {
+      try {
+        const parsed = new URL(value);
+        return parsed.protocol === "http:" || parsed.protocol === "https:";
+      } catch {
+        return false;
+      }
+    })
+    .map((value) => value.replace(/\/+$/, ""));
+}
+
+const rpcFallbackUrls = parseRpcFallbackUrls(rawConfig.STARKNET_RPC_FALLBACK_URLS);
+const rpcUrls = Array.from(
+  new Set([rawConfig.STARKNET_RPC_URL.replace(/\/+$/, ""), ...rpcFallbackUrls])
+);
+
 const REGISTRY_DEFAULTS = {
   SN_MAIN: {
     identity: "0x33653298d42aca87f9c004c834c6830a08e8f1c0bd694faaa1412ec8fe77595",
@@ -244,6 +267,10 @@ const agentResearchTotalTimeoutMs = Math.max(
  */
 export const config = {
   ...rawConfig,
+  rpcFailoverEnabled:
+    rawConfig.STARKNET_RPC_FAILOVER_ENABLED !== "false" && rpcUrls.length > 1,
+  rpcFallbackUrls,
+  rpcUrls,
   // Registry address defaults (chain-aware)
   IDENTITY_REGISTRY_ADDRESS:
     rawConfig.IDENTITY_REGISTRY_ADDRESS ?? defaults.identity,

@@ -13,11 +13,61 @@ const provider = new RpcProvider({
   nodeUrl: config.STARKNET_RPC_URL,
 });
 
+const providerCache = new Map<string, RpcProvider>();
+let preferredRpcUrl = config.STARKNET_RPC_URL;
+
+function normalizeRpcUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "");
+}
+
+function getRpcProvider(nodeUrl: string): RpcProvider {
+  const normalized = normalizeRpcUrl(nodeUrl);
+  const cached = providerCache.get(normalized);
+  if (cached) return cached;
+  const created = new RpcProvider({ nodeUrl: normalized });
+  providerCache.set(normalized, created);
+  return created;
+}
+
+function getOrderedRpcUrls(): string[] {
+  const urls = Array.from(
+    new Set(
+      (config.rpcUrls ?? [config.STARKNET_RPC_URL]).map((url) =>
+        normalizeRpcUrl(url)
+      )
+    )
+  );
+
+  if (!config.rpcFailoverEnabled || urls.length <= 1) {
+    return urls.slice(0, 1);
+  }
+
+  const preferred = normalizeRpcUrl(preferredRpcUrl);
+  const preferredIdx = urls.indexOf(preferred);
+  if (preferredIdx <= 0) return urls;
+
+  return [...urls.slice(preferredIdx), ...urls.slice(0, preferredIdx)];
+}
+
+function markRpcHealthy(nodeUrl: string): void {
+  preferredRpcUrl = normalizeRpcUrl(nodeUrl);
+}
+
 const V1_FALLBACK_ERROR_REGEX =
   /Result::unwrap failed|starknet_estimateFee|resource_bounds|tip statistics|starting block number|double-quoted property name|estimate fee/i;
+const RPC_FAILOVER_RETRY_REGEX =
+  /starknet_estimateFee|estimate fee|resource_bounds|tip statistics|starting block number|double-quoted property name|timeout|timed out|network|gateway|upstream|ECONN|EAI_AGAIN|socket|429|502|503|504/i;
 
 function shouldFallbackToV1(message: string): boolean {
   return V1_FALLBACK_ERROR_REGEX.test(message);
+}
+
+function shouldRetryAcrossRpcProviders(err: unknown): boolean {
+  const message =
+    typeof err === "string"
+      ? err
+      : (err as any)?.message ?? String(err ?? "unknown error");
+  return RPC_FAILOVER_RETRY_REGEX.test(message);
 }
 
 function normalizeTxError(err: unknown): string {
@@ -93,12 +143,14 @@ const TX_WAIT_TIMEOUT_MS = 12_000;
 
 async function waitForTransactionWithTimeout(
   txHash: string,
-  timeoutMs = TX_WAIT_TIMEOUT_MS
+  timeoutMs = TX_WAIT_TIMEOUT_MS,
+  providerOverride?: RpcProvider
 ): Promise<any | null> {
+  const waitProvider = providerOverride ?? provider;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      provider.waitForTransaction(txHash),
+      waitProvider.waitForTransaction(txHash),
       new Promise<null>((resolve) => {
         timeoutId = setTimeout(() => resolve(null), timeoutMs);
       }),
@@ -125,15 +177,16 @@ function getSessionSigner(): SessionKeySigner | null {
 }
 
 /** Get an account instance for transaction signing. */
-function getAccount(mode?: SignerMode): Account | null {
+function getAccount(mode?: SignerMode, nodeUrl = config.STARKNET_RPC_URL): Account | null {
   if (!config.AGENT_ADDRESS) return null;
   const signerMode = mode ?? resolveSignerMode();
+  const accountProvider = getRpcProvider(nodeUrl);
 
   if (signerMode === "session") {
     const signer = getSessionSigner();
     if (!signer) return null;
     return new Account({
-      provider,
+      provider: accountProvider,
       address: config.AGENT_ADDRESS,
       signer,
     });
@@ -141,10 +194,63 @@ function getAccount(mode?: SignerMode): Account | null {
 
   if (!config.AGENT_PRIVATE_KEY) return null;
   return new Account({
-    provider,
+    provider: accountProvider,
     address: config.AGENT_ADDRESS,
     signer: config.AGENT_PRIVATE_KEY,
   });
+}
+
+interface ExecuteWithFailoverResult {
+  result: any;
+  provider: RpcProvider;
+  rpcUrl: string;
+}
+
+async function executeWithRpcFailover(
+  calls: any[],
+  options?: { accountOverride?: Account; signerMode?: SignerMode }
+): Promise<ExecuteWithFailoverResult> {
+  const accountOverride = options?.accountOverride;
+  if (accountOverride) {
+    const result = await executeV3(accountOverride, calls);
+    const overrideProvider =
+      ((accountOverride as any)?.provider as RpcProvider | undefined) ?? provider;
+    return {
+      result,
+      provider: overrideProvider,
+      rpcUrl: normalizeRpcUrl(config.STARKNET_RPC_URL),
+    };
+  }
+
+  const signerMode = options?.signerMode ?? resolveSignerMode();
+  const rpcUrls = getOrderedRpcUrls();
+  let lastError: unknown = null;
+
+  for (let idx = 0; idx < rpcUrls.length; idx++) {
+    const rpcUrl = rpcUrls[idx];
+    const account = getAccount(signerMode, rpcUrl);
+    if (!account) {
+      throw new Error("No agent account configured");
+    }
+
+    try {
+      const result = await executeV3(account, calls);
+      markRpcHealthy(rpcUrl);
+      return {
+        result,
+        provider: getRpcProvider(rpcUrl),
+        rpcUrl,
+      };
+    } catch (err) {
+      lastError = err;
+      const hasNext = idx < rpcUrls.length - 1;
+      if (!hasNext || !shouldRetryAcrossRpcProviders(err)) {
+        break;
+      }
+    }
+  }
+
+  throw lastError ?? new Error("All RPC providers failed");
 }
 
 function usingSessionSigner(): boolean {
@@ -228,18 +334,23 @@ export interface CreateMarketResult extends TxResult {
 export async function getWalletBalance(address?: string): Promise<bigint> {
   const target = address ?? config.AGENT_ADDRESS;
   if (!target) return 0n;
-  try {
-    const result = await provider.callContract({
-      contractAddress: config.COLLATERAL_TOKEN_ADDRESS,
-      entrypoint: "balanceOf",
-      calldata: CallData.compile({ account: target }),
-    });
-    const low  = BigInt(result[0] ?? "0x0");
-    const high = BigInt(result[1] ?? "0x0");
-    return low + high * (2n ** 128n);
-  } catch {
-    return 0n;
+  const rpcUrls = getOrderedRpcUrls();
+  for (const rpcUrl of rpcUrls) {
+    try {
+      const result = await getRpcProvider(rpcUrl).callContract({
+        contractAddress: config.COLLATERAL_TOKEN_ADDRESS,
+        entrypoint: "balanceOf",
+        calldata: CallData.compile({ account: target }),
+      });
+      const low  = BigInt(result[0] ?? "0x0");
+      const high = BigInt(result[1] ?? "0x0");
+      markRpcHealthy(rpcUrl);
+      return low + high * (2n ** 128n);
+    } catch {
+      // Try next RPC provider.
+    }
   }
+  return 0n;
 }
 
 /** Place a bet on a prediction market. */
@@ -250,8 +361,7 @@ export async function placeBet(
   collateralToken: string,
   accountOverride?: Account
 ): Promise<TxResult> {
-  const account = accountOverride ?? getAccount();
-  if (!account) {
+  if (!accountOverride && !getAccount()) {
     return { txHash: "", status: "error", error: "No agent account configured" };
   }
 
@@ -268,16 +378,25 @@ export async function placeBet(
     };
 
     let result;
+    let txProvider: RpcProvider | undefined;
     ensureCallsAllowlisted([approveTx, betTx]);
     try {
-      result = await executeV3(account, [approveTx, betTx]);
-      await waitForTransactionWithTimeout(result.transaction_hash);
+      const executed = await executeWithRpcFailover([approveTx, betTx], {
+        accountOverride,
+      });
+      result = executed.result;
+      txProvider = executed.provider;
+      await waitForTransactionWithTimeout(result.transaction_hash, TX_WAIT_TIMEOUT_MS, txProvider);
     } catch (err) {
       // If session signer used snake_case allowance but token expects camelCase, retry once.
       if (usingSessionSigner() && approveTx.entrypoint === "increase_allowance") {
         const retryApprove = buildAllowanceCall(collateralToken, marketAddress, amount, "increaseAllowance");
-        result = await executeV3(account, [retryApprove, betTx]);
-        await waitForTransactionWithTimeout(result.transaction_hash);
+        const executed = await executeWithRpcFailover([retryApprove, betTx], {
+          accountOverride,
+        });
+        result = executed.result;
+        txProvider = executed.provider;
+        await waitForTransactionWithTimeout(result.transaction_hash, TX_WAIT_TIMEOUT_MS, txProvider);
       } else {
         throw err;
       }
@@ -295,8 +414,7 @@ export async function recordPrediction(
   probability: number,
   accountOverride?: Account
 ): Promise<TxResult> {
-  const account = accountOverride ?? getAccount();
-  if (!account) {
+  if (!accountOverride && !getAccount()) {
     return { txHash: "", status: "error", error: "No agent account configured" };
   }
 
@@ -318,8 +436,13 @@ export async function recordPrediction(
     };
 
     ensureCallsAllowlisted([tx]);
-    const result = await executeV3(account, [tx]);
-    await waitForTransactionWithTimeout(result.transaction_hash);
+    const executed = await executeWithRpcFailover([tx], { accountOverride });
+    const result = executed.result;
+    await waitForTransactionWithTimeout(
+      result.transaction_hash,
+      TX_WAIT_TIMEOUT_MS,
+      executed.provider
+    );
 
     return { txHash: result.transaction_hash, status: "success" };
   } catch (err: any) {
@@ -334,8 +457,7 @@ export async function createMarket(
   feeBps = 200,
   oracleAddress?: string
 ): Promise<CreateMarketResult> {
-  const account = getAccount();
-  if (!account) {
+  if (!getAccount()) {
     return { txHash: "", status: "error", error: "No agent account configured" };
   }
 
@@ -367,8 +489,13 @@ export async function createMarket(
     };
 
     ensureCallsAllowlisted([tx]);
-    const result = await executeV3(account, [tx]);
-    const receipt = await waitForTransactionWithTimeout(result.transaction_hash);
+    const executed = await executeWithRpcFailover([tx]);
+    const result = executed.result;
+    const receipt = await waitForTransactionWithTimeout(
+      result.transaction_hash,
+      TX_WAIT_TIMEOUT_MS,
+      executed.provider
+    );
 
     let marketId: number | undefined;
     let marketAddress: string | undefined;
@@ -444,8 +571,7 @@ export function getActiveAccount(): Account | null {
 
 /** Owner-only: add a contract to the on-chain session allowlist. */
 export async function addAllowedContract(contract: string): Promise<TxResult> {
-  const account = getOwnerAccount();
-  if (!account) {
+  if (!getOwnerAccount()) {
     return { txHash: "", status: "error", error: "Owner signer not configured" };
   }
   if (!config.AGENT_ADDRESS) {
@@ -458,8 +584,15 @@ export async function addAllowedContract(contract: string): Promise<TxResult> {
       entrypoint: "add_allowed_contract",
       calldata: CallData.compile({ contract }),
     };
-    const result = await executeV3(account, [tx]);
-    await waitForTransactionWithTimeout(result.transaction_hash);
+    const executed = await executeWithRpcFailover([tx], {
+      signerMode: "owner",
+    });
+    const result = executed.result;
+    await waitForTransactionWithTimeout(
+      result.transaction_hash,
+      TX_WAIT_TIMEOUT_MS,
+      executed.provider
+    );
     return { txHash: result.transaction_hash, status: "success" };
   } catch (err: any) {
     return { txHash: "", status: "error", error: normalizeTxError(err) };

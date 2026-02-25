@@ -11,6 +11,8 @@ export async function GET() {
     const stateStore = getStateStoreBackendInfo();
     const checks = {
       rpcConfigured: !!config.STARKNET_RPC_URL,
+      rpcFailoverEnabled: config.rpcFailoverEnabled,
+      rpcProviderCount: config.rpcUrls.length,
       anthropicConfigured: !!process.env.ANTHROPIC_API_KEY,
       agentConfigured: isAgentConfigured(),
       marketFactoryConfigured: config.MARKET_FACTORY_ADDRESS !== "0x0",
