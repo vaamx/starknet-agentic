@@ -15,6 +15,7 @@ function makeLoopStatus(overrides?: Partial<LoopStatus>): LoopStatus {
     aiEnabled: true,
     signerMode: "owner",
     sessionKeyConfigured: false,
+    autoResolveEnabled: true,
     defiEnabled: false,
     defiAutoTrade: false,
     debateEnabled: true,

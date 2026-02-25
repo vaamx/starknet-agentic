@@ -1,20 +1,7 @@
 import { NextResponse } from "next/server";
-import { getMarkets, MARKET_QUESTIONS } from "@/lib/market-reader";
+import { getMarkets, resolveMarketQuestion } from "@/lib/market-reader";
 import { config } from "@/lib/config";
 import { getOnChainActivityCounts } from "@/lib/event-indexer";
-
-/** Decode a hex-encoded question string (e.g. 0x536561...) to UTF-8 text. */
-function decodeQuestionHash(hex: string): string {
-  try {
-    const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
-    if (!clean) return "";
-    const decoded = Buffer.from(clean, "hex").toString("utf8").trim();
-    // Only return if printable ASCII — reject garbage bytes
-    return /^[\x20-\x7E]+$/.test(decoded) ? decoded : "";
-  } catch {
-    return "";
-  }
-}
 
 export async function GET() {
   try {
@@ -30,7 +17,7 @@ export async function GET() {
 
     const enriched = markets.map((m) => ({
       ...m,
-      question: MARKET_QUESTIONS[m.id] ?? (decodeQuestionHash(m.questionHash) || `Market #${m.id}`),
+      question: resolveMarketQuestion(m.id, m.questionHash),
       totalPool: m.totalPool.toString(),
       yesPool: m.yesPool.toString(),
       noPool: m.noPool.toString(),

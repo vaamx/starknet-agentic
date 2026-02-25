@@ -34,6 +34,7 @@ export async function GET() {
       defiEnabled: config.AGENT_DEFI_ENABLED === "true",
       defiAutoTrade: config.AGENT_DEFI_AUTO_TRADE === "true",
       debateEnabled: config.AGENT_DEBATE_ENABLED === "true",
+      autoResolveEnabled: config.agentAutoResolveEnabled,
       serverTime: new Date().toISOString(),
     });
   } catch (err: any) {

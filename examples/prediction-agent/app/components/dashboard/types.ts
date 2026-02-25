@@ -54,6 +54,7 @@ export interface LoopStatus {
   aiEnabled: boolean;
   signerMode: "owner" | "session";
   sessionKeyConfigured: boolean;
+  autoResolveEnabled: boolean;
   defiEnabled: boolean;
   defiAutoTrade: boolean;
   debateEnabled: boolean;

@@ -3,7 +3,7 @@ import {
   getMarketById,
   getAgentPredictions,
   getWeightedProbability,
-  MARKET_QUESTIONS,
+  resolveMarketQuestion,
 } from "@/lib/market-reader";
 import { agentLoop } from "@/lib/agent-loop";
 
@@ -46,7 +46,7 @@ export async function GET(
     return NextResponse.json({
       market: {
         ...market,
-        question: MARKET_QUESTIONS[marketId] ?? `Market #${marketId}`,
+        question: resolveMarketQuestion(marketId, market.questionHash),
         totalPool: market.totalPool.toString(),
         yesPool: market.yesPool.toString(),
         noPool: market.noPool.toString(),

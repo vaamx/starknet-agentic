@@ -1,4 +1,4 @@
-import { RpcProvider, Contract } from "starknet";
+import { RpcProvider, Contract, shortString } from "starknet";
 import { config } from "./config";
 import { fromScaled, averageBrier } from "./accuracy";
 
@@ -162,6 +162,12 @@ export interface LeaderboardEntry {
   avgBrier: number;
   predictionCount: number;
   rank: number;
+}
+
+const PRINTABLE_ASCII_REGEX = /^[\x20-\x7E]+$/;
+
+function normalizeQuestion(value: string): string {
+  return value.replace(/\0/g, "").replace(/\s+/g, " ").trim();
 }
 
 function asBigInt(value: unknown): bigint {
@@ -413,7 +419,61 @@ export const MARKET_QUESTIONS: Record<number, string> = {};
 
 /** Register a custom question text for a new market ID. */
 export function registerQuestion(marketId: number, question: string) {
-  MARKET_QUESTIONS[marketId] = question;
+  const normalized = normalizeQuestion(question);
+  if (normalized) {
+    MARKET_QUESTIONS[marketId] = normalized;
+  }
+}
+
+/** Decode a market question hash into readable text when possible. */
+export function decodeQuestionHash(questionHash: string): string {
+  if (!questionHash || questionHash === "0x0") return "";
+
+  // Preferred path for short-string felt encoding used by create_market.
+  try {
+    const felt =
+      questionHash.startsWith("0x")
+        ? (questionHash as `0x${string}`)
+        : (`0x${questionHash}` as `0x${string}`);
+    const decoded = normalizeQuestion(shortString.decodeShortString(felt));
+    if (decoded && PRINTABLE_ASCII_REGEX.test(decoded)) {
+      return decoded;
+    }
+  } catch {
+    // Fall through to raw hex decoding.
+  }
+
+  // Fallback path for older/non-shortString encodings.
+  try {
+    const clean = questionHash.startsWith("0x")
+      ? questionHash.slice(2)
+      : questionHash;
+    if (!clean || !/^[0-9a-fA-F]+$/.test(clean)) return "";
+    const padded = clean.length % 2 === 0 ? clean : `0${clean}`;
+    const decoded = normalizeQuestion(Buffer.from(padded, "hex").toString("utf8"));
+    return decoded && PRINTABLE_ASCII_REGEX.test(decoded) ? decoded : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Resolve display question text from in-memory metadata and on-chain question hash. */
+export function resolveMarketQuestion(
+  marketId: number,
+  questionHash?: string | null
+): string {
+  const mapped = normalizeQuestion(MARKET_QUESTIONS[marketId] ?? "");
+  if (mapped) return mapped;
+
+  if (questionHash) {
+    const decoded = decodeQuestionHash(questionHash);
+    if (decoded) {
+      MARKET_QUESTIONS[marketId] = decoded;
+      return decoded;
+    }
+  }
+
+  return `Market #${marketId}`;
 }
 
 /** Check if a market question is Super Bowl related. */

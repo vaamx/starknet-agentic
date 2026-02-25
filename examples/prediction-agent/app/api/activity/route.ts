@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOnChainActivities } from "@/lib/event-indexer";
 import { agentLoop } from "@/lib/agent-loop";
-import { getMarkets, MARKET_QUESTIONS } from "@/lib/market-reader";
+import { getMarkets, resolveMarketQuestion } from "@/lib/market-reader";
 import { config } from "@/lib/config";
 
 /**
@@ -15,6 +15,9 @@ export async function GET(request: NextRequest) {
     // Get market addresses for event indexing
     const markets = await getMarkets();
     const addresses = markets.map((m) => m.address).filter((a) => a !== "0x0" && !a.startsWith("0xpending"));
+    const marketQuestions = new Map(
+      markets.map((m) => [m.id, resolveMarketQuestion(m.id, m.questionHash)] as const)
+    );
 
     // Fetch on-chain events and in-memory agent actions in parallel
     const shouldFetchOnChain =
@@ -34,6 +37,7 @@ export async function GET(request: NextRequest) {
           a.type === "bet" ||
           a.type === "prediction" ||
           a.type === "market_creation" ||
+          a.type === "resolution" ||
           a.type === "defi_swap" ||
           a.type === "debate"
       )
@@ -44,7 +48,7 @@ export async function GET(request: NextRequest) {
         isAgent: true,
         marketId: a.marketId,
         question: a.question ?? a.defiPair ?? undefined,
-        outcome: a.betOutcome,
+        outcome: a.betOutcome ?? a.resolutionOutcome,
         amount: a.betAmount ?? a.defiAmount,
         probability: a.probability,
         detail: a.detail,
@@ -64,7 +68,7 @@ export async function GET(request: NextRequest) {
       marketId: e.marketId,
       question:
         e.marketId !== undefined
-          ? MARKET_QUESTIONS[e.marketId] ?? `Market #${e.marketId}`
+          ? marketQuestions.get(e.marketId) ?? `Market #${e.marketId}`
           : undefined,
       outcome:
         e.type === "bet"

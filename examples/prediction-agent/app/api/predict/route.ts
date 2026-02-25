@@ -1,7 +1,11 @@
 import { NextRequest } from "next/server";
 import { forecastMarket, extractProbability } from "@/lib/agent-forecaster";
 import { agenticForecastMarket, type AgenticForecastEvent } from "@/lib/forecast-tools";
-import { getMarketById, getAgentPredictions, MARKET_QUESTIONS } from "@/lib/market-reader";
+import {
+  getMarketById,
+  getAgentPredictions,
+  resolveMarketQuestion,
+} from "@/lib/market-reader";
 import { AGENT_PERSONAS } from "@/lib/agent-personas";
 import { recordPrediction } from "@/lib/starknet-executor";
 import { logThoughtOnChain } from "@/lib/huginn-executor";
@@ -66,7 +70,7 @@ export async function POST(request: NextRequest) {
         }
 
         const predictions = await getAgentPredictions(marketId);
-        const question = MARKET_QUESTIONS[marketId] ?? `Market #${marketId}`;
+        const question = resolveMarketQuestion(marketId, market.questionHash);
 
         const daysUntil = Math.max(
           0,

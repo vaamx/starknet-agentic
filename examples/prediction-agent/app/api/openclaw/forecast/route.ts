@@ -7,7 +7,11 @@
  */
 
 import { NextRequest } from "next/server";
-import { MARKET_QUESTIONS } from "@/lib/market-reader";
+import {
+  MARKET_QUESTIONS,
+  getMarkets,
+  resolveMarketQuestion,
+} from "@/lib/market-reader";
 import { logThoughtOnChain } from "@/lib/huginn-executor";
 import { config } from "@/lib/config";
 import { z } from "zod";
@@ -71,10 +75,26 @@ export async function POST(request: NextRequest) {
   // Fuzzy-match question to a market ID
   let matchedMarketId: number | null = null;
   if (question) {
+    const questionByMarketId = new Map<number, string>();
+    for (const [id, mq] of Object.entries(MARKET_QUESTIONS)) {
+      questionByMarketId.set(Number(id), mq);
+    }
+    try {
+      const markets = await getMarkets();
+      for (const market of markets) {
+        questionByMarketId.set(
+          market.id,
+          resolveMarketQuestion(market.id, market.questionHash)
+        );
+      }
+    } catch {
+      // Best-effort hydration only.
+    }
+
     const questionLower = question.toLowerCase();
     let bestScore = 0;
 
-    for (const [id, mq] of Object.entries(MARKET_QUESTIONS)) {
+    for (const [id, mq] of questionByMarketId.entries()) {
       const mqLower = mq.toLowerCase();
       // Count matching words of 3+ chars (>= 3 captures tickers like ETH, BTC, NFL, NBA
       // that would be missed by the previous > 3 filter).
@@ -85,7 +105,7 @@ export async function POST(request: NextRequest) {
       // common words ("the", "will", "will") accidentally matching a market.
       if (overlap >= 2 && overlap > bestScore) {
         bestScore = overlap;
-        matchedMarketId = Number(id);
+        matchedMarketId = id;
       }
     }
   }

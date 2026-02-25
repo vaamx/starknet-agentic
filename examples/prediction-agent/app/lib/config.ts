@@ -68,6 +68,10 @@ const envSchema = z.object({
   AGENT_BET_MIN_STRK: z.string().default("5"),
   AGENT_BET_MAX_STRK: z.string().default("10"),
   AGENT_BET_CONFIDENCE_THRESHOLD: z.string().default("0.15"),
+  AGENT_AUTO_RESOLVE_ENABLED: z.string().default("true"),
+  AGENT_AUTO_RESOLVE_EVERY: z.string().default("1"),
+  AGENT_AUTO_RESOLVE_MAX_PER_TICK: z.string().default("1"),
+  AGENT_AUTO_RESOLVE_COOLDOWN_SECS: z.string().default("900"),
   AGENT_MIN_EVIDENCE_SOURCES: z.string().default("2"),
   AGENT_MIN_EVIDENCE_POINTS: z.string().default("4"),
   AGENT_CONSENSUS_ENABLED: z.string().default("true"),
@@ -227,6 +231,19 @@ export const config = {
    * Consumers should use this instead of re-parsing AGENT_TOOL_MAX_TURNS.
    */
   toolMaxTurns: Math.max(1, Math.min(20, parseInt(rawConfig.AGENT_TOOL_MAX_TURNS, 10) || 8)),
+  agentAutoResolveEnabled: rawConfig.AGENT_AUTO_RESOLVE_ENABLED !== "false",
+  agentAutoResolveEvery: Math.max(
+    1,
+    parseInt(rawConfig.AGENT_AUTO_RESOLVE_EVERY, 10) || 1
+  ),
+  agentAutoResolveMaxPerTick: Math.max(
+    1,
+    parseInt(rawConfig.AGENT_AUTO_RESOLVE_MAX_PER_TICK, 10) || 1
+  ),
+  agentAutoResolveCooldownSecs: Math.max(
+    0,
+    parseInt(rawConfig.AGENT_AUTO_RESOLVE_COOLDOWN_SECS, 10) || 900
+  ),
   agentMinEvidenceSources: Math.max(
     1,
     parseInt(rawConfig.AGENT_MIN_EVIDENCE_SOURCES, 10) || 2

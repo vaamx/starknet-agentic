@@ -2,7 +2,12 @@ import { NextRequest } from "next/server";
 import { forecastMarket } from "@/lib/agent-forecaster";
 import { agenticForecastMarket, type AgenticForecastEvent } from "@/lib/forecast-tools";
 import { AGENT_PERSONAS } from "@/lib/agent-personas";
-import { getMarketById, getAgentPredictions, MARKET_QUESTIONS, SUPER_BOWL_REGEX } from "@/lib/market-reader";
+import {
+  getMarketById,
+  getAgentPredictions,
+  resolveMarketQuestion,
+  SUPER_BOWL_REGEX,
+} from "@/lib/market-reader";
 import { gatherResearch, buildResearchBrief } from "@/lib/data-sources/index";
 import type { DataSourceName } from "@/lib/data-sources/index";
 import { runDebateRound, type Round1Result } from "@/lib/agent-debate";
@@ -48,7 +53,7 @@ export async function POST(request: NextRequest) {
   }
 
   const predictions = await getAgentPredictions(marketId);
-  const question = MARKET_QUESTIONS[marketId] ?? `Market #${marketId}`;
+  const question = resolveMarketQuestion(marketId, market.questionHash);
 
   const daysUntil = Math.max(
     0,

@@ -17,6 +17,7 @@ import {
   SUPER_BOWL_REGEX,
   type MarketState,
   registerQuestion,
+  resolveMarketQuestion,
 } from "./market-reader";
 import {
   researchAndForecast,
@@ -66,6 +67,7 @@ import {
 } from "./consensus-weighting";
 import { ensureAgentSpawnerHydrated, persistAgentSpawner } from "./agent-persistence";
 import { deriveConsensusAutotuneProfile } from "./consensus-autotune";
+import { tryResolveMarket } from "./resolution-oracle";
 
 export interface AgentActionConsensusMeta {
   enabled: boolean;
@@ -113,6 +115,7 @@ export interface AgentAction {
     | "research"
     | "prediction"
     | "bet"
+    | "resolution"
     | "discovery"
     | "error"
     | "debate"
@@ -126,6 +129,7 @@ export interface AgentAction {
   probability?: number;
   betAmount?: string;
   betOutcome?: "YES" | "NO";
+  resolutionOutcome?: "YES" | "NO";
   sourcesUsed?: string[];
   txHash?: string;
   /** Starknet tx hash of the Huginn Registry log_thought() call. Present only on Huginn success. */
@@ -152,6 +156,7 @@ export interface LoopStatus {
   aiEnabled: boolean;
   signerMode: "owner" | "session";
   sessionKeyConfigured: boolean;
+  autoResolveEnabled: boolean;
   defiEnabled: boolean;
   defiAutoTrade: boolean;
   debateEnabled: boolean;
@@ -218,6 +223,7 @@ class AgentLoop {
   private marketCreationInterval = 5;
   private defiInterval = 7;
   private debateCounter = 0;
+  private lastResolutionAttemptAt = new Map<number, number>();
   /** Last survival state — updated each tick */
   private lastSurvival: SurvivalState | null = null;
   /** Count of consecutive thriving ticks for replication guard */
@@ -256,6 +262,7 @@ class AgentLoop {
       aiEnabled: !!process.env.ANTHROPIC_API_KEY,
       signerMode: getSignerMode(),
       sessionKeyConfigured: hasSessionKeyConfigured(),
+      autoResolveEnabled: config.agentAutoResolveEnabled,
       defiEnabled: config.AGENT_DEFI_ENABLED === "true",
       defiAutoTrade: config.AGENT_DEFI_AUTO_TRADE === "true",
       debateEnabled: config.AGENT_DEBATE_ENABLED === "true",
@@ -377,12 +384,20 @@ class AgentLoop {
       return tickActions;
     }
 
-    const openMarkets = markets.filter((m) => m.status === 0);
+    const nowSec = Math.floor(Date.now() / 1000);
 
-    // Every N ticks, attempt to create a new market instead of forecasting
-    const shouldCreate = this.tickCount % this.marketCreationInterval === 0;
+    await this.runPendingResolutions(captureEmit, markets, nowSec);
+
+    const openMarkets = markets.filter(
+      (m) => m.status === 0 && m.resolutionTime > nowSec
+    );
+
+    // Every N ticks, or whenever no active markets remain, attempt market creation.
+    const shouldCreate =
+      openMarkets.length === 0 ||
+      this.tickCount % this.marketCreationInterval === 0;
     if (shouldCreate) {
-      const created = await this.runMarketCreation(captureEmit);
+      const created = await this.runMarketCreation(captureEmit, markets);
       if (created) return tickActions;
     }
 
@@ -470,7 +485,13 @@ class AgentLoop {
       return;
     }
 
-    const openMarkets = markets.filter((m) => m.status === 0);
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    await this.runPendingResolutions(this.emit.bind(this), markets, nowSec);
+
+    const openMarkets = markets.filter(
+      (m) => m.status === 0 && m.resolutionTime > nowSec
+    );
 
     if (this.tickCount % this.defiInterval === 0) {
       await this.runDefiPulse(this.emit.bind(this), this.lastSurvival ?? undefined);
@@ -511,7 +532,7 @@ class AgentLoop {
     const agentName = spawned?.name ?? persona.name;
     const onChain = isAgentConfigured();
 
-    const question = MARKET_QUESTIONS[target.id] ?? `Market #${target.id}`;
+    const question = resolveMarketQuestion(target.id, target.questionHash);
 
     // Auto-add ESPN source for Super Bowl related markets
     const sources = [...(persona.preferredSources ?? ["polymarket", "coingecko", "news", "social"])];
@@ -1023,7 +1044,8 @@ class AgentLoop {
   }
 
   private async runMarketCreation(
-    emit: (action: AgentAction) => void
+    emit: (action: AgentAction) => void,
+    existingMarkets?: MarketState[]
   ): Promise<boolean> {
     if (!isAgentConfigured() || config.MARKET_FACTORY_ADDRESS === "0x0") {
       return false;
@@ -1050,6 +1072,12 @@ class AgentLoop {
     const existingQuestions = new Set(
       Object.values(MARKET_QUESTIONS).map((q) => q.toLowerCase())
     );
+    if (existingMarkets) {
+      for (const market of existingMarkets) {
+        const resolved = resolveMarketQuestion(market.id, market.questionHash);
+        existingQuestions.add(resolved.toLowerCase());
+      }
+    }
     const picked =
       suggestions.find((s) => !existingQuestions.has(s.question.toLowerCase())) ??
       suggestions[0];
@@ -1093,6 +1121,104 @@ class AgentLoop {
     );
 
     return true;
+  }
+
+  private async runPendingResolutions(
+    emit: (action: AgentAction) => void,
+    markets: MarketState[],
+    nowSec = Math.floor(Date.now() / 1000)
+  ): Promise<void> {
+    if (!config.agentAutoResolveEnabled) return;
+    if (this.tickCount % config.agentAutoResolveEvery !== 0) return;
+
+    const pending = markets
+      .filter((m) => m.status === 0 && m.resolutionTime <= nowSec)
+      .sort((a, b) => a.resolutionTime - b.resolutionTime);
+    if (pending.length === 0) return;
+
+    const nowMs = Date.now();
+    const cooldownMs = config.agentAutoResolveCooldownSecs * 1000;
+    const maxToResolve = Math.max(
+      1,
+      Math.min(config.agentAutoResolveMaxPerTick, pending.length)
+    );
+
+    let attempts = 0;
+    for (const market of pending) {
+      if (attempts >= maxToResolve) break;
+
+      const lastAttempt = this.lastResolutionAttemptAt.get(market.id) ?? 0;
+      if (cooldownMs > 0 && nowMs - lastAttempt < cooldownMs) {
+        continue;
+      }
+      this.lastResolutionAttemptAt.set(market.id, nowMs);
+      attempts++;
+
+      const question = resolveMarketQuestion(market.id, market.questionHash);
+      emit(
+        this.createAction({
+          agentId: "resolution-oracle",
+          agentName: "Resolution Oracle",
+          type: "research",
+          marketId: market.id,
+          question,
+          detail: `Resolution sweep checking "${question}".`,
+        })
+      );
+
+      const result = await tryResolveMarket(market.id, market.address, question);
+
+      if (result.status === "resolved" && typeof result.outcome === "number") {
+        const outcomeLabel: "YES" | "NO" = result.outcome === 1 ? "YES" : "NO";
+        const confidenceText =
+          typeof result.confidence === "number"
+            ? ` (${(result.confidence * 100).toFixed(0)}%)`
+            : "";
+        const txHash = result.finalizeTxHash ?? result.resolveTxHash;
+
+        emit(
+          this.createAction({
+            agentId: "resolution-oracle",
+            agentName: "Resolution Oracle",
+            type: "resolution",
+            marketId: market.id,
+            question,
+            detail:
+              `Resolved "${question}" as ${outcomeLabel}${confidenceText}.` +
+              (txHash ? ` [tx: ${txHash.slice(0, 16)}...]` : "") +
+              (result.error ? ` (${result.error})` : ""),
+            txHash,
+            resolutionOutcome: outcomeLabel,
+          })
+        );
+        continue;
+      }
+
+      if (result.status === "insufficient_evidence") {
+        emit(
+          this.createAction({
+            agentId: "resolution-oracle",
+            agentName: "Resolution Oracle",
+            type: "research",
+            marketId: market.id,
+            question,
+            detail: `Resolution skipped for "${question}" — insufficient evidence.`,
+          })
+        );
+        continue;
+      }
+
+      emit(
+        this.createAction({
+          agentId: "resolution-oracle",
+          agentName: "Resolution Oracle",
+          type: "error",
+          marketId: market.id,
+          question,
+          detail: `Resolution failed for "${question}": ${result.error ?? "unknown error"}`,
+        })
+      );
+    }
   }
 
   private async runDefiPulse(emit: (action: AgentAction) => void, survival?: SurvivalState): Promise<void> {
