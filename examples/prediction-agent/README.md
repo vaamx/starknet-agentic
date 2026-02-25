@@ -66,6 +66,8 @@ Monitor live: `GET /api/survival` · `GET /api/soul`
 | `/api/resolve` | POST | Resolve a market via oracle |
 | `/api/openclaw/forecast` | POST | Accept external agent forecast (A2A inbound) |
 | `/api/openclaw/delegate` | POST | Delegate forecast to external agent (A2A outbound) |
+| `/api/proofs` | GET/POST | Proof pipeline (receipt verification, optional Arweave anchor) |
+| `/api/proofs/:id` | GET | Proof detail by id |
 | `/.well-known/agent.json` | GET | A2A / OASF agent manifest |
 | `/.well-known/agent-card.json` | GET | Extended A2A card with billing and survival model |
 
@@ -140,6 +142,22 @@ CHILD_AGENT_SERVER_FAILOVER_AFTER_FAILURES=2
 CHILD_AGENT_SERVER_MAX_FAILOVERS=5
 CHILD_AGENT_SERVER_FAILOVER_COOLDOWN_SECS=180
 CHILD_AGENT_SERVER_REGION_QUARANTINE_SECS=600
+CHILD_AGENT_SELF_SCHEDULER_ENABLED=false
+CHILD_AGENT_SELF_SCHEDULER_INTERVAL_MS=60000
+CHILD_AGENT_SELF_SCHEDULER_JITTER_MS=5000
+
+# Optional: per-agent key custody (BYO + sovereign key persistence)
+AGENT_KEY_CUSTODY_PROVIDER=memory
+AGENT_KEY_CUSTODY_MASTER_KEY=
+AGENT_KEY_CUSTODY_AWS_KMS_KEY_ID=
+AGENT_KEY_CUSTODY_AWS_REGION=
+
+# Optional: proof pipeline (receipt verify + Arweave anchor via audit relay)
+PROOF_PIPELINE_AUTO_ENABLED=true
+PROOF_PIPELINE_MAX_RECORDS=500
+PROOF_AUDIT_RELAY_URL=
+PROOF_AUDIT_RELAY_API_KEY=
+PROOF_ARWEAVE_GATEWAY=https://arweave.net
 
 # Optional: metrics alerting hooks (webhook / Slack / PagerDuty)
 AGENT_ALERTING_ENABLED=false

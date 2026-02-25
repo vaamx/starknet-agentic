@@ -12,11 +12,70 @@ export interface PersistedExternalForecast {
   receivedAt: number;
 }
 
+export type PersistedAgentKeyProvider =
+  | "local-encrypted"
+  | "aws-kms"
+  | "memory";
+
+export interface PersistedAgentKeyMaterial {
+  agentId: string;
+  walletAddress: string;
+  provider: PersistedAgentKeyProvider;
+  keyRef: string;
+  ciphertext: string;
+  iv?: string;
+  authTag?: string;
+  awsKmsKeyId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PersistedProofVerification {
+  verified: boolean;
+  executionStatus?: string;
+  finalityStatus?: string;
+  blockNumber?: number;
+  blockHash?: string;
+  verifiedAt: number;
+  error?: string;
+}
+
+export interface PersistedProofAnchor {
+  provider: "arweave";
+  txId: string;
+  gatewayUrl: string;
+  dataHash: string;
+  anchoredAt: number;
+}
+
+export interface PersistedProofRecord {
+  id: string;
+  kind: string;
+  createdAt: number;
+  updatedAt: number;
+  chainId: string;
+  txHash?: string;
+  explorerUrl?: string;
+  agentId?: string;
+  agentName?: string;
+  walletAddress?: string;
+  marketId?: number;
+  question?: string;
+  reasoningHash?: string;
+  payloadHash: string;
+  payload: string;
+  verification?: PersistedProofVerification;
+  anchor?: PersistedProofAnchor;
+  tags?: Record<string, string>;
+}
+
 interface PersistedPredictionAgentState {
   version: 1;
   updatedAt: number;
   spawnedAgents: SerializedSpawnedAgent[];
   externalForecasts: Record<string, PersistedExternalForecast[]>;
+  agentKeys: Record<string, PersistedAgentKeyMaterial>;
+  proofs: PersistedProofRecord[];
 }
 
 const DEFAULT_STATE: PersistedPredictionAgentState = {
@@ -24,6 +83,8 @@ const DEFAULT_STATE: PersistedPredictionAgentState = {
   updatedAt: Date.now(),
   spawnedAgents: [],
   externalForecasts: {},
+  agentKeys: {},
+  proofs: [],
 };
 
 const STATE_FILE =
@@ -53,11 +114,21 @@ function normalizeState(raw: unknown): PersistedPredictionAgentState {
     ? (raw.externalForecasts as Record<string, PersistedExternalForecast[]>)
     : {};
 
+  const agentKeys = isObject(raw.agentKeys)
+    ? (raw.agentKeys as Record<string, PersistedAgentKeyMaterial>)
+    : {};
+
+  const proofs = Array.isArray(raw.proofs)
+    ? (raw.proofs as PersistedProofRecord[])
+    : [];
+
   return {
     version,
     updatedAt,
     spawnedAgents,
     externalForecasts,
+    agentKeys,
+    proofs,
   };
 }
 
@@ -83,6 +154,8 @@ async function writeState(state: PersistedPredictionAgentState): Promise<void> {
     updatedAt: Date.now(),
     spawnedAgents: state.spawnedAgents ?? [],
     externalForecasts: state.externalForecasts ?? {},
+    agentKeys: state.agentKeys ?? {},
+    proofs: state.proofs ?? [],
   };
 
   await ensureDirectory(STATE_FILE);
@@ -159,5 +232,68 @@ export async function upsertPersistedExternalForecast(
     state.externalForecasts[key] = next;
     await writeState(state);
     return next;
+  });
+}
+
+export async function getPersistedAgentKey(
+  agentId: string
+): Promise<PersistedAgentKeyMaterial | null> {
+  const state = await readState();
+  return state.agentKeys[agentId] ?? null;
+}
+
+export async function upsertPersistedAgentKey(
+  material: PersistedAgentKeyMaterial
+): Promise<void> {
+  await queueWrite(async (state) => {
+    state.agentKeys[material.agentId] = material;
+    await writeState(state);
+  });
+}
+
+export async function deletePersistedAgentKey(agentId: string): Promise<void> {
+  await queueWrite(async (state) => {
+    delete state.agentKeys[agentId];
+    await writeState(state);
+  });
+}
+
+export async function getPersistedProofs(limit = 100): Promise<PersistedProofRecord[]> {
+  const state = await readState();
+  const n = Math.max(1, Math.floor(limit));
+  return (state.proofs ?? [])
+    .slice()
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, n);
+}
+
+export async function getPersistedProofById(
+  id: string
+): Promise<PersistedProofRecord | null> {
+  const state = await readState();
+  const proofs = state.proofs ?? [];
+  return proofs.find((proof) => proof.id === id) ?? null;
+}
+
+export async function upsertPersistedProof(
+  proof: PersistedProofRecord,
+  maxRecords = 500
+): Promise<PersistedProofRecord> {
+  return await queueWrite(async (state) => {
+    const records = Array.isArray(state.proofs) ? state.proofs.slice() : [];
+    const existingIndex = records.findIndex((entry) => entry.id === proof.id);
+
+    if (existingIndex >= 0) {
+      records[existingIndex] = proof;
+    } else {
+      records.unshift(proof);
+    }
+
+    const cap = Math.max(50, Math.floor(maxRecords));
+    state.proofs = records
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, cap);
+    await writeState(state);
+    return proof;
   });
 }

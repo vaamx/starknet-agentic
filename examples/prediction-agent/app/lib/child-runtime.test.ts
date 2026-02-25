@@ -18,6 +18,7 @@ describe("child-runtime helpers", () => {
 
   it("builds child server env with core child credentials", () => {
     const env = buildChildServerEnv({
+      childAgentId: "spawned_test_01",
       childName: "AlphaChild-01",
       childAddress: "0xabc",
       childPrivateKey: "0x123",
@@ -26,7 +27,9 @@ describe("child-runtime helpers", () => {
 
     expect(env.AGENT_ADDRESS).toBe("0xabc");
     expect(env.AGENT_PRIVATE_KEY).toBe("0x123");
+    expect(env.CHILD_AGENT_ID).toBe("spawned_test_01");
     expect(env.CHILD_AGENT_NAME).toBe("AlphaChild-01");
+    expect(env.CHILD_AGENT_SELF_SCHEDULER_ENABLED).toBe("true");
     expect(env.PARENT_AGENT_ADDRESS).toBe("0xparent");
     expect(env.STARKNET_RPC_URL).toBeTruthy();
     expect(env.MARKET_FACTORY_ADDRESS).toBeTruthy();

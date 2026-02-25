@@ -38,6 +38,7 @@ import {
   heartbeatChildServerRuntime,
   provisionChildServerRuntime,
 } from "./child-runtime";
+import { hydrateAgentAccount, storeAgentPrivateKey } from "./agent-key-custody";
 import { Account, RpcProvider } from "starknet";
 import { placeBet, recordPrediction, isAgentConfigured, createMarket, getSignerMode } from "./starknet-executor";
 import { config } from "./config";
@@ -55,6 +56,7 @@ import {
 } from "./survival-engine";
 import { updateSoul, getSoulChildren, incrementSoulPredictions, incrementSoulBets } from "./soul";
 import { deployChildAgent } from "./child-spawner";
+import { recordAgentActionProof } from "./proof-pipeline";
 import {
   assessResearchCoverage,
   checkResearchGate,
@@ -284,6 +286,24 @@ class AgentLoop {
     if (this.actionLog.length > MAX_ACTION_LOG) {
       this.actionLog = this.actionLog.slice(-MAX_ACTION_LOG);
     }
+    if (action.txHash) {
+      void recordAgentActionProof({
+        type: action.type,
+        txHash: action.txHash,
+        agentId: action.agentId,
+        agentName: action.agentName,
+        marketId: action.marketId,
+        question: action.question,
+        reasoningHash: action.reasoningHash,
+        probability: action.probability,
+        betAmount: action.betAmount,
+        betOutcome: action.betOutcome,
+        resolutionOutcome: action.resolutionOutcome,
+        detail: action.detail,
+      }).catch(() => {
+        // Proof pipeline is non-blocking.
+      });
+    }
     for (const listener of this.listeners) {
       try {
         listener(action);
@@ -422,8 +442,21 @@ class AgentLoop {
 
     if (openMarkets.length === 0) return tickActions;
 
-    // Pick the next actor in round-robin (built-in + running spawned/child agents)
-    const tickActors = buildTickAgentActors(AGENT_PERSONAS, agentSpawner.list());
+    // Pick the next actor in round-robin (built-in + eligible spawned agents).
+    // Runtime-backed children default to self-scheduling on their dedicated machines,
+    // so parent rotation skips them unless explicitly marked parent-scheduled.
+    const parentEligibleSpawned = agentSpawner
+      .list()
+      .filter((agent) => {
+        if (agent.status !== "running") return false;
+        const runtime = agent.runtime;
+        if (!runtime) return true;
+        const runtimeActive =
+          runtime.status === "running" || runtime.status === "starting";
+        if (!runtimeActive) return true;
+        return runtime.schedulerMode === "parent";
+      });
+    const tickActors = buildTickAgentActors(AGENT_PERSONAS, parentEligibleSpawned);
     const selected = selectTickAgentActor(tickActors, this.agentRotationIndex);
     if (!selected) {
       captureEmit(
@@ -530,7 +563,18 @@ class AgentLoop {
   ) {
     const agentId = spawned?.id ?? persona.id;
     const agentName = spawned?.name ?? persona.name;
-    const onChain = isAgentConfigured();
+    let execAccount = spawned?.account;
+    if (spawned && !execAccount && spawned.walletAddress) {
+      try {
+        execAccount = (await hydrateAgentAccount(spawned)) ?? undefined;
+        if (execAccount) {
+          spawned.account = execAccount;
+        }
+      } catch {
+        execAccount = undefined;
+      }
+    }
+    const onChain = Boolean(execAccount) || isAgentConfigured();
 
     const question = resolveMarketQuestion(target.id, target.questionHash);
 
@@ -837,8 +881,7 @@ class AgentLoop {
     }
     incrementSoulPredictions();
 
-    // Phase D: use child's own account if available
-    const execAccount = spawned?.account ?? undefined;
+    // Phase D: use child signer account when available
 
     // Record prediction and log Huginn thought concurrently (both non-blocking).
     // logThoughtOnChain() never throws — it guards internally and returns status.
@@ -1480,6 +1523,26 @@ class AgentLoop {
     spawned.privateKey = result.privateKey; // in-memory only
     spawned.account = childAccount;
     spawned.agentId = result.agentId;
+    try {
+      const storedKey = await storeAgentPrivateKey({
+        agentId: spawned.id,
+        walletAddress: result.agentAddress,
+        privateKey: result.privateKey,
+      });
+      spawned.keyRef = storedKey.keyRef;
+      spawned.keyCustodyProvider = storedKey.provider;
+    } catch (err: any) {
+      emit(
+        this.createAction({
+          agentId: "replication",
+          agentName: "Replication Engine",
+          type: "error",
+          detail:
+            `Child key custody store failed, using memory signer only: ` +
+            `${err?.message ?? String(err)}`,
+        })
+      );
+    }
 
     const runtimeProvision = await provisionChildServerRuntime(spawned);
     if (runtimeProvision.status === "success") {

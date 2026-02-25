@@ -21,6 +21,8 @@ import {
   upsertPersistedExternalForecast,
 } from "@/lib/state-store";
 
+export const runtime = "nodejs";
+
 export interface ExternalForecast {
   agentName: string;
   agentCardUrl?: string;

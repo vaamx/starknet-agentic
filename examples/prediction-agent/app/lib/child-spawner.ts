@@ -180,9 +180,9 @@ export async function deployChildAgent(cfg: {
     }
   }
 
-  // 6. Log private key once — NEVER return via API
+  // 6. Do not print private key to logs.
   console.log(
-    `[child-spawner] NEW CHILD KEY (save now): privateKey=${privateKey} address=${agentAddress} agentId=${agentId}`
+    `[child-spawner] deployed child agent address=${agentAddress} agentId=${agentId}`
   );
 
   // Build in-process Account instance (ephemeral — dies with process)
