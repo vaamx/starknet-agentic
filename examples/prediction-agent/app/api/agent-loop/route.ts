@@ -108,6 +108,20 @@ export async function POST(request: NextRequest) {
           : undefined,
       });
     } catch (err: any) {
+      const message = err?.message ?? String(err);
+      if (/timed out/i.test(message)) {
+        const persistedActions = await getPersistedLoopActions(20);
+        return Response.json(
+          {
+            ok: false,
+            timeout: true,
+            message,
+            status: agentLoop.getStatus(),
+            actions: persistedActions,
+          },
+          { status: 202 }
+        );
+      }
       return jsonError("Tick failed", 500, err?.message ?? String(err));
     }
   }

@@ -13,6 +13,25 @@ async function executeV3(account: Account, calls: any[]): Promise<any> {
   return account.execute(calls);
 }
 
+const TX_WAIT_TIMEOUT_MS = 12_000;
+
+async function waitForTransactionWithTimeout(
+  txHash: string,
+  timeoutMs = TX_WAIT_TIMEOUT_MS
+): Promise<any | null> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      provider.waitForTransaction(txHash),
+      new Promise<null>((resolve) => {
+        timeoutId = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 type SignerMode = "owner" | "session";
 
 function resolveSignerMode(): SignerMode {
@@ -176,13 +195,13 @@ export async function placeBet(
     ensureCallsAllowlisted([approveTx, betTx]);
     try {
       result = await executeV3(account, [approveTx, betTx]);
-      await provider.waitForTransaction(result.transaction_hash);
+      await waitForTransactionWithTimeout(result.transaction_hash);
     } catch (err) {
       // If session signer used snake_case allowance but token expects camelCase, retry once.
       if (usingSessionSigner() && approveTx.entrypoint === "increase_allowance") {
         const retryApprove = buildAllowanceCall(collateralToken, marketAddress, amount, "increaseAllowance");
         result = await executeV3(account, [retryApprove, betTx]);
-        await provider.waitForTransaction(result.transaction_hash);
+        await waitForTransactionWithTimeout(result.transaction_hash);
       } else {
         throw err;
       }
@@ -224,7 +243,7 @@ export async function recordPrediction(
 
     ensureCallsAllowlisted([tx]);
     const result = await executeV3(account, [tx]);
-    await provider.waitForTransaction(result.transaction_hash);
+    await waitForTransactionWithTimeout(result.transaction_hash);
 
     return { txHash: result.transaction_hash, status: "success" };
   } catch (err: any) {
@@ -273,11 +292,11 @@ export async function createMarket(
 
     ensureCallsAllowlisted([tx]);
     const result = await executeV3(account, [tx]);
-    const receipt = await provider.waitForTransaction(result.transaction_hash);
+    const receipt = await waitForTransactionWithTimeout(result.transaction_hash);
 
     let marketId: number | undefined;
     let marketAddress: string | undefined;
-    const events = (receipt as any).events ?? [];
+    const events = (receipt as any)?.events ?? [];
     for (const evt of events) {
       if (
         evt.from_address === config.MARKET_FACTORY_ADDRESS &&
@@ -364,7 +383,7 @@ export async function addAllowedContract(contract: string): Promise<TxResult> {
       calldata: CallData.compile({ contract }),
     };
     const result = await executeV3(account, [tx]);
-    await provider.waitForTransaction(result.transaction_hash);
+    await waitForTransactionWithTimeout(result.transaction_hash);
     return { txHash: result.transaction_hash, status: "success" };
   } catch (err: any) {
     return { txHash: "", status: "error", error: err.message };

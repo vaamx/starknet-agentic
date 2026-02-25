@@ -6,7 +6,7 @@
     "dev": "next dev --port 3001",
     "build": "next build",
     "start": "next start",
-    "test": "vitest run app/lib/*.test.ts",
+    "test": "vitest run app/lib/*.test.ts --exclude '.next/**' --exclude '**/.next/**'",
     "chaos:sim": "tsx scripts/chaos-sim.ts",
     "preflight": "bash scripts/preflight.sh",
     "secrets:audit": "node scripts/secrets-audit.mjs",
