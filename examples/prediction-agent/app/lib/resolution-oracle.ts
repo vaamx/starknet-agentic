@@ -18,6 +18,7 @@ import { fetchTavilySearch } from "./data-sources/tavily";
 import { logThoughtOnChain } from "./huginn-executor";
 import { getActiveAccount, isAgentConfigured } from "./starknet-executor";
 import { buildResolveCalls, buildFinalizeCalls } from "./contracts";
+import { isSuperBowlMarket } from "./market-reader";
 
 export interface ResolutionResult {
   status: "resolved" | "insufficient_evidence" | "error";
@@ -39,6 +40,25 @@ interface OracleDecision {
 
 const MIN_SPORTS_CONFIDENCE = 0.85;
 const MIN_GENERAL_CONFIDENCE = 0.90;
+const MIN_SPORTS_SEARCH_CONFIDENCE = 0.80;
+
+function normalizeResolutionQuestion(marketId: number, question: string): string {
+  const trimmed = question.trim();
+  let normalized = trimmed
+    .replace(/\bSB\b/gi, "Super Bowl")
+    .replace(/\bTDs?\b/gi, "touchdowns")
+    .replace(/\b1H\b/gi, "first half")
+    .replace(/\b2min\b/gi, "two minutes");
+
+  if (
+    isSuperBowlMarket(marketId) &&
+    !/super bowl|sb\s*[a-z0-9]+/i.test(normalized)
+  ) {
+    normalized = `${normalized} in Super Bowl LX`;
+  }
+
+  return normalized;
+}
 
 /** Parse a price threshold from a question string. e.g. "above $0.15" → 0.15 */
 function parsePriceThreshold(question: string): { threshold: number; above: boolean } | null {
@@ -171,7 +191,8 @@ async function resolveCrypto(question: string): Promise<OracleDecision | null> {
 /** General resolution strategy: Tavily search + Claude. */
 async function resolveGeneral(
   question: string,
-  client: Anthropic
+  client: Anthropic,
+  minConfidence = MIN_GENERAL_CONFIDENCE
 ): Promise<OracleDecision | null> {
   const searchQuery = `${question} result OR outcome OR confirmed OR resolved`;
   const tavilyResult = await fetchTavilySearch(searchQuery);
@@ -189,7 +210,7 @@ async function resolveGeneral(
   ].join("\n");
 
   const decision = await askClaudeForOutcome(question, evidence, client);
-  if (!decision || decision.confidence < MIN_GENERAL_CONFIDENCE) return null;
+  if (!decision || decision.confidence < minConfidence) return null;
 
   return {
     outcome: decision.outcome,
@@ -216,15 +237,25 @@ export async function tryResolveMarket(
 
   // 1. Select and run strategy
   let decision: OracleDecision | null = null;
+  const normalizedQuestion = normalizeResolutionQuestion(marketId, question);
   try {
-    const category = categorizeMarket(question);
+    const category = categorizeMarket(normalizedQuestion);
 
     if (category === "sports") {
-      decision = await resolveSports(question, client);
+      decision = await resolveSports(normalizedQuestion, client);
+      if (!decision) {
+        decision = await resolveGeneral(
+          `${normalizedQuestion} final score winner stats`,
+          client,
+          MIN_SPORTS_SEARCH_CONFIDENCE
+        );
+      }
     } else if (category === "crypto") {
-      decision = await resolveCrypto(question) ?? await resolveGeneral(question, client);
+      decision =
+        (await resolveCrypto(normalizedQuestion)) ??
+        (await resolveGeneral(normalizedQuestion, client));
     } else {
-      decision = await resolveGeneral(question, client);
+      decision = await resolveGeneral(normalizedQuestion, client);
     }
   } catch (err: any) {
     return { status: "error", error: `Oracle strategy failed: ${err?.message}` };
