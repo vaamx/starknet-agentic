@@ -80,6 +80,10 @@ AGENT_ADDRESS=0x...
 AGENT_PRIVATE_KEY=0x...
 MARKET_FACTORY_ADDRESS=0x...
 ANTHROPIC_API_KEY=sk-ant-...
+AGENT_TOOL_MAX_TURNS=8
+AGENT_LOOP_TICK_TIMEOUT_MS=35000
+AGENT_RESEARCH_STEP_TIMEOUT_MS=10000
+AGENT_RESEARCH_TOTAL_TIMEOUT_MS=25000
 AGENT_MIN_EVIDENCE_SOURCES=2
 AGENT_MIN_EVIDENCE_POINTS=4
 AGENT_CONSENSUS_ENABLED=true
@@ -185,6 +189,12 @@ BRAVE_SEARCH_API_KEY=...
 ```
 
 See `.env.example` for the full list.
+
+## Vercel autonomous scheduling
+
+- `vercel.json` configures a production cron that calls `/api/heartbeat` every minute.
+- Set `HEARTBEAT_SECRET` in Vercel project env and ensure your cron request uses the same bearer secret.
+- This keeps the loop ticking even when no browser session is open.
 
 ## Launch operations
 

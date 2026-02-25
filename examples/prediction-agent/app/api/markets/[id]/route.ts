@@ -6,6 +6,27 @@ import {
   resolveMarketQuestion,
 } from "@/lib/market-reader";
 import { agentLoop } from "@/lib/agent-loop";
+import { getPersistedLoopActions } from "@/lib/state-store";
+
+export const runtime = "nodejs";
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallback: T
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 
 export async function GET(
   _request: NextRequest,
@@ -21,11 +42,22 @@ export async function GET(
     }
 
     const [predictions, weightedProb] = await Promise.all([
-      getAgentPredictions(marketId),
-      getWeightedProbability(marketId),
+      withTimeout(getAgentPredictions(marketId), 8_000, []),
+      withTimeout(getWeightedProbability(marketId), 8_000, null),
     ]);
 
-    const recentActions = agentLoop.getActionLog(200);
+    const [inMemoryActions, persistedActions] = await Promise.all([
+      Promise.resolve(agentLoop.getActionLog(200)),
+      getPersistedLoopActions(200),
+    ]);
+    const deduped = new Map<string, any>();
+    for (const action of [...persistedActions, ...inMemoryActions]) {
+      deduped.set(action.id, action);
+    }
+    const recentActions = Array.from(deduped.values()).sort(
+      (a, b) => a.timestamp - b.timestamp
+    );
+
     const latestAction = [...recentActions]
       .reverse()
       .find(

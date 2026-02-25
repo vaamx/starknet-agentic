@@ -69,6 +69,57 @@ export interface PersistedProofRecord {
   tags?: Record<string, string>;
 }
 
+export interface PersistedMarketSnapshot {
+  id: number;
+  address: string;
+  questionHash: string;
+  question: string;
+  resolutionTime: number;
+  oracle: string;
+  collateralToken: string;
+  feeBps: number;
+  status: number;
+  totalPool: string;
+  yesPool: string;
+  noPool: string;
+  impliedProbYes: number;
+  impliedProbNo: number;
+  winningOutcome?: number;
+  tradeCount?: number;
+  updatedAt: number;
+}
+
+export interface PersistedLoopRuntimeState {
+  tickCount: number;
+  lastTickAt: number | null;
+  intervalMs: number;
+  updatedAt: number;
+}
+
+export interface PersistedLoopAction {
+  id: string;
+  timestamp: number;
+  agentId: string;
+  agentName: string;
+  type: string;
+  marketId?: number;
+  question?: string;
+  detail: string;
+  probability?: number;
+  betAmount?: string;
+  betOutcome?: "YES" | "NO";
+  resolutionOutcome?: "YES" | "NO";
+  sourcesUsed?: string[];
+  txHash?: string;
+  huginnTxHash?: string;
+  reasoningHash?: string;
+  reasoning?: string;
+  defiDirection?: "BUY" | "SELL";
+  defiPair?: string;
+  defiAmount?: string;
+  debateTarget?: string;
+}
+
 interface PersistedPredictionAgentState {
   version: 1;
   updatedAt: number;
@@ -76,6 +127,9 @@ interface PersistedPredictionAgentState {
   externalForecasts: Record<string, PersistedExternalForecast[]>;
   agentKeys: Record<string, PersistedAgentKeyMaterial>;
   proofs: PersistedProofRecord[];
+  marketSnapshots: PersistedMarketSnapshot[];
+  loopRuntime: PersistedLoopRuntimeState | null;
+  loopActions: PersistedLoopAction[];
 }
 
 const DEFAULT_STATE: PersistedPredictionAgentState = {
@@ -85,6 +139,9 @@ const DEFAULT_STATE: PersistedPredictionAgentState = {
   externalForecasts: {},
   agentKeys: {},
   proofs: [],
+  marketSnapshots: [],
+  loopRuntime: null,
+  loopActions: [],
 };
 
 const STATE_FILE =
@@ -122,6 +179,39 @@ function normalizeState(raw: unknown): PersistedPredictionAgentState {
     ? (raw.proofs as PersistedProofRecord[])
     : [];
 
+  const marketSnapshots = Array.isArray(raw.marketSnapshots)
+    ? (raw.marketSnapshots as PersistedMarketSnapshot[])
+    : [];
+
+  const loopRuntime = isObject(raw.loopRuntime)
+    ? {
+        tickCount:
+          typeof raw.loopRuntime.tickCount === "number" &&
+          Number.isFinite(raw.loopRuntime.tickCount)
+            ? raw.loopRuntime.tickCount
+            : 0,
+        lastTickAt:
+          typeof raw.loopRuntime.lastTickAt === "number" &&
+          Number.isFinite(raw.loopRuntime.lastTickAt)
+            ? raw.loopRuntime.lastTickAt
+            : null,
+        intervalMs:
+          typeof raw.loopRuntime.intervalMs === "number" &&
+          Number.isFinite(raw.loopRuntime.intervalMs)
+            ? raw.loopRuntime.intervalMs
+            : 60_000,
+        updatedAt:
+          typeof raw.loopRuntime.updatedAt === "number" &&
+          Number.isFinite(raw.loopRuntime.updatedAt)
+            ? raw.loopRuntime.updatedAt
+            : Date.now(),
+      }
+    : null;
+
+  const loopActions = Array.isArray(raw.loopActions)
+    ? (raw.loopActions as PersistedLoopAction[])
+    : [];
+
   return {
     version,
     updatedAt,
@@ -129,6 +219,9 @@ function normalizeState(raw: unknown): PersistedPredictionAgentState {
     externalForecasts,
     agentKeys,
     proofs,
+    marketSnapshots,
+    loopRuntime,
+    loopActions,
   };
 }
 
@@ -156,6 +249,9 @@ async function writeState(state: PersistedPredictionAgentState): Promise<void> {
     externalForecasts: state.externalForecasts ?? {},
     agentKeys: state.agentKeys ?? {},
     proofs: state.proofs ?? [],
+    marketSnapshots: state.marketSnapshots ?? [],
+    loopRuntime: state.loopRuntime ?? null,
+    loopActions: state.loopActions ?? [],
   };
 
   await ensureDirectory(STATE_FILE);
@@ -295,5 +391,80 @@ export async function upsertPersistedProof(
       .slice(0, cap);
     await writeState(state);
     return proof;
+  });
+}
+
+export async function getPersistedMarketSnapshots(
+  limit = 300
+): Promise<PersistedMarketSnapshot[]> {
+  const state = await readState();
+  const n = Math.max(1, Math.floor(limit));
+  return (state.marketSnapshots ?? [])
+    .slice()
+    .sort((a, b) => a.id - b.id)
+    .slice(0, n);
+}
+
+export async function setPersistedMarketSnapshots(
+  snapshots: PersistedMarketSnapshot[]
+): Promise<void> {
+  await queueWrite(async (state) => {
+    const deduped = new Map<number, PersistedMarketSnapshot>();
+    for (const snapshot of snapshots) {
+      if (!Number.isFinite(snapshot.id)) continue;
+      deduped.set(snapshot.id, snapshot);
+    }
+    state.marketSnapshots = Array.from(deduped.values()).sort(
+      (a, b) => a.id - b.id
+    );
+    await writeState(state);
+  });
+}
+
+export async function getPersistedLoopRuntime(): Promise<PersistedLoopRuntimeState | null> {
+  const state = await readState();
+  return state.loopRuntime ?? null;
+}
+
+export async function setPersistedLoopRuntime(
+  runtime: PersistedLoopRuntimeState
+): Promise<void> {
+  await queueWrite(async (state) => {
+    state.loopRuntime = runtime;
+    await writeState(state);
+  });
+}
+
+export async function getPersistedLoopActions(
+  limit = 200
+): Promise<PersistedLoopAction[]> {
+  const state = await readState();
+  const n = Math.max(1, Math.floor(limit));
+  return (state.loopActions ?? [])
+    .slice()
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(-n);
+}
+
+export async function appendPersistedLoopAction(
+  action: PersistedLoopAction,
+  maxRecords = 500
+): Promise<void> {
+  await queueWrite(async (state) => {
+    const records = Array.isArray(state.loopActions)
+      ? state.loopActions.slice()
+      : [];
+    const existingIndex = records.findIndex((entry) => entry.id === action.id);
+    if (existingIndex >= 0) {
+      records[existingIndex] = action;
+    } else {
+      records.push(action);
+    }
+
+    const cap = Math.max(100, Math.floor(maxRecords));
+    state.loopActions = records
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .slice(-cap);
+    await writeState(state);
   });
 }

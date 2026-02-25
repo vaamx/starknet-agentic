@@ -3,6 +3,9 @@ import { getOnChainActivities } from "@/lib/event-indexer";
 import { agentLoop } from "@/lib/agent-loop";
 import { getMarkets, resolveMarketQuestion } from "@/lib/market-reader";
 import { config } from "@/lib/config";
+import { getPersistedLoopActions } from "@/lib/state-store";
+
+export const runtime = "nodejs";
 
 /**
  * GET /api/activity?limit=30
@@ -23,12 +26,21 @@ export async function GET(request: NextRequest) {
     const shouldFetchOnChain =
       addresses.length > 0 || config.MARKET_FACTORY_ADDRESS !== "0x0";
 
-    const [onChainEvents, agentActions] = await Promise.all([
+    const [onChainEvents, inMemoryActions, persistedActions] = await Promise.all([
       shouldFetchOnChain
         ? getOnChainActivities(addresses, limit, config.MARKET_FACTORY_ADDRESS)
         : Promise.resolve([]),
       Promise.resolve(agentLoop.getActionLog(limit)),
+      getPersistedLoopActions(limit),
     ]);
+
+    const actionMap = new Map<string, any>();
+    for (const action of [...persistedActions, ...inMemoryActions]) {
+      actionMap.set(action.id, action);
+    }
+    const agentActions = Array.from(actionMap.values())
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .slice(-limit);
 
     // Normalize agent actions into the same shape
     const normalizedAgentActions = agentActions

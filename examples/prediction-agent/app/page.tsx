@@ -76,25 +76,33 @@ export default function Dashboard() {
     }
   }, []);
 
+  const fetchWithTimeout = useCallback(
+    async (url: string, timeoutMs: number) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(url, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    },
+    []
+  );
+
   const loadData = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
     setLoadError(null);
 
     try {
-      const [marketsRes, leaderboardRes] = await Promise.all([
-        fetch("/api/markets", { cache: "no-store" }),
-        fetch("/api/leaderboard", { cache: "no-store" }),
-      ]);
-
+      const marketsRes = await fetchWithTimeout("/api/markets", 12_000);
       if (!marketsRes.ok) {
         throw new Error(`Markets API failed: HTTP ${marketsRes.status}`);
       }
-      if (!leaderboardRes.ok) {
-        throw new Error(`Leaderboard API failed: HTTP ${leaderboardRes.status}`);
-      }
 
       const marketsData = await marketsRes.json();
-      const leaderboardData = await leaderboardRes.json();
 
       const marketList = Array.isArray(marketsData.markets)
         ? (marketsData.markets as Market[])
@@ -102,31 +110,24 @@ export default function Dashboard() {
       setMarkets(marketList);
       setFactoryConfigured(Boolean(marketsData.factoryConfigured));
       setFactoryAddress(marketsData.factoryAddress ?? null);
-      setLeaderboard(Array.isArray(leaderboardData.leaderboard) ? leaderboardData.leaderboard : []);
+      if (showLoading) setLoading(false);
 
-      const details = await Promise.all(
+      const leaderboardPromise = fetchWithTimeout("/api/leaderboard", 8_000)
+        .then(async (res) => {
+          if (!res.ok) return { leaderboard: [] };
+          return await res.json();
+        })
+        .then((data) =>
+          setLeaderboard(Array.isArray(data.leaderboard) ? data.leaderboard : [])
+        )
+        .catch(() => {
+          setLeaderboard([]);
+        });
+
+      const detailResults = await Promise.allSettled(
         marketList.map(async (market) => {
-          try {
-            const res = await fetch(`/api/markets/${market.id}`, {
-              cache: "no-store",
-            });
-            if (!res.ok) {
-              return {
-                id: market.id,
-                predictions: [],
-                weightedProbability: null,
-                latestAgentTake: null,
-              };
-            }
-            const data = await res.json();
-            return {
-              id: market.id,
-              predictions: Array.isArray(data.predictions) ? data.predictions : [],
-              weightedProbability:
-                typeof data.weightedProbability === "number" ? data.weightedProbability : null,
-              latestAgentTake: data.latestAgentTake ?? null,
-            };
-          } catch {
+          const res = await fetchWithTimeout(`/api/markets/${market.id}`, 8_000);
+          if (!res.ok) {
             return {
               id: market.id,
               predictions: [],
@@ -134,13 +135,26 @@ export default function Dashboard() {
               latestAgentTake: null,
             };
           }
+          const data = await res.json();
+          return {
+            id: market.id,
+            predictions: Array.isArray(data.predictions) ? data.predictions : [],
+            weightedProbability:
+              typeof data.weightedProbability === "number"
+                ? data.weightedProbability
+                : null,
+            latestAgentTake: data.latestAgentTake ?? null,
+          };
         })
       );
+      await leaderboardPromise;
 
       const predsMap: Record<number, AgentPrediction[]> = {};
       const weightedMap: Record<number, number | null> = {};
       const latestMap: Record<number, LatestAgentTake | null> = {};
-      for (const detail of details) {
+      for (const settled of detailResults) {
+        if (settled.status !== "fulfilled") continue;
+        const detail = settled.value;
         predsMap[detail.id] = detail.predictions;
         weightedMap[detail.id] = detail.weightedProbability;
         latestMap[detail.id] = detail.latestAgentTake;
@@ -157,7 +171,7 @@ export default function Dashboard() {
       setLoading(false);
       setIsRefreshing(false);
     }
-  }, []);
+  }, [fetchWithTimeout]);
 
   const refreshData = useCallback(async () => {
     setIsRefreshing(true);
