@@ -1567,8 +1567,31 @@ class AgentLoop {
       suggestedCategory = leastRepresented;
     }
 
-    const suggestions = await discoverMarkets(suggestedCategory, 10);
-    if (suggestions.length === 0) return false;
+    let suggestions = await discoverMarkets(suggestedCategory, 10);
+    if (suggestions.length === 0 && suggestedCategory) {
+      const fallbackOrder: Array<
+        "politics" | "sports" | "tech" | "other" | "crypto"
+      > = ["politics", "sports", "tech", "other", "crypto"];
+      for (const fallbackCategory of fallbackOrder) {
+        if (fallbackCategory === suggestedCategory) continue;
+        const fallback = await discoverMarkets(fallbackCategory, 8);
+        if (fallback.length === 0) continue;
+        suggestions = fallback;
+        suggestedCategory = fallbackCategory;
+        break;
+      }
+    }
+    if (suggestions.length === 0) {
+      emit(
+        this.createAction({
+          agentId: "agent-loop",
+          agentName: "Agent Loop",
+          type: "discovery",
+          detail: `Market discovery returned no candidates for category "${suggestedCategory ?? "auto"}".`,
+        })
+      );
+      return false;
+    }
 
     const existingQuestionFingerprints = new Set(
       Object.values(MARKET_QUESTIONS).map((q) => questionFingerprint(q))
@@ -1619,6 +1642,17 @@ class AgentLoop {
     );
 
     if (result.status !== "success") {
+      emit(
+        this.createAction({
+          agentId: "agent-loop",
+          agentName: "Agent Loop",
+          type: "error",
+          detail:
+            `Market creation failed for "${questionRaw}"` +
+            `${suggestedCategory ? ` [${suggestedCategory}]` : ""}: ` +
+            `${result.error ?? "unknown error"}`,
+        })
+      );
       return false;
     }
 
