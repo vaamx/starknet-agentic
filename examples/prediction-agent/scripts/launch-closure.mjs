@@ -504,6 +504,9 @@ async function main() {
           "--heartbeat-secret",
           opts.heartbeatSecret,
         ];
+        if (requireUpstash) {
+          smokeArgs.push("--require-upstash");
+        }
         if (opts.marketId) {
           smokeArgs.push("--market-id", String(opts.marketId));
         }
