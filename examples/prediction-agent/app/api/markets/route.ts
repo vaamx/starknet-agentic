@@ -8,6 +8,7 @@ import { config } from "@/lib/config";
 import { getOnChainActivityCounts } from "@/lib/event-indexer";
 import {
   getPersistedMarketSnapshots,
+  getPersistedLoopActions,
   setPersistedMarketSnapshots,
 } from "@/lib/state-store";
 
@@ -65,10 +66,23 @@ export async function GET(request: NextRequest) {
   const limit = parseLimit(request.nextUrl.searchParams.get("limit"));
   const factoryAddress = config.MARKET_FACTORY_ADDRESS ?? "0x0";
   const factoryConfigured = factoryAddress !== "0x0" && factoryAddress !== "";
-  const cachedSnapshots = await getPersistedMarketSnapshots(500);
+  const [cachedSnapshots, cachedActions] = await Promise.all([
+    getPersistedMarketSnapshots(500),
+    getPersistedLoopActions(500),
+  ]);
   for (const snapshot of cachedSnapshots) {
     if (snapshot.question) {
       registerQuestion(snapshot.id, snapshot.question);
+    }
+  }
+  for (const action of cachedActions) {
+    if (
+      action.type === "market_creation" &&
+      typeof action.marketId === "number" &&
+      Number.isFinite(action.marketId) &&
+      action.question
+    ) {
+      registerQuestion(action.marketId, action.question);
     }
   }
 
