@@ -76,6 +76,9 @@ Monitor live: `GET /api/survival` · `GET /api/soul`
 ```env
 # Required
 STARKNET_RPC_URL=https://rpc.starknet-testnet.lava.build
+STARKNET_RPC_FALLBACK_URLS=https://rpc2.example,https://rpc3.example
+STARKNET_RPC_FAILOVER_ENABLED=true
+NEXT_PUBLIC_SWARM_LOGO_VARIANT=core
 AGENT_ADDRESS=0x...
 AGENT_PRIVATE_KEY=0x...
 MARKET_FACTORY_ADDRESS=0x...
@@ -108,12 +111,12 @@ AGENT_CONSENSUS_AUTOTUNE_MIN_TOTAL_PEER_WEIGHT_CAP=12
 HEARTBEAT_SECRET=your-secret
 
 # Rate limiting (recommended for production)
-RATE_LIMIT_BACKEND=memory            # or upstash
+RATE_LIMIT_BACKEND=upstash
 RATE_LIMIT_GLOBAL_PER_MIN=120
 UPSTASH_REDIS_REST_URL=
 UPSTASH_REDIS_REST_TOKEN=
 # State persistence (critical on serverless)
-AGENT_STATE_BACKEND=auto             # auto | upstash | file
+AGENT_STATE_BACKEND=upstash          # auto | upstash | file
 AGENT_STATE_UPSTASH_KEY=starknet-agentic:prediction-agent:state:v1
 AGENT_STATE_FILE=                    # optional local file path when backend=file
 OPENCLAW_ALLOW_PRIVATE_PEERS=false
