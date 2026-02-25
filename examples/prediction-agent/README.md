@@ -190,11 +190,11 @@ BRAVE_SEARCH_API_KEY=...
 
 See `.env.example` for the full list.
 
-## Vercel autonomous scheduling
+## Autonomous scheduling
 
-- `vercel.json` configures a production cron that calls `/api/heartbeat` every minute.
-- Set `HEARTBEAT_SECRET` in Vercel project env and ensure your cron request uses the same bearer secret.
-- This keeps the loop ticking even when no browser session is open.
+- On Vercel Hobby, per-minute cron is not available.
+- Use the existing Cloudflare Worker (`worker.js` + `wrangler.toml`) and/or `.github/workflows/agent-heartbeat.yml` fallback to call `/api/heartbeat`.
+- Set `HEARTBEAT_SECRET` in the scheduler and deployment environment so heartbeat stays authenticated.
 
 ## Launch operations
 
