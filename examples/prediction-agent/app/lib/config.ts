@@ -132,8 +132,8 @@ const envSchema = z.object({
       { message: "AGENT_TOOL_MAX_TURNS must be an integer between 1 and 20" }
     ),
   AGENT_LOOP_TICK_TIMEOUT_MS: z.string().default("35000"),
-  AGENT_RESEARCH_STEP_TIMEOUT_MS: z.string().default("10000"),
-  AGENT_RESEARCH_TOTAL_TIMEOUT_MS: z.string().default("25000"),
+  AGENT_RESEARCH_STEP_TIMEOUT_MS: z.string().default("15000"),
+  AGENT_RESEARCH_TOTAL_TIMEOUT_MS: z.string().default("30000"),
   // Phase A — Heartbeat authentication
   HEARTBEAT_SECRET: z.string().optional(),
   // Phase B — Survival tier thresholds (STRK amounts)
@@ -221,11 +221,11 @@ const defaults =
 
 const agentResearchStepTimeoutMs = Math.max(
   2_000,
-  parseInt(rawConfig.AGENT_RESEARCH_STEP_TIMEOUT_MS, 10) || 10_000
+  parseInt(rawConfig.AGENT_RESEARCH_STEP_TIMEOUT_MS, 10) || 15_000
 );
 const agentResearchTotalTimeoutMs = Math.max(
   agentResearchStepTimeoutMs,
-  parseInt(rawConfig.AGENT_RESEARCH_TOTAL_TIMEOUT_MS, 10) || 25_000
+  parseInt(rawConfig.AGENT_RESEARCH_TOTAL_TIMEOUT_MS, 10) || 30_000
 );
 
 /**
