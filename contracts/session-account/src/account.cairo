@@ -766,7 +766,23 @@ mod SessionAccount {
         }
 
         /// Returns true if the session key is allowed to execute the given calls.
-        /// Two layers: (1) admin selector blocklist, (2) unconditional self-call block.
+        ///
+        /// Three-layer enforcement (order matters — refs #216, #217):
+        ///   1. Session validity: key exists, not expired, call budget not exhausted.
+        ///   2. Admin selector blocklist: rejects privileged selectors on ANY target
+        ///      contract to prevent privilege escalation even on external contracts
+        ///      that share selector names.
+        ///   3. Self-call guard: rejects any call targeting this account itself,
+        ///      unconditionally, even when an explicit whitelist is configured.
+        ///
+        /// Invariants preserved:
+        ///   - Spending monotonicity: spending counters only increase within a window.
+        ///   - Authorization boundary: session keys cannot modify their own policies,
+        ///     register new session keys, revoke keys, or change the owner key.
+        ///   - Enforcement completeness: guard applies to both __execute__ and
+        ///     execute_from_outside_v2 session paths.
+        ///
+        /// See also: docs/security/SPENDING_POLICY_AUDIT.md
         fn _is_session_allowed_for_calls(
             self: @ContractState, session_key: felt252, calls: Span<Call>,
         ) -> bool {
@@ -781,7 +797,15 @@ mod SessionAccount {
                 return false;
             }
 
-            // Admin selector blocklist
+            // --- Layer 2: Admin selector blocklist ---
+            // Each category prevents a specific privilege escalation vector:
+            //   - upgrade/*: session key could replace account logic with a backdoor
+            //   - *session_key/emergency_revoke*: session key could grant itself
+            //     new permissions or revoke the owner's ability to revoke it
+            //   - set_public_key: session key could replace the owner key
+            //   - __execute__/__validate__/*: re-entrant execution or validation bypass
+            //   - set_agent_id/register_interfaces: identity takeover
+            //   - *spending_policy: session key could raise its own spending limits
             let UPGRADE_SELECTOR: felt252 = selector!("upgrade");
             let SCHEDULE_UPGRADE_SELECTOR: felt252 = selector!("schedule_upgrade");
             let EXECUTE_UPGRADE_SELECTOR: felt252 = selector!("execute_upgrade");
