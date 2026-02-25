@@ -28,7 +28,13 @@ import type {
   SortMode,
 } from "./components/dashboard/types";
 import { STORAGE_KEY, type SerializedSpawnedAgent } from "@/lib/agent-spawner";
-import { categorizeMarket, getCategoryCounts } from "@/lib/categories";
+import {
+  categorizeMarket,
+  estimateEngagementScore,
+  getCategoryCounts,
+} from "@/lib/categories";
+
+const DASHBOARD_CACHE_KEY = "prediction-dashboard-cache-v1";
 
 export default function Dashboard() {
   const [markets, setMarkets] = useState<Market[]>([]);
@@ -52,7 +58,7 @@ export default function Dashboard() {
   const [loopToggling, setLoopToggling] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<MarketCategory>("all");
-  const [sortBy, setSortBy] = useState<SortMode>("volume");
+  const [sortBy, setSortBy] = useState<SortMode>("engagement");
   const [nextTickAt, setNextTickAt] = useState<number | null>(null);
   const [nextTickIn, setNextTickIn] = useState<number | null>(null);
   const [showAutoBanner, setShowAutoBanner] = useState(false);
@@ -60,6 +66,11 @@ export default function Dashboard() {
   const [loopActions, setLoopActions] = useState<Array<{ detail?: string }>>([]);
   const [metrics, setMetrics] = useState<AgentMetricsSnapshot | null>(null);
   const [metricsError, setMetricsError] = useState<string | null>(null);
+  const [marketDataSource, setMarketDataSource] = useState<
+    "onchain" | "cache" | "unknown"
+  >("unknown");
+  const [marketDataStale, setMarketDataStale] = useState(false);
+  const [marketDataWarning, setMarketDataWarning] = useState<string | null>(null);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const deferredQuery = useDeferredValue(searchQuery);
@@ -73,6 +84,38 @@ export default function Dashboard() {
       }
     } catch {
       // localStorage unavailable or malformed
+    }
+
+    try {
+      const cached = localStorage.getItem(DASHBOARD_CACHE_KEY);
+      if (!cached) return;
+      const parsed = JSON.parse(cached) as {
+        markets?: Market[];
+        leaderboard?: LeaderboardEntry[];
+        predictions?: Record<number, AgentPrediction[]>;
+        weightedProbs?: Record<number, number | null>;
+        latestTakes?: Record<number, LatestAgentTake | null>;
+        factoryConfigured?: boolean;
+        factoryAddress?: string | null;
+        lastUpdatedAt?: number;
+        stale?: boolean;
+        source?: "onchain" | "cache";
+      };
+      if (Array.isArray(parsed.markets) && parsed.markets.length > 0) {
+        setMarkets(parsed.markets);
+        setLeaderboard(Array.isArray(parsed.leaderboard) ? parsed.leaderboard : []);
+        setPredictions(parsed.predictions ?? {});
+        setWeightedProbs(parsed.weightedProbs ?? {});
+        setLatestTakes(parsed.latestTakes ?? {});
+        setFactoryConfigured(Boolean(parsed.factoryConfigured));
+        setFactoryAddress(parsed.factoryAddress ?? null);
+        setLastUpdatedAt(parsed.lastUpdatedAt ?? Date.now());
+        setMarketDataSource(parsed.source ?? "cache");
+        setMarketDataStale(Boolean(parsed.stale));
+        setLoading(false);
+      }
+    } catch {
+      // Ignore malformed cache.
     }
   }, []);
 
@@ -113,18 +156,28 @@ export default function Dashboard() {
       setMarkets(marketList);
       setFactoryConfigured(Boolean(marketsData.factoryConfigured));
       setFactoryAddress(marketsData.factoryAddress ?? null);
+      setMarketDataSource(
+        marketsData.source === "onchain" || marketsData.source === "cache"
+          ? marketsData.source
+          : "unknown"
+      );
+      setMarketDataStale(Boolean(marketsData.stale));
+      setMarketDataWarning(
+        typeof marketsData.warning === "string" ? marketsData.warning : null
+      );
       if (showLoading) setLoading(false);
 
-      const leaderboardPromise = fetchWithTimeout("/api/leaderboard", 8_000)
+      const leaderboardPromise: Promise<LeaderboardEntry[]> = fetchWithTimeout(
+        "/api/leaderboard",
+        8_000
+      )
         .then(async (res) => {
-          if (!res.ok) return { leaderboard: [] };
-          return await res.json();
+          if (!res.ok) return [];
+          const payload = await res.json();
+          return Array.isArray(payload.leaderboard) ? payload.leaderboard : [];
         })
-        .then((data) =>
-          setLeaderboard(Array.isArray(data.leaderboard) ? data.leaderboard : [])
-        )
         .catch(() => {
-          setLeaderboard([]);
+          return [];
         });
 
       const detailResults = await Promise.allSettled(
@@ -150,7 +203,8 @@ export default function Dashboard() {
           };
         })
       );
-      await leaderboardPromise;
+      const leaderboardData = await leaderboardPromise;
+      setLeaderboard(leaderboardData);
 
       const predsMap: Record<number, AgentPrediction[]> = {};
       const weightedMap: Record<number, number | null> = {};
@@ -166,7 +220,31 @@ export default function Dashboard() {
       setPredictions(predsMap);
       setWeightedProbs(weightedMap);
       setLatestTakes(latestMap);
-      setLastUpdatedAt(Date.now());
+      const refreshedAt = Date.now();
+      setLastUpdatedAt(refreshedAt);
+
+      try {
+        localStorage.setItem(
+          DASHBOARD_CACHE_KEY,
+          JSON.stringify({
+            markets: marketList,
+            leaderboard: leaderboardData,
+            predictions: predsMap,
+            weightedProbs: weightedMap,
+            latestTakes: latestMap,
+            factoryConfigured: Boolean(marketsData.factoryConfigured),
+            factoryAddress: marketsData.factoryAddress ?? null,
+            lastUpdatedAt: refreshedAt,
+            stale: Boolean(marketsData.stale),
+            source:
+              marketsData.source === "onchain" || marketsData.source === "cache"
+                ? marketsData.source
+                : "unknown",
+          })
+        );
+      } catch {
+        // Ignore cache failures.
+      }
     } catch (err: any) {
       setLoadError(err?.message ?? "Failed to load dashboard data");
       console.error("Failed to load data:", err);
@@ -336,6 +414,18 @@ export default function Dashboard() {
         return disagreeB - disagreeA;
       }
 
+      if (sortBy === "engagement") {
+        const disagreeA = computeDisagreement(predictions[a.id] ?? []);
+        const disagreeB = computeDisagreement(predictions[b.id] ?? []);
+        const engagementA =
+          estimateEngagementScore(a.question, a.resolutionTime) +
+          disagreeA * 0.35;
+        const engagementB =
+          estimateEngagementScore(b.question, b.resolutionTime) +
+          disagreeB * 0.35;
+        if (engagementA !== engagementB) return engagementB - engagementA;
+      }
+
       const poolA = safeBigInt(a.totalPool);
       const poolB = safeBigInt(b.totalPool);
       if (poolA === poolB) return 0;
@@ -350,6 +440,7 @@ export default function Dashboard() {
       { id: "crypto" as MarketCategory, label: "Crypto", count: categoryCounts.crypto },
       { id: "politics" as MarketCategory, label: "Politics", count: categoryCounts.politics },
       { id: "tech" as MarketCategory, label: "Tech", count: categoryCounts.tech },
+      { id: "other" as MarketCategory, label: "World", count: categoryCounts.other },
     ],
     [categoryCounts]
   );
@@ -374,6 +465,8 @@ export default function Dashboard() {
         loopToggling={loopToggling}
         nextTickIn={nextTickIn}
         lastUpdatedAt={lastUpdatedAt}
+        marketDataSource={marketDataSource}
+        marketDataStale={marketDataStale}
         onToggleAutonomousMode={toggleAutonomousMode}
         onOpenSpawner={() => setShowSpawner(true)}
         onOpenCreator={() => setShowCreator(true)}
@@ -400,6 +493,17 @@ export default function Dashboard() {
                 {isRefreshing ? "Retrying..." : "Retry"}
               </button>
             </div>
+          </div>
+        )}
+        {!loadError && marketDataWarning && (
+          <div
+            className="neo-card p-3 mb-4 border border-neo-yellow/40 bg-neo-yellow/10"
+            role="status"
+            aria-live="polite"
+          >
+            <p className="text-[11px] text-neo-yellow">
+              Market feed fallback: {marketDataWarning}
+            </p>
           </div>
         )}
 
@@ -438,6 +542,8 @@ export default function Dashboard() {
             loopActions={loopActions}
             normalizedQuery={normalizedQuery}
             factoryConfigured={factoryConfigured}
+            marketDataSource={marketDataSource}
+            marketDataStale={marketDataStale}
             onSetCategory={setActiveCategory}
             onSearchChange={setSearchQuery}
             onSortChange={setSortBy}

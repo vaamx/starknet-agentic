@@ -34,6 +34,11 @@ export default function AutonomousEngineCard({
       : loopStatus?.sessionKeyConfigured
         ? "text-neo-green"
         : "text-neo-pink";
+  const lastActionDetail = loopActions.slice(-1)[0]?.detail ?? "";
+  const clippedLastAction =
+    lastActionDetail.length > 260
+      ? `${lastActionDetail.slice(0, 257)}...`
+      : lastActionDetail;
 
   return (
     <div className="neo-card overflow-hidden">
@@ -155,8 +160,8 @@ export default function AutonomousEngineCard({
         {loopActions.length > 0 && (
           <div className="pt-2 border-t border-white/10">
             <p className="text-[10px] text-white/40 mb-1">Last action</p>
-            <p className="font-mono text-[11px] text-white/70">
-              {loopActions.slice(-1)[0]?.detail ?? "—"}
+            <p className="font-mono text-[11px] text-white/70 break-words">
+              {clippedLastAction || "—"}
             </p>
           </div>
         )}

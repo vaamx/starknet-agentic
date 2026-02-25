@@ -35,7 +35,7 @@ export default function AgentReasoningPanel({
   marketId,
   question,
 }: AgentReasoningPanelProps) {
-  const [mode, setMode] = useState<"single" | "multi" | "research">("multi");
+  const [mode, setMode] = useState<"single" | "multi" | "research">("single");
   const [reasoning, setReasoning] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [probability, setProbability] = useState<number | null>(null);
@@ -159,10 +159,13 @@ export default function AgentReasoningPanel({
     setProbability(null);
     setTxHash(null);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45_000);
     try {
       const response = await fetch("/api/multi-predict", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({ marketId }),
       });
       if (!response.ok) {
@@ -302,8 +305,13 @@ export default function AgentReasoningPanel({
         handleData(trailing.slice(6));
       }
     } catch (err: any) {
-      setError(err.message);
+      if (err?.name === "AbortError") {
+        setError("Swarm analysis timed out. Switch to Single mode for faster turnaround.");
+      } else {
+        setError(err.message);
+      }
     } finally {
+      clearTimeout(timeoutId);
       setIsStreaming(false);
     }
   }, [marketId]);
@@ -511,6 +519,8 @@ export default function AgentReasoningPanel({
               <span className="text-white/60">
                 {mode === "multi"
                   ? `swarm-analyze --market ${marketId} --agents 5`
+                  : mode === "research"
+                    ? `research --market ${marketId}`
                   : `analyze --market ${marketId}`}
               </span>
             </div>
@@ -661,7 +671,7 @@ export default function AgentReasoningPanel({
               )}
             </div>
             <div className="flex items-center gap-2 text-[10px] font-mono text-white/20">
-              <span>{mode === "multi" ? "swarm" : "claude-sonnet-4-5"}</span>
+              <span>{mode === "multi" ? "swarm" : "single-agent"}</span>
               <span>|</span>
               <span>ERC-8004</span>
             </div>

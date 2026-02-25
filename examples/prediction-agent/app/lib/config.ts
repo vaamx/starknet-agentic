@@ -47,7 +47,16 @@ const envSchema = z.object({
   BRAVE_SEARCH_API_KEY: z.string().optional(),
   COINGECKO_API_KEY: z.string().optional(),
   GITHUB_TOKEN: z.string().optional(),
-  RSS_SOURCES: z.string().optional(),
+  RSS_SOURCES: z
+    .string()
+    .default(
+      [
+        "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://feeds.bbci.co.uk/news/politics/rss.xml",
+        "https://www.espn.com/espn/rss/news",
+        "https://cointelegraph.com/rss",
+      ].join(",")
+    ),
   X_BEARER_TOKEN: z.string().optional(),
   X_DEFAULT_QUERY: z.string().optional(),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
@@ -144,7 +153,7 @@ const envSchema = z.object({
   SURVIVAL_CHECK_INTERVAL: z.string().default("3"),
   SURVIVAL_MODEL_THRIVING: z.string().default("claude-opus-4-6"),
   SURVIVAL_MODEL_HEALTHY:  z.string().default("claude-sonnet-4-6"),
-  SURVIVAL_MODEL_LOW:      z.string().default("claude-haiku-4-5-20251001"),
+  SURVIVAL_MODEL_LOW:      z.string().default("claude-sonnet-4-6"),
   // Phase C — X-402 paywall (default OFF)
   X402_ENABLED:             z.string().default("false"),
   X402_PRICE_PREDICT:       z.string().default("0.1"),

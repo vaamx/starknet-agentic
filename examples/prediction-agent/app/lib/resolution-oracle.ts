@@ -107,6 +107,12 @@ function deriveSportsOutcomeFromEspn(
         reasoning: `Resolved from ESPN final score: ${target.name} ${target.score} vs opponent ${opponentBest}.`,
       };
     }
+    const participants = teamScores.map((team) => team.name).join(" vs ");
+    return {
+      outcome: 0,
+      confidence: 0.97,
+      reasoning: `Resolved NO: team "${winMatch[1].trim()}" not present in final matchup (${participants}).`,
+    };
   }
 
   // Pattern: total score over/under X
@@ -176,7 +182,7 @@ async function askClaudeForOutcome(
 ): Promise<{ outcome: 0 | 1; confidence: number } | null> {
   try {
     const response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
+      model: "claude-sonnet-4-6",
       max_tokens: 128,
       messages: [
         {

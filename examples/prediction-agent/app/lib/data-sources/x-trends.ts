@@ -14,18 +14,62 @@ function buildQuery(question: string): string {
   return cleaned.split(/\s+/).slice(0, 5).join(" ");
 }
 
-export async function fetchXTrends(question: string): Promise<DataSourceResult> {
-  const token = config.X_BEARER_TOKEN;
-  const query = buildQuery(question);
+function parseRedditRss(xml: string): DataPoint[] {
+  const entries = xml.match(/<entry[\s\S]*?<\/entry>/gi) ?? [];
+  const points: DataPoint[] = [];
+  for (const entry of entries.slice(0, 5)) {
+    const titleMatch = entry.match(/<title>([\s\S]*?)<\/title>/i);
+    const linkMatch = entry.match(/<link[^>]*href="([^"]+)"/i);
+    const subredditMatch = entry.match(/\/r\/([^/]+)\//i);
+    const title = (titleMatch?.[1] ?? "").trim();
+    const link = (linkMatch?.[1] ?? "").trim();
+    if (!title) continue;
+    points.push({
+      label: subredditMatch?.[1] ? `r/${subredditMatch[1]}` : "Reddit",
+      value: title,
+      url: link,
+    });
+  }
+  return points;
+}
 
-  if (!token) {
+async function fetchRedditFallback(query: string, reason: string): Promise<DataSourceResult> {
+  try {
+    const url = `https://www.reddit.com/search.rss?q=${encodeURIComponent(query)}&sort=new`;
+    const response = await fetch(url, {
+      headers: { Accept: "application/rss+xml,application/xml,text/xml" },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) throw new Error(`Reddit RSS ${response.status}`);
+    const xml = await response.text();
+    const data = parseRedditRss(xml);
+    return {
+      source: "x",
+      query,
+      timestamp: Date.now(),
+      data,
+      summary:
+        data.length > 0
+          ? `Social fallback from Reddit feed (${reason}).`
+          : `No social fallback data (${reason}).`,
+    };
+  } catch (err: any) {
     return {
       source: "x",
       query,
       timestamp: Date.now(),
       data: [],
-      summary: "No X data (X_BEARER_TOKEN not configured).",
+      summary: `No X data (${err?.message ?? reason}).`,
     };
+  }
+}
+
+export async function fetchXTrends(question: string): Promise<DataSourceResult> {
+  const token = config.X_BEARER_TOKEN;
+  const query = buildQuery(question);
+
+  if (!token) {
+    return fetchRedditFallback(query, "X_BEARER_TOKEN not configured");
   }
 
   try {
@@ -57,12 +101,6 @@ export async function fetchXTrends(question: string): Promise<DataSourceResult> 
       summary: `Found ${tweets.length} recent X posts.`,
     };
   } catch (err: any) {
-    return {
-      source: "x",
-      query,
-      timestamp: Date.now(),
-      data: [],
-      summary: `No X data (${err?.message ?? "request failed"}).`,
-    };
+    return fetchRedditFallback(query, `X API failed (${err?.message ?? "request failed"})`);
   }
 }

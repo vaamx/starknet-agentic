@@ -26,6 +26,8 @@ interface MarketsDomainSectionProps {
   loopActions: Array<{ detail?: string }>;
   normalizedQuery: string;
   factoryConfigured: boolean;
+  marketDataSource: "onchain" | "cache" | "unknown";
+  marketDataStale: boolean;
   onSetCategory: (category: MarketCategory) => void;
   onSearchChange: (value: string) => void;
   onSortChange: (mode: SortMode) => void;
@@ -49,6 +51,8 @@ export default function MarketsDomainSection({
   loopActions,
   normalizedQuery,
   factoryConfigured,
+  marketDataSource,
+  marketDataStale,
   onSetCategory,
   onSearchChange,
   onSortChange,
@@ -56,6 +60,9 @@ export default function MarketsDomainSection({
   onAnalyze,
   onBet,
 }: MarketsDomainSectionProps) {
+  const pulseText = loopActions.slice(-1)[0]?.detail ?? "";
+  const featuredMarkets = sortedMarkets.slice(0, 3);
+
   return (
     <section className="flex-1 min-w-0 space-y-4" aria-labelledby="markets-heading">
       <div className="flex items-center justify-between mb-1">
@@ -73,19 +80,62 @@ export default function MarketsDomainSection({
       {loopActions.length > 0 && (
         <div className="neo-card px-4 py-3 mb-3" aria-live="polite">
           <div className="flex items-center justify-between gap-3">
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-neo-green animate-pulse" />
                 <p className="text-[10px] font-mono uppercase tracking-widest text-white/40">
                   Swarm Pulse
                 </p>
               </div>
-              <p className="text-xs text-white/80 mt-0.5">
-                {loopActions.slice(-1)[0]?.detail ?? ""}
+              <p className="text-xs text-white/80 mt-0.5 truncate">
+                {pulseText}
               </p>
             </div>
-            <span className="text-[10px] font-mono text-neo-green/80">LIVE</span>
+            <div className="flex items-center gap-2 shrink-0">
+              <span
+                className={`text-[10px] font-mono ${
+                  marketDataStale ? "text-neo-yellow" : "text-neo-green/80"
+                }`}
+              >
+                {marketDataSource.toUpperCase()}
+              </span>
+              <span className="text-[10px] font-mono text-neo-green/80">LIVE</span>
+            </div>
           </div>
+        </div>
+      )}
+
+      {!loading && featuredMarkets.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {featuredMarkets.map((market) => {
+            const category = categorizeMarket(market.question).toUpperCase();
+            const yesPct = Math.round(market.impliedProbYes * 100);
+            return (
+              <article
+                key={`featured-${market.id}`}
+                className="neo-card p-4 border-white/15 bg-gradient-to-b from-white/[0.08] to-white/[0.02]"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-mono text-neo-green/80">{category}</span>
+                  <span className="text-[10px] font-mono text-white/45">#{market.id}</span>
+                </div>
+                <p className="font-heading font-semibold text-sm text-white/90 line-clamp-2 min-h-[2.6rem]">
+                  {market.question}
+                </p>
+                <div className="mt-3 flex items-center justify-between">
+                  <span className="text-[10px] text-white/50">Market YES</span>
+                  <span className="font-mono text-neo-green">{yesPct}%</span>
+                </div>
+                <button
+                  type="button"
+                  className="neo-btn-secondary w-full mt-3 text-xs py-2"
+                  onClick={() => onAnalyze(market.id)}
+                >
+                  Analyze Now
+                </button>
+              </article>
+            );
+          })}
         </div>
       )}
 
@@ -118,7 +168,7 @@ export default function MarketsDomainSection({
             type="search"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search market..."
+            placeholder="Search market, topic, or ID..."
             className="neo-input text-[10px] py-1.5 px-2 w-40 sm:w-52"
             aria-label="Search markets"
           />
@@ -132,6 +182,7 @@ export default function MarketsDomainSection({
             className="neo-input text-[10px] py-1.5 px-2"
             aria-label="Sort markets"
           >
+            <option value="engagement">Engagement</option>
             <option value="volume">Volume</option>
             <option value="ending">Ending Soon</option>
             <option value="disagreement">Agent Disagreement</option>
@@ -180,38 +231,40 @@ export default function MarketsDomainSection({
           </p>
         </div>
       ) : (
-        sortedMarkets.map((market, i) => {
-          const marketPreds = predictions[market.id] ?? [];
-          const agentConsensus =
-            marketPreds.length > 0
-              ? marketPreds.reduce((sum, p) => sum + p.predictedProb, 0) / marketPreds.length
-              : undefined;
-          const category = categorizeMarket(market.question);
+        <div className="grid grid-cols-1 2xl:grid-cols-2 gap-4">
+          {sortedMarkets.map((market, i) => {
+            const marketPreds = predictions[market.id] ?? [];
+            const agentConsensus =
+              marketPreds.length > 0
+                ? marketPreds.reduce((sum, p) => sum + p.predictedProb, 0) / marketPreds.length
+                : undefined;
+            const category = categorizeMarket(market.question);
 
-          return (
-            <div key={market.id} className={`animate-enter stagger-${Math.min(i + 1, 5)}`}>
-              <MarketCard
-                id={market.id}
-                question={market.question}
-                address={market.address}
-                oracle={market.oracle}
-                impliedProbYes={market.impliedProbYes}
-                impliedProbNo={market.impliedProbNo}
-                totalPool={market.totalPool}
-                status={market.status}
-                resolutionTime={market.resolutionTime}
-                agentConsensus={agentConsensus}
-                weightedProb={weightedProbs[market.id]}
-                tradeCount={market.tradeCount}
-                category={category}
-                latestAgentTake={latestTakes[market.id]}
-                predictions={marketPreds}
-                onAnalyze={onAnalyze}
-                onBet={onBet}
-              />
-            </div>
-          );
-        })
+            return (
+              <div key={market.id} className={`animate-enter stagger-${Math.min(i + 1, 5)}`}>
+                <MarketCard
+                  id={market.id}
+                  question={market.question}
+                  address={market.address}
+                  oracle={market.oracle}
+                  impliedProbYes={market.impliedProbYes}
+                  impliedProbNo={market.impliedProbNo}
+                  totalPool={market.totalPool}
+                  status={market.status}
+                  resolutionTime={market.resolutionTime}
+                  agentConsensus={agentConsensus}
+                  weightedProb={weightedProbs[market.id]}
+                  tradeCount={market.tradeCount}
+                  category={category}
+                  latestAgentTake={latestTakes[market.id]}
+                  predictions={marketPreds}
+                  onAnalyze={onAnalyze}
+                  onBet={onBet}
+                />
+              </div>
+            );
+          })}
+        </div>
       )}
     </section>
   );

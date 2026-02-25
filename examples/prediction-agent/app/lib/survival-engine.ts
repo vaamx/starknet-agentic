@@ -175,7 +175,7 @@ export function getModelForTier(tier: SurvivalTier): string {
     case "low":
     case "critical":
     case "dead":
-    default:          return raw.SURVIVAL_MODEL_LOW      ?? "claude-haiku-4-5-20251001";
+    default:          return raw.SURVIVAL_MODEL_LOW      ?? "claude-sonnet-4-6";
   }
 }
 

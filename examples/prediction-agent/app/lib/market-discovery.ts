@@ -6,7 +6,11 @@ import { fetchPolymarketData } from "./data-sources/polymarket";
 import { fetchCryptoPrices } from "./data-sources/crypto-prices";
 import { fetchNewsData } from "./data-sources/news-search";
 import { fetchRssFeeds } from "./data-sources/rss-feeds";
-import { categorizeMarket, type MarketCategory } from "./categories";
+import {
+  categorizeMarket,
+  estimateEngagementScore,
+  type MarketCategory,
+} from "./categories";
 
 export interface SuggestedMarket {
   question: string;
@@ -44,16 +48,33 @@ export async function discoverMarkets(
 ): Promise<SuggestedMarket[]> {
   const suggestions: SuggestedMarket[] = [];
   const seen = new Set<string>();
+  const requestedCategory = (category ?? "").trim().toLowerCase();
+
+  const pushSuggestion = (suggestion: SuggestedMarket) => {
+    const question = normalizeQuestion(suggestion.question);
+    const key = question.toLowerCase();
+    if (seen.has(key)) return;
+    if (
+      requestedCategory &&
+      requestedCategory !== "all" &&
+      suggestion.category !== requestedCategory
+    ) {
+      return;
+    }
+    seen.add(key);
+    suggestions.push({
+      ...suggestion,
+      question,
+    });
+  };
 
   // Polymarket-driven suggestions (real external markets)
   try {
     const poly = await fetchPolymarketData(category ?? "trending");
     for (const item of poly.data) {
       const question = normalizeQuestion(String(item.label));
-      if (seen.has(question.toLowerCase())) continue;
       const cat = categorizeMarket(question);
-      if (category && cat !== category) continue;
-      suggestions.push({
+      pushSuggestion({
         question,
         category: cat,
         suggestedResolutionDays: 30,
@@ -61,7 +82,6 @@ export async function discoverMarkets(
         estimatedProbability: item.confidence,
         reasoning: poly.summary,
       });
-      seen.add(question.toLowerCase());
     }
   } catch {
     // Ignore if Polymarket is unavailable
@@ -80,14 +100,12 @@ export async function discoverMarkets(
         const question = normalizeQuestion(
           `Will ${token} be above $${target.toLocaleString()} in 60 days`
         );
-        if (seen.has(question.toLowerCase())) continue;
-        suggestions.push({
+        pushSuggestion({
           question,
           category: "crypto",
           suggestedResolutionDays: 60,
           reasoning: `Derived from live ${token} price data.`,
         });
-        seen.add(question.toLowerCase());
       }
     } catch {
       // Ignore if price data unavailable
@@ -102,17 +120,14 @@ export async function discoverMarkets(
         const title = String(item.label || item.value || "").trim();
         if (!title) continue;
         const question = headlineToQuestion(title);
-        if (seen.has(question.toLowerCase())) continue;
         const cat = categorizeMarket(question);
-        if (category && cat !== category) continue;
-        suggestions.push({
+        pushSuggestion({
           question,
           category: cat,
           suggestedResolutionDays: 14,
           sourceUrl: item.url,
           reasoning: news.summary,
         });
-        seen.add(question.toLowerCase());
       }
     } catch {
       // Ignore if news unavailable
@@ -127,22 +142,69 @@ export async function discoverMarkets(
         const title = String(item.value || item.label || "").trim();
         if (!title) continue;
         const question = headlineToQuestion(title);
-        if (seen.has(question.toLowerCase())) continue;
-        suggestions.push({
+        pushSuggestion({
           question,
           category: categorizeMarket(question),
           suggestedResolutionDays: 21,
           sourceUrl: item.url,
           reasoning: rss.summary,
         });
-        seen.add(question.toLowerCase());
       }
     } catch {
       // Ignore if RSS unavailable
     }
   }
 
-  return suggestions.slice(0, limit);
+  // Score for engagement and reduce crypto saturation in mixed mode.
+  const scored = suggestions
+    .map((suggestion) => {
+      const resolutionTime =
+        Math.floor(Date.now() / 1000) +
+        Math.max(1, suggestion.suggestedResolutionDays) * 86_400;
+      let score = estimateEngagementScore(suggestion.question, resolutionTime);
+      if (!requestedCategory && suggestion.category === "crypto") {
+        score -= 0.08;
+      }
+      if (
+        suggestion.category === "politics" ||
+        suggestion.category === "sports" ||
+        suggestion.category === "tech"
+      ) {
+        score += 0.04;
+      }
+      return { suggestion, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  // Preserve topic diversity by alternating highest-ranked non-crypto with any.
+  if (!requestedCategory) {
+    const nonCrypto = scored.filter((entry) => entry.suggestion.category !== "crypto");
+    const remaining = scored.slice();
+    const selected: SuggestedMarket[] = [];
+    while (selected.length < limit && remaining.length > 0) {
+      const pickFromNonCrypto =
+        selected.filter((s) => s.category === "crypto").length >=
+        Math.floor(selected.length / 2);
+      let pickedIdx = -1;
+      if (pickFromNonCrypto && nonCrypto.length > 0) {
+        const candidate = nonCrypto.find((entry) =>
+          !selected.some((s) => s.question.toLowerCase() === entry.suggestion.question.toLowerCase())
+        );
+        if (candidate) {
+          pickedIdx = remaining.findIndex(
+            (entry) => entry.suggestion.question === candidate.suggestion.question
+          );
+        }
+      }
+      if (pickedIdx < 0) pickedIdx = 0;
+      const [picked] = remaining.splice(pickedIdx, 1);
+      if (!picked) break;
+      selected.push(picked.suggestion);
+    }
+    return selected.slice(0, limit);
+  }
+
+  return scored.map((entry) => entry.suggestion).slice(0, limit);
 }
 
 /**

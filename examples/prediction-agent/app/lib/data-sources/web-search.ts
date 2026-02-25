@@ -4,6 +4,8 @@
  */
 
 import type { DataPoint, DataSourceResult } from "./index";
+import { fetchNewsData } from "./news-search";
+import { fetchTavilySearch } from "./tavily";
 
 const BRAVE_WEB_API = "https://api.search.brave.com/res/v1/web/search";
 
@@ -12,12 +14,24 @@ export async function fetchWebSearch(question: string): Promise<DataSourceResult
   const query = question.trim();
 
   if (!apiKey) {
+    // Fallback chain: Tavily (if configured) -> News RSS fallback.
+    if (process.env.TAVILY_API_KEY) {
+      const tavily = await fetchTavilySearch(query);
+      return {
+        ...tavily,
+        source: "web",
+        summary: tavily.data.length
+          ? `Web fallback via Tavily (${tavily.data.length} results).`
+          : tavily.summary,
+      };
+    }
+    const news = await fetchNewsData(query);
     return {
       source: "web",
       query,
       timestamp: Date.now(),
-      data: [],
-      summary: "No web data (BRAVE_SEARCH_API_KEY not configured).",
+      data: news.data,
+      summary: `Web fallback via news index (${news.data.length} results).`,
     };
   }
 
@@ -51,12 +65,25 @@ export async function fetchWebSearch(question: string): Promise<DataSourceResult
       summary: `Found ${items.length} web results for "${query}".`,
     };
   } catch (err: any) {
+    if (process.env.TAVILY_API_KEY) {
+      const tavily = await fetchTavilySearch(query);
+      return {
+        ...tavily,
+        source: "web",
+        summary: tavily.data.length
+          ? `Brave failed, fallback via Tavily (${tavily.data.length} results).`
+          : `No web data (${err?.message ?? "request failed"}).`,
+      };
+    }
+    const news = await fetchNewsData(query);
     return {
       source: "web",
       query,
       timestamp: Date.now(),
-      data: [],
-      summary: `No web data (${err?.message ?? "request failed"}).`,
+      data: news.data,
+      summary: news.data.length
+        ? `Brave failed, fallback via news index (${news.data.length} results).`
+        : `No web data (${err?.message ?? "request failed"}).`,
     };
   }
 }
