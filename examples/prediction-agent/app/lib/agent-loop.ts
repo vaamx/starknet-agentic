@@ -1379,7 +1379,15 @@ class AgentLoop {
           marketId: target.id,
           question,
           detail: onChain
-            ? "Prediction not recorded on-chain"
+            ? (() => {
+                const txError =
+                  predTxResult &&
+                  predTxResult.status === "error" &&
+                  predTxResult.error
+                    ? `: ${predTxResult.error}`
+                    : "";
+                return `Prediction not recorded on-chain${txError}`;
+              })()
             : survival?.tier === "dead"
               ? "Research-only mode (wallet below survival floor)"
               : "Agent account not configured",
@@ -1446,6 +1454,7 @@ class AgentLoop {
         const betDisplay = formatStrk(betAmount);
 
         let betTxHash: string | undefined;
+        let betTxError: string | undefined;
         if (onChain) {
           try {
             const outcomeNum: 0 | 1 = probability > 0.5 ? 1 : 0;
@@ -1458,9 +1467,12 @@ class AgentLoop {
             );
             if (txResult.status === "success") {
               betTxHash = txResult.txHash;
+            } else {
+              betTxError = txResult.error;
             }
           } catch {
             // Bet tx failed
+            betTxError = "Unhandled bet execution error";
           }
         }
 
@@ -1493,7 +1505,9 @@ class AgentLoop {
               type: "error",
               marketId: target.id,
               question,
-              detail: "Bet not executed on-chain",
+              detail: betTxError
+                ? `Bet not executed on-chain: ${betTxError}`
+                : "Bet not executed on-chain",
             })
           );
         }
