@@ -22,6 +22,19 @@ export default function AutonomousEngineCard({
   loopActions,
   onTriggerTick,
 }: AutonomousEngineCardProps) {
+  const sessionStatusLabel =
+    loopStatus?.signerMode === "owner"
+      ? "N/A (OWNER)"
+      : loopStatus?.sessionKeyConfigured
+        ? "READY"
+        : "MISSING";
+  const sessionStatusClass =
+    loopStatus?.signerMode === "owner"
+      ? "text-white/40"
+      : loopStatus?.sessionKeyConfigured
+        ? "text-neo-green"
+        : "text-neo-pink";
+
   return (
     <div className="neo-card overflow-hidden">
       <div className="bg-white/5 px-4 py-3.5 border-b border-white/10">
@@ -73,12 +86,16 @@ export default function AutonomousEngineCard({
         </div>
         <div className="flex items-center justify-between">
           <span>Session Key</span>
+          <span className={`font-mono ${sessionStatusClass}`}>{sessionStatusLabel}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span>Auto Resolve</span>
           <span
             className={`font-mono ${
-              loopStatus?.sessionKeyConfigured ? "text-neo-green" : "text-neo-pink"
+              loopStatus?.autoResolveEnabled ? "text-neo-green" : "text-white/40"
             }`}
           >
-            {loopStatus?.sessionKeyConfigured ? "READY" : "MISSING"}
+            {loopStatus?.autoResolveEnabled ? "ON" : "OFF"}
           </span>
         </div>
         <div className="flex items-center justify-between">
@@ -119,8 +136,8 @@ export default function AutonomousEngineCard({
         </div>
         <div className="pt-2 border-t border-white/10">
           <p className="text-[10px] text-white/40">
-            Runs research → forecasts → on-chain predictions/bets and auto-creates
-            new markets every 5 ticks.
+            Runs research → forecasts → on-chain predictions/bets, resolves overdue
+            markets, and auto-creates new markets.
           </p>
         </div>
         <button

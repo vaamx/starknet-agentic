@@ -78,6 +78,16 @@ export default function AgentReasoningPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ marketId }),
       });
+      if (!response.ok) {
+        let message = `Predict failed (HTTP ${response.status})`;
+        try {
+          const payload = await response.json();
+          message = payload?.error ?? payload?.message ?? message;
+        } catch {
+          // Ignore parse failures.
+        }
+        throw new Error(message);
+      }
 
       const reader = response.body?.getReader();
       if (!reader) throw new Error("No response body");
@@ -85,6 +95,28 @@ export default function AgentReasoningPanel({
       const decoder = new TextDecoder();
       let buffer = "";
       let totalChars = 0;
+      const handleData = (data: string) => {
+        if (data === "[DONE]") {
+          return true;
+        }
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.type === "text") {
+            totalChars += parsed.content.length;
+            setCharCount(totalChars);
+            setReasoning((prev) => prev + parsed.content);
+          } else if (parsed.type === "result") {
+            setProbability(parsed.probability);
+            if (parsed.txHash) setTxHash(parsed.txHash);
+            if (parsed.txError) setError(parsed.txError);
+          } else if (parsed.type === "error") {
+            setError(parsed.message);
+          }
+        } catch {
+          // Skip malformed JSON
+        }
+        return false;
+      };
 
       while (true) {
         const { value, done } = await reader.read();
@@ -96,33 +128,21 @@ export default function AgentReasoningPanel({
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6);
-          if (data === "[DONE]") {
-            setIsStreaming(false);
+          if (handleData(line.slice(6))) {
             return;
-          }
-          try {
-            const parsed = JSON.parse(data);
-            if (parsed.type === "text") {
-              totalChars += parsed.content.length;
-              setCharCount(totalChars);
-              setReasoning((prev) => prev + parsed.content);
-            } else if (parsed.type === "result") {
-              setProbability(parsed.probability);
-              if (parsed.txHash) setTxHash(parsed.txHash);
-              if (parsed.txError) setError(parsed.txError);
-            } else if (parsed.type === "error") {
-              setError(parsed.message);
-            }
-          } catch {
-            // Skip malformed JSON
           }
         }
       }
+
+      const trailing = buffer.trim();
+      if (trailing.startsWith("data: ")) {
+        handleData(trailing.slice(6));
+      }
     } catch (err: any) {
       setError(err.message);
+    } finally {
+      setIsStreaming(false);
     }
-    setIsStreaming(false);
   }, [marketId]);
 
   const startMultiAnalysis = useCallback(async () => {
@@ -135,6 +155,9 @@ export default function AgentReasoningPanel({
     setError(null);
     setIsStreaming(true);
     setIsCollapsed(false);
+    setReasoning("");
+    setProbability(null);
+    setTxHash(null);
 
     try {
       const response = await fetch("/api/multi-predict", {
@@ -142,12 +165,121 @@ export default function AgentReasoningPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ marketId }),
       });
+      if (!response.ok) {
+        let message = `Swarm analysis failed (HTTP ${response.status})`;
+        try {
+          const payload = await response.json();
+          message = payload?.error ?? payload?.message ?? message;
+        } catch {
+          // Ignore parse failures.
+        }
+        throw new Error(message);
+      }
 
       const reader = response.body?.getReader();
       if (!reader) throw new Error("No response body");
 
       const decoder = new TextDecoder();
       let buffer = "";
+      const handleData = (data: string) => {
+        if (data === "[DONE]") {
+          return true;
+        }
+        try {
+          const parsed = JSON.parse(data);
+
+          if (parsed.type === "agent_start") {
+            setCurrentAgentId(parsed.agentId);
+            setActiveAgentTab((current) => current ?? parsed.agentId);
+            setAgentResults((prev) => {
+              const next = new Map(prev);
+              next.set(parsed.agentId, {
+                agentId: parsed.agentId,
+                agentName: parsed.agentName,
+                agentType: parsed.agentType,
+                model: parsed.model,
+                reasoning: "",
+                probability: null,
+                isComplete: false,
+                brierScore: null,
+              });
+              return next;
+            });
+          } else if (parsed.type === "text" && parsed.agentId) {
+            setAgentResults((prev) => {
+              const next = new Map(prev);
+              const agent = next.get(parsed.agentId);
+              if (agent) {
+                next.set(parsed.agentId, {
+                  ...agent,
+                  reasoning: agent.reasoning + parsed.content,
+                });
+              }
+              return next;
+            });
+          } else if (parsed.type === "agent_complete") {
+            setAgentResults((prev) => {
+              const next = new Map(prev);
+              const agent = next.get(parsed.agentId);
+              if (agent) {
+                next.set(parsed.agentId, {
+                  ...agent,
+                  probability: parsed.probability,
+                  brierScore: parsed.brierScore ?? null,
+                  isComplete: true,
+                });
+              }
+              return next;
+            });
+          } else if (parsed.type === "debate_start") {
+            // Visual separator — append to all agents
+            setAgentResults((prev) => {
+              const next = new Map(prev);
+              for (const [id, agent] of next) {
+                next.set(id, {
+                  ...agent,
+                  reasoning:
+                    agent.reasoning +
+                    "\n\n─── ROUND 2: DEBATE ───\n\n",
+                });
+              }
+              return next;
+            });
+          } else if (parsed.type === "debate_text" && parsed.agentId) {
+            setAgentResults((prev) => {
+              const next = new Map(prev);
+              const agent = next.get(parsed.agentId);
+              if (agent) {
+                next.set(parsed.agentId, {
+                  ...agent,
+                  reasoning: agent.reasoning + parsed.content,
+                });
+              }
+              return next;
+            });
+          } else if (parsed.type === "debate_complete") {
+            setAgentResults((prev) => {
+              const next = new Map(prev);
+              const agent = next.get(parsed.agentId);
+              if (agent) {
+                next.set(parsed.agentId, {
+                  ...agent,
+                  probability: parsed.revisedProbability,
+                });
+              }
+              return next;
+            });
+          } else if (parsed.type === "consensus") {
+            setConsensus(parsed);
+            setCurrentAgentId(null);
+          } else if (parsed.type === "error") {
+            setError(parsed.message);
+          }
+        } catch {
+          // Skip malformed JSON
+        }
+        return false;
+      };
 
       while (true) {
         const { value, done } = await reader.read();
@@ -159,110 +291,22 @@ export default function AgentReasoningPanel({
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6);
-          if (data === "[DONE]") {
-            setIsStreaming(false);
+          if (handleData(line.slice(6))) {
             return;
-          }
-          try {
-            const parsed = JSON.parse(data);
-
-            if (parsed.type === "agent_start") {
-              setCurrentAgentId(parsed.agentId);
-              if (!activeAgentTab) setActiveAgentTab(parsed.agentId);
-              setAgentResults((prev) => {
-                const next = new Map(prev);
-                next.set(parsed.agentId, {
-                  agentId: parsed.agentId,
-                  agentName: parsed.agentName,
-                  agentType: parsed.agentType,
-                  model: parsed.model,
-                  reasoning: "",
-                  probability: null,
-                  isComplete: false,
-                  brierScore: null,
-                });
-                return next;
-              });
-            } else if (parsed.type === "text" && parsed.agentId) {
-              setAgentResults((prev) => {
-                const next = new Map(prev);
-                const agent = next.get(parsed.agentId);
-                if (agent) {
-                  next.set(parsed.agentId, {
-                    ...agent,
-                    reasoning: agent.reasoning + parsed.content,
-                  });
-                }
-                return next;
-              });
-            } else if (parsed.type === "agent_complete") {
-              setAgentResults((prev) => {
-                const next = new Map(prev);
-                const agent = next.get(parsed.agentId);
-                if (agent) {
-                  next.set(parsed.agentId, {
-                    ...agent,
-                    probability: parsed.probability,
-                    brierScore: parsed.brierScore ?? null,
-                    isComplete: true,
-                  });
-                }
-                return next;
-              });
-            } else if (parsed.type === "debate_start") {
-              // Visual separator — append to all agents
-              setAgentResults((prev) => {
-                const next = new Map(prev);
-                for (const [id, agent] of next) {
-                  next.set(id, {
-                    ...agent,
-                    reasoning:
-                      agent.reasoning +
-                      "\n\n─── ROUND 2: DEBATE ───\n\n",
-                  });
-                }
-                return next;
-              });
-            } else if (parsed.type === "debate_text" && parsed.agentId) {
-              setAgentResults((prev) => {
-                const next = new Map(prev);
-                const agent = next.get(parsed.agentId);
-                if (agent) {
-                  next.set(parsed.agentId, {
-                    ...agent,
-                    reasoning: agent.reasoning + parsed.content,
-                  });
-                }
-                return next;
-              });
-            } else if (parsed.type === "debate_complete") {
-              setAgentResults((prev) => {
-                const next = new Map(prev);
-                const agent = next.get(parsed.agentId);
-                if (agent) {
-                  next.set(parsed.agentId, {
-                    ...agent,
-                    probability: parsed.revisedProbability,
-                  });
-                }
-                return next;
-              });
-            } else if (parsed.type === "consensus") {
-              setConsensus(parsed);
-            } else if (parsed.type === "error") {
-              setError(parsed.message);
-            }
-          } catch {
-            // Skip malformed JSON
           }
         }
       }
+
+      const trailing = buffer.trim();
+      if (trailing.startsWith("data: ")) {
+        handleData(trailing.slice(6));
+      }
     } catch (err: any) {
       setError(err.message);
+    } finally {
+      setIsStreaming(false);
     }
-    setIsStreaming(false);
-  }, [marketId, activeAgentTab]);
+  }, [marketId]);
 
   const fetchResearchData = useCallback(async () => {
     if (!question) return;

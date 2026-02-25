@@ -27,6 +27,7 @@ function makeSnapshot(overrides?: Partial<AgentMetricsSnapshot>): AgentMetricsSn
         research: 80,
         prediction: 40,
         bet: 20,
+        resolution: 0,
         discovery: 5,
         error: 10,
         debate: 10,

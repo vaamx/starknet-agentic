@@ -26,6 +26,7 @@ interface TradeLogProps {
 const TYPE_COLORS: Record<string, string> = {
   bet: "text-neo-yellow",
   prediction: "text-neo-green",
+  resolution: "text-neo-orange",
   market_creation: "text-neo-purple",
   defi_swap: "text-neo-blue",
   debate: "text-neo-orange",
@@ -34,6 +35,7 @@ const TYPE_COLORS: Record<string, string> = {
 const TYPE_LABELS: Record<string, string> = {
   bet: "BET",
   prediction: "PRED",
+  resolution: "RES",
   market_creation: "GENESIS",
   defi_swap: "SWAP",
   debate: "DEBATE",
@@ -94,6 +96,7 @@ export default function TradeLog({ isLoopRunning = false }: TradeLogProps) {
           parsed.agentId &&
           (parsed.type === "bet" ||
             parsed.type === "prediction" ||
+            parsed.type === "resolution" ||
             parsed.type === "market_creation" ||
             parsed.type === "defi_swap" ||
             parsed.type === "debate")
@@ -105,7 +108,7 @@ export default function TradeLog({ isLoopRunning = false }: TradeLogProps) {
             isAgent: true,
             marketId: parsed.marketId,
             question: parsed.question,
-            outcome: parsed.betOutcome,
+            outcome: parsed.betOutcome ?? parsed.resolutionOutcome,
             amount: parsed.betAmount,
             probability: parsed.probability,
             detail: parsed.detail,

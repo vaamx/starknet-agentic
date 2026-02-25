@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getMarkets, MARKET_QUESTIONS } from "@/lib/market-reader";
+import { getMarkets, resolveMarketQuestion } from "@/lib/market-reader";
 
 export async function GET() {
   try {
@@ -12,7 +12,7 @@ export async function GET() {
       .map((m) => ({
         id: m.id,
         address: m.address,
-        question: MARKET_QUESTIONS[m.id] ?? `Market #${m.id}`,
+        question: resolveMarketQuestion(m.id, m.questionHash),
         resolutionTime: m.resolutionTime,
         overdueDays: Math.floor((now - m.resolutionTime) / 86400),
         totalPool: m.totalPool.toString(),

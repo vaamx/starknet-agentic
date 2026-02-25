@@ -12,6 +12,7 @@ const ACTION_TYPES: AgentAction["type"][] = [
   "research",
   "prediction",
   "bet",
+  "resolution",
   "discovery",
   "error",
   "debate",
