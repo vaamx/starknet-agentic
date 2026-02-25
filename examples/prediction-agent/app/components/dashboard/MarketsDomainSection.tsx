@@ -212,10 +212,10 @@ export default function MarketsDomainSection({
           <div className="w-16 h-16 mx-auto mb-4 bg-neo-yellow/20 border border-neo-yellow/30 flex items-center justify-center rounded-2xl text-neo-yellow">
             <span className="text-3xl">?</span>
           </div>
-          <p className="font-heading font-bold text-lg mb-1">No markets yet</p>
+          <p className="font-heading font-bold text-lg mb-1">No open markets right now</p>
           <p className="text-sm text-white/50">
             {factoryConfigured
-              ? "Autonomous mode can auto-create the first market once the factory is live."
+              ? "Factory is live. Autonomous mode can auto-create markets on the next tick, or use Run One Tick now."
               : "Market factory not configured — deploy contracts to begin."}
           </p>
         </div>
