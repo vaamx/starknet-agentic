@@ -60,7 +60,7 @@ async function executeV3(account: Account, calls: any[]): Promise<any> {
     if (shouldFallbackToV1(message)) {
       try {
         return await account.execute(calls, {
-          version: ETransactionVersion.V1,
+          version: ETransactionVersion.F1,
         });
       } catch (v1Err: any) {
         throw new Error(`V3->V1 fallback failed: ${normalizeTxError(v1Err)}`);
