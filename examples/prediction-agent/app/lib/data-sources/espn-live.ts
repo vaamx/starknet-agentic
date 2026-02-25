@@ -9,30 +9,137 @@ import type { DataSourceResult, DataPoint } from "./index";
 
 const ESPN_SCOREBOARD_URL =
   "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard";
+const SPORTS_KEYWORD_REGEX =
+  /super bowl|\bsb\b|nfl|seahawks|touchdown|quarterback|halftime|overtime|mvp|rushing|first score|defensive/i;
+
+function pad2(value: number): string {
+  return value.toString().padStart(2, "0");
+}
+
+function formatDateKey(date: Date): string {
+  return `${date.getUTCFullYear()}${pad2(date.getUTCMonth() + 1)}${pad2(
+    date.getUTCDate()
+  )}`;
+}
+
+function secondSundayOfFebruaryUtc(year: number): Date {
+  const first = new Date(Date.UTC(year, 1, 1));
+  const firstDay = first.getUTCDay(); // 0 = Sunday
+  const firstSundayOffset = (7 - firstDay) % 7;
+  const day = 1 + firstSundayOffset + 7;
+  return new Date(Date.UTC(year, 1, day));
+}
+
+function buildSuperBowlDateCandidates(now: Date): string[] {
+  const years = [now.getUTCFullYear() - 1, now.getUTCFullYear(), now.getUTCFullYear() + 1];
+  const keys: string[] = [];
+  for (const year of years) {
+    const base = secondSundayOfFebruaryUtc(year);
+    for (const delta of [-1, 0, 1]) {
+      const date = new Date(base);
+      date.setUTCDate(base.getUTCDate() + delta);
+      keys.push(formatDateKey(date));
+    }
+  }
+  return Array.from(new Set(keys));
+}
+
+function getTeamTokens(question: string): string[] {
+  const stop = new Set([
+    "will",
+    "win",
+    "over",
+    "under",
+    "score",
+    "total",
+    "first",
+    "last",
+    "half",
+    "touchdown",
+    "defensive",
+    "quarterback",
+    "mvp",
+    "super",
+    "bowl",
+    "nfl",
+    "sb",
+    "lx",
+    "is",
+    "a",
+    "the",
+    "in",
+    "by",
+    "of",
+  ]);
+
+  return question
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !stop.has(token));
+}
+
+function isSuperBowlEvent(event: any): boolean {
+  const text = `${event?.name ?? ""} ${event?.shortName ?? ""}`.toLowerCase();
+  return text.includes("super bowl");
+}
+
+function pickRelevantGame(events: any[], question: string): any | null {
+  if (!Array.isArray(events) || events.length === 0) return null;
+
+  const teamTokens = getTeamTokens(question);
+  const byQuestion = events.find((event) => {
+    const text = `${event?.name ?? ""} ${event?.shortName ?? ""}`.toLowerCase();
+    if (teamTokens.length === 0) return false;
+    return teamTokens.some((token) => text.includes(token));
+  });
+
+  const superBowl = events.find((event) => isSuperBowlEvent(event));
+  return byQuestion ?? superBowl ?? events[0];
+}
+
+async function fetchScoreboardEvents(dateKey?: string): Promise<any[]> {
+  const url = dateKey
+    ? `${ESPN_SCOREBOARD_URL}?dates=${encodeURIComponent(dateKey)}`
+    : ESPN_SCOREBOARD_URL;
+
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(5000),
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(`ESPN API ${response.status}`);
+
+  const result = await response.json();
+  return result.events ?? [];
+}
+
+async function findRelevantGame(question: string): Promise<any | null> {
+  const events = await fetchScoreboardEvents();
+  const primary = pickRelevantGame(events, question);
+  if (primary) return primary;
+
+  if (!SPORTS_KEYWORD_REGEX.test(question)) return null;
+
+  const candidates = buildSuperBowlDateCandidates(new Date());
+  for (const dateKey of candidates) {
+    try {
+      const historicalEvents = await fetchScoreboardEvents(dateKey);
+      const game = pickRelevantGame(historicalEvents, question);
+      if (game) return game;
+    } catch {
+      // Continue best-effort historical lookups.
+    }
+  }
+
+  return null;
+}
 
 export async function fetchEspnScores(
   question: string
 ): Promise<DataSourceResult> {
   try {
-    const response = await fetch(ESPN_SCOREBOARD_URL, {
-      signal: AbortSignal.timeout(5000),
-      headers: { Accept: "application/json" },
-    });
-
-    if (!response.ok) throw new Error(`ESPN API ${response.status}`);
-
-    const result = await response.json();
-    const events = result.events ?? [];
-
-    // Find Super Bowl or any active NFL game
-    const superBowl = events.find(
-      (e: any) =>
-        e.name?.toLowerCase().includes("super bowl") ||
-        e.shortName?.toLowerCase().includes("sea") ||
-        e.shortName?.toLowerCase().includes("ne")
-    );
-
-    const game = superBowl ?? events[0];
+    const game = await findRelevantGame(question);
 
     if (!game) {
       return {
