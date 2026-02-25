@@ -179,6 +179,41 @@ function parseNumber(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function stableQuestionHash(input: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).slice(0, 4);
+}
+
+function questionFingerprint(question: string): string {
+  return question
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\bwill\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 48);
+}
+
+function toOnChainQuestion(question: string, durationDays: number): string {
+  const clean = question
+    .replace(/[^\x20-\x7E]/g, "")
+    .replace(/\?/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) {
+    return `Market ${Math.max(1, durationDays)}d`;
+  }
+
+  const suffix = ` ${Math.max(1, durationDays)}d ${stableQuestionHash(clean)}`;
+  const maxBaseLen = Math.max(8, 31 - suffix.length);
+  const base = clean.slice(0, maxBaseLen).trim();
+  return `${base}${suffix}`.slice(0, 31);
+}
+
 async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -1271,13 +1306,13 @@ class AgentLoop {
     const suggestions = await discoverMarkets(suggestedCategory, 10);
     if (suggestions.length === 0) return false;
 
-    const existingQuestions = new Set(
-      Object.values(MARKET_QUESTIONS).map((q) => q.toLowerCase())
+    const existingQuestionFingerprints = new Set(
+      Object.values(MARKET_QUESTIONS).map((q) => questionFingerprint(q))
     );
     if (existingMarkets) {
       for (const market of existingMarkets) {
         const resolved = resolveMarketQuestion(market.id, market.questionHash);
-        existingQuestions.add(resolved.toLowerCase());
+        existingQuestionFingerprints.add(questionFingerprint(resolved));
       }
     }
     const rankedSuggestions = suggestions
@@ -1301,16 +1336,19 @@ class AgentLoop {
     const picked =
       rankedSuggestions
         .map((entry) => entry.suggestion)
-        .find((s) => !existingQuestions.has(s.question.toLowerCase())) ??
+        .find(
+          (s) =>
+            !existingQuestionFingerprints.has(questionFingerprint(s.question))
+        ) ??
       rankedSuggestions[0]?.suggestion ??
       suggestions[0];
 
     const questionRaw = picked.question;
-    const question = questionRaw.slice(0, 31).replace(/[^\x20-\x7E]/g, "");
     const durationDays = picked.suggestedResolutionDays ?? 30;
+    const onChainQuestion = toOnChainQuestion(questionRaw, durationDays);
 
     const result = await createMarket(
-      question,
+      onChainQuestion,
       durationDays,
       200,
       config.AGENT_ADDRESS
@@ -1321,10 +1359,10 @@ class AgentLoop {
     }
 
     if (result.marketId !== undefined) {
-      registerQuestion(result.marketId, question);
+      registerQuestion(result.marketId, questionRaw);
     }
 
-    let detail = `Created new market: "${question}"`;
+    let detail = `Created new market: "${questionRaw}"`;
     if (result.allowlistTxHash) {
       detail += " (allowlist updated)";
     } else if (result.allowlistError) {
@@ -1337,7 +1375,7 @@ class AgentLoop {
         agentName: "Agent Loop",
         type: "market_creation",
         marketId: result.marketId,
-        question,
+        question: questionRaw,
         detail,
         txHash: result.txHash,
       })
