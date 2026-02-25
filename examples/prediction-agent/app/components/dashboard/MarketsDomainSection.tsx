@@ -63,6 +63,36 @@ export default function MarketsDomainSection({
   const pulseText = loopActions.slice(-1)[0]?.detail ?? "";
   const featuredMarkets = sortedMarkets.slice(0, 3);
 
+  const renderFeaturedCard = (market: Market) => {
+    const cardCategory = categorizeMarket(market.question).toUpperCase();
+    const yesPct = Math.round(market.impliedProbYes * 100);
+    return (
+      <article
+        key={`featured-${market.id}`}
+        className="neo-card p-4 border-white/15 bg-gradient-to-b from-white/[0.08] to-white/[0.02]"
+      >
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[10px] font-mono text-neo-green/80">{cardCategory}</span>
+          <span className="text-[10px] font-mono text-white/45">#{market.id}</span>
+        </div>
+        <p className="font-heading font-semibold text-sm text-white/90 line-clamp-2 min-h-[2.6rem]">
+          {market.question}
+        </p>
+        <div className="mt-3 flex items-center justify-between">
+          <span className="text-[10px] text-white/50">Market YES</span>
+          <span className="font-mono text-neo-green">{yesPct}%</span>
+        </div>
+        <button
+          type="button"
+          className="neo-btn-secondary w-full mt-3 text-xs py-2"
+          onClick={() => onAnalyze(market.id)}
+        >
+          Analyze Now
+        </button>
+      </article>
+    );
+  };
+
   return (
     <section className="flex-1 min-w-0 space-y-4" aria-labelledby="markets-heading">
       <div className="flex items-center justify-between mb-1">
@@ -87,7 +117,7 @@ export default function MarketsDomainSection({
                   Swarm Pulse
                 </p>
               </div>
-              <p className="text-xs text-white/80 mt-0.5 truncate">
+              <p className="text-xs text-white/80 mt-0.5 line-clamp-2 sm:line-clamp-1">
                 {pulseText}
               </p>
             </div>
@@ -106,41 +136,32 @@ export default function MarketsDomainSection({
       )}
 
       {!loading && featuredMarkets.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {featuredMarkets.map((market) => {
-            const category = categorizeMarket(market.question).toUpperCase();
-            const yesPct = Math.round(market.impliedProbYes * 100);
-            return (
-              <article
-                key={`featured-${market.id}`}
-                className="neo-card p-4 border-white/15 bg-gradient-to-b from-white/[0.08] to-white/[0.02]"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] font-mono text-neo-green/80">{category}</span>
-                  <span className="text-[10px] font-mono text-white/45">#{market.id}</span>
-                </div>
-                <p className="font-heading font-semibold text-sm text-white/90 line-clamp-2 min-h-[2.6rem]">
-                  {market.question}
-                </p>
-                <div className="mt-3 flex items-center justify-between">
-                  <span className="text-[10px] text-white/50">Market YES</span>
-                  <span className="font-mono text-neo-green">{yesPct}%</span>
-                </div>
-                <button
-                  type="button"
-                  className="neo-btn-secondary w-full mt-3 text-xs py-2"
-                  onClick={() => onAnalyze(market.id)}
+        <>
+          <div className="sm:hidden -mx-4 px-4 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex gap-3 snap-x snap-mandatory">
+              {featuredMarkets.map((market) => (
+                <div
+                  key={`featured-mobile-${market.id}`}
+                  className="min-w-[82%] snap-start"
                 >
-                  Analyze Now
-                </button>
-              </article>
-            );
-          })}
-        </div>
+                  {renderFeaturedCard(market)}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="hidden sm:grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {featuredMarkets.map((market) => renderFeaturedCard(market))}
+          </div>
+        </>
       )}
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center gap-2 flex-wrap" role="tablist" aria-label="Market categories">
+        <div
+          className="flex items-center gap-2 overflow-x-auto whitespace-nowrap pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          role="tablist"
+          aria-label="Market categories"
+        >
           {categoryTabs.map((tab) => (
             <button
               key={tab.id}
@@ -159,47 +180,54 @@ export default function MarketsDomainSection({
           ))}
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <label className="sr-only" htmlFor="market-search">
-            Search markets
-          </label>
-          <input
-            id="market-search"
-            type="search"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search market, topic, or ID..."
-            className="neo-input text-[10px] py-1.5 px-2 w-40 sm:w-52"
-            aria-label="Search markets"
-          />
-          <label className="text-[10px] font-mono text-white/40 uppercase tracking-wider" htmlFor="market-sort">
-            Sort
-          </label>
-          <select
-            id="market-sort"
-            value={sortBy}
-            onChange={(e) => onSortChange(e.target.value as SortMode)}
-            className="neo-input text-[10px] py-1.5 px-2"
-            aria-label="Sort markets"
-          >
-            <option value="engagement">Engagement</option>
-            <option value="volume">Volume</option>
-            <option value="ending">Ending Soon</option>
-            <option value="disagreement">Agent Disagreement</option>
-          </select>
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={isRefreshing || loading}
-            className="neo-btn-secondary text-[10px] px-3 py-1.5 disabled:opacity-60"
-          >
-            {isRefreshing ? "Refreshing..." : "Refresh"}
-          </button>
+        <div className="w-full sm:w-auto">
+          <div className="space-y-2 sm:space-y-0 sm:flex sm:items-center sm:gap-2">
+            <label className="sr-only" htmlFor="market-search">
+              Search markets
+            </label>
+            <input
+              id="market-search"
+              type="search"
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder="Search market, topic, or ID..."
+              className="neo-input text-[10px] py-2 sm:py-1.5 px-2 w-full sm:w-52"
+              aria-label="Search markets"
+            />
+
+            <div className="flex items-center gap-2">
+              <label
+                className="hidden sm:block text-[10px] font-mono text-white/40 uppercase tracking-wider"
+                htmlFor="market-sort"
+              >
+                Sort
+              </label>
+              <select
+                id="market-sort"
+                value={sortBy}
+                onChange={(e) => onSortChange(e.target.value as SortMode)}
+                className="neo-input text-[10px] py-2 sm:py-1.5 px-2 flex-1 sm:flex-none"
+                aria-label="Sort markets"
+              >
+                <option value="engagement">Engagement</option>
+                <option value="volume">Volume</option>
+                <option value="ending">Ending Soon</option>
+                <option value="disagreement">Agent Disagreement</option>
+              </select>
+              <button
+                type="button"
+                onClick={onRefresh}
+                disabled={isRefreshing || loading}
+                className="neo-btn-secondary text-[10px] px-3 py-2 sm:py-1.5 disabled:opacity-60 whitespace-nowrap"
+              >
+                {isRefreshing ? "Refreshing..." : "Refresh"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
-
       {loading ? (
-        <div className="neo-card p-16 text-center">
+        <div className="neo-card p-10 sm:p-16 text-center">
           <div className="inline-flex items-center gap-2">
             <span className="w-2 h-2 bg-neo-green rounded-full animate-bounce" />
             <span className="w-2 h-2 bg-neo-green rounded-full animate-bounce [animation-delay:0.1s]" />
@@ -208,7 +236,7 @@ export default function MarketsDomainSection({
           <p className="font-mono text-xs text-white/50 mt-3">Loading markets...</p>
         </div>
       ) : markets.length === 0 ? (
-        <div className="neo-card p-16 text-center">
+        <div className="neo-card p-10 sm:p-16 text-center">
           <div className="w-16 h-16 mx-auto mb-4 bg-neo-yellow/20 border border-neo-yellow/30 flex items-center justify-center rounded-2xl text-neo-yellow">
             <span className="text-3xl">?</span>
           </div>
@@ -220,7 +248,7 @@ export default function MarketsDomainSection({
           </p>
         </div>
       ) : sortedMarkets.length === 0 ? (
-        <div className="neo-card p-12 text-center">
+        <div className="neo-card p-8 sm:p-12 text-center">
           <p className="font-heading font-bold text-base mb-1">
             {normalizedQuery ? "No markets match your search" : "No markets in this category"}
           </p>

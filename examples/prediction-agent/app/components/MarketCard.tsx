@@ -278,9 +278,9 @@ export default function MarketCard({
       {/* Top glow stripe */}
       <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-neo-green/70 via-neo-blue/60 to-neo-purple/70" />
 
-      <div className="p-5 pt-6">
+      <div className="p-4 sm:p-5 pt-5 sm:pt-6">
         {/* Header Row */}
-        <div className="flex items-start gap-3 mb-4">
+        <div className="flex items-start gap-2 sm:gap-3 mb-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1.5">
               <span
@@ -297,14 +297,14 @@ export default function MarketCard({
                 #{id}
               </span>
             </div>
-            <h3 className="font-heading font-semibold text-[17px] leading-snug text-balance text-white">
+            <h3 className="font-heading font-semibold text-[15px] sm:text-[17px] leading-snug text-balance text-white">
               {question}
             </h3>
           </div>
 
           {/* Big YES number */}
           <div className="text-right shrink-0 -mt-0.5">
-            <div className="font-mono font-bold text-3xl tracking-tighter leading-none text-white">
+            <div className="font-mono font-bold text-2xl sm:text-3xl tracking-tighter leading-none text-white">
               {yesPercent}
               <span className="text-lg text-white/40">%</span>
             </div>
@@ -316,7 +316,7 @@ export default function MarketCard({
 
         {/* Dual Probability Bar */}
         <div className="mb-4">
-          <div className="flex h-4 rounded-full bg-white/10 overflow-hidden">
+          <div className="flex h-3.5 sm:h-4 rounded-full bg-white/10 overflow-hidden">
             <div
               className="prob-bar bg-neo-green/80 flex items-center justify-center transition-all"
               style={{ width: `${yesPercent}%` }}
@@ -417,7 +417,7 @@ export default function MarketCard({
         </div>
 
         {/* Stats Row */}
-        <div className="flex items-center gap-1.5 mb-4">
+        <div className="flex flex-wrap items-center gap-1.5 mb-4">
           <span className="neo-badge bg-white/5 text-[10px] py-0.5 px-2 border-white/10">
             {poolDisplay} STRK
           </span>
@@ -522,7 +522,7 @@ export default function MarketCard({
             </button>
 
             {expanded && (
-              <div className="border border-white/10 bg-white/[0.03] -mx-5 px-5 py-3 mb-4">
+              <div className="border border-white/10 bg-white/[0.03] -mx-4 sm:-mx-5 px-4 sm:px-5 py-3 mb-4">
                 <div className="space-y-2">
                   {predictions.map((p, i) => {
                     const prob = Math.round(p.predictedProb * 100);
