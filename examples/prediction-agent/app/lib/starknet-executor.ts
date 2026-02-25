@@ -3,7 +3,6 @@ import {
   RpcProvider,
   CallData,
   shortString,
-  ETransactionVersion,
 } from "starknet";
 import { config } from "./config";
 import { toScaled } from "./accuracy";
@@ -46,8 +45,21 @@ function normalizeTxError(err: unknown): string {
     );
   }
 
+  if (/providedVersion .* is not ETransactionVersion/i.test(compact)) {
+    return (
+      "RPC rejected a legacy version override. " +
+      "Retried using V3 static-tip execution."
+    );
+  }
+
   return compact.slice(0, 360) || "unknown error";
 }
+
+const STATIC_RESOURCE_BOUNDS = {
+  l1_gas: { max_amount: "0x186a0", max_price_per_unit: "0x3b9aca00" },
+  l2_gas: { max_amount: "0x186a0", max_price_per_unit: "0x3b9aca00" },
+  l1_data_gas: { max_amount: "0x186a0", max_price_per_unit: "0x3b9aca00" },
+};
 
 /** Execute calls as a V3 transaction (starknet.js v8 handles triple gas natively). */
 async function executeV3(account: Account, calls: any[]): Promise<any> {
@@ -56,14 +68,21 @@ async function executeV3(account: Account, calls: any[]): Promise<any> {
   } catch (err: any) {
     const message = err?.message ?? String(err);
     // Some account contract versions fail fee estimation for V3 invokes.
-    // Fall back to V1 so autonomous predictions/bets can still execute.
+    // Retry with explicit tip/resource bounds so we bypass tip-statistics lookup.
     if (shouldFallbackToV1(message)) {
       try {
         return await account.execute(calls, {
-          version: ETransactionVersion.F1,
+          tip: 0,
         });
-      } catch (v1Err: any) {
-        throw new Error(`V3->V1 fallback failed: ${normalizeTxError(v1Err)}`);
+      } catch {
+        try {
+          return await account.execute(calls, {
+            tip: 0,
+            resourceBounds: STATIC_RESOURCE_BOUNDS as any,
+          });
+        } catch (retryErr: any) {
+          throw new Error(`V3 fallback failed: ${normalizeTxError(retryErr)}`);
+        }
       }
     }
     throw err;
