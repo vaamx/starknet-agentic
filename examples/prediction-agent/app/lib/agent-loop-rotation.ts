@@ -36,16 +36,40 @@ export function selectTickAgentActor(
   actors: TickAgentActor[],
   rotationIndex: number
 ): { actor: TickAgentActor; nextIndex: number } | null {
+  const selected = selectTickAgentActors(actors, rotationIndex, 1);
+  if (!selected) return null;
+  return {
+    actor: selected.actors[0],
+    nextIndex: selected.nextIndex,
+  };
+}
+
+/**
+ * Deterministically select a batch of agents from the rotation.
+ * The nextIndex advances by the number of actors returned.
+ */
+export function selectTickAgentActors(
+  actors: TickAgentActor[],
+  rotationIndex: number,
+  count: number
+): { actors: TickAgentActor[]; nextIndex: number } | null {
   if (actors.length === 0) return null;
 
   const normalizedIndex =
     Number.isFinite(rotationIndex) && rotationIndex >= 0
       ? Math.floor(rotationIndex)
       : 0;
+  const safeCount = Number.isFinite(count) ? Math.floor(count) : 1;
+  const take = Math.max(1, Math.min(actors.length, safeCount));
 
-  const pickIndex = normalizedIndex % actors.length;
+  const selected: TickAgentActor[] = [];
+  for (let offset = 0; offset < take; offset += 1) {
+    const pickIndex = (normalizedIndex + offset) % actors.length;
+    selected.push(actors[pickIndex]);
+  }
+
   return {
-    actor: actors[pickIndex],
-    nextIndex: normalizedIndex + 1,
+    actors: selected,
+    nextIndex: normalizedIndex + take,
   };
 }

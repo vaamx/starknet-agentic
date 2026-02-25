@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOnChainActivities } from "@/lib/event-indexer";
 import { agentLoop } from "@/lib/agent-loop";
-import { getMarkets, resolveMarketQuestion } from "@/lib/market-reader";
+import { getMarkets, registerQuestion, resolveMarketQuestion } from "@/lib/market-reader";
 import { config } from "@/lib/config";
-import { getPersistedLoopActions } from "@/lib/state-store";
+import { getPersistedLoopActions, getPersistedMarketSnapshots } from "@/lib/state-store";
 
 export const runtime = "nodejs";
 
@@ -15,6 +15,26 @@ export async function GET(request: NextRequest) {
   const limit = parseInt(request.nextUrl.searchParams.get("limit") ?? "30", 10);
 
   try {
+    const [persistedActions, persistedSnapshots] = await Promise.all([
+      getPersistedLoopActions(Math.max(limit, 200)),
+      getPersistedMarketSnapshots(500),
+    ]);
+    for (const snapshot of persistedSnapshots) {
+      if (snapshot.question) {
+        registerQuestion(snapshot.id, snapshot.question);
+      }
+    }
+    for (const action of persistedActions) {
+      if (
+        action.type === "market_creation" &&
+        typeof action.marketId === "number" &&
+        Number.isFinite(action.marketId) &&
+        action.question
+      ) {
+        registerQuestion(action.marketId, action.question);
+      }
+    }
+
     // Get market addresses for event indexing
     const markets = await getMarkets();
     const addresses = markets.map((m) => m.address).filter((a) => a !== "0x0" && !a.startsWith("0xpending"));
@@ -26,12 +46,11 @@ export async function GET(request: NextRequest) {
     const shouldFetchOnChain =
       addresses.length > 0 || config.MARKET_FACTORY_ADDRESS !== "0x0";
 
-    const [onChainEvents, inMemoryActions, persistedActions] = await Promise.all([
+    const [onChainEvents, inMemoryActions] = await Promise.all([
       shouldFetchOnChain
         ? getOnChainActivities(addresses, limit, config.MARKET_FACTORY_ADDRESS)
         : Promise.resolve([]),
       Promise.resolve(agentLoop.getActionLog(limit)),
-      getPersistedLoopActions(limit),
     ]);
 
     const actionMap = new Map<string, any>();

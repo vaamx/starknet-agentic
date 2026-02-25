@@ -66,7 +66,7 @@ export async function GET(
       return NextResponse.json({ error: "Market not found" }, { status: 404 });
     }
 
-    const [predictions, weightedProb] = await Promise.all([
+    const [onChainPredictions, weightedProb] = await Promise.all([
       withTimeout(getAgentPredictions(marketId), 8_000, []),
       withTimeout(getWeightedProbability(marketId), 8_000, null),
     ]);
@@ -82,6 +82,37 @@ export async function GET(
     const recentActions = Array.from(deduped.values()).sort(
       (a, b) => a.timestamp - b.timestamp
     );
+
+    const predictionMap = new Map<string, (typeof onChainPredictions)[number]>();
+    for (const prediction of onChainPredictions) {
+      predictionMap.set(prediction.agent.toLowerCase(), prediction);
+    }
+    for (const action of [...recentActions].reverse()) {
+      if (
+        action.type !== "prediction" ||
+        action.marketId !== marketId ||
+        typeof action.probability !== "number" ||
+        !Number.isFinite(action.probability)
+      ) {
+        continue;
+      }
+      const agentLabel =
+        typeof action.agentName === "string" && action.agentName.trim().length > 0
+          ? action.agentName.trim()
+          : typeof action.agentId === "string" && action.agentId.trim().length > 0
+            ? action.agentId.trim()
+            : "agent";
+      const key = agentLabel.toLowerCase();
+      if (predictionMap.has(key)) continue;
+      predictionMap.set(key, {
+        agent: agentLabel,
+        marketId,
+        predictedProb: Math.max(0, Math.min(1, action.probability)),
+        brierScore: 0.25,
+        predictionCount: 1,
+      });
+    }
+    const predictions = Array.from(predictionMap.values());
 
     const latestAction = [...recentActions]
       .reverse()
