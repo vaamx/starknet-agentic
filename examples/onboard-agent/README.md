@@ -82,6 +82,26 @@ The script saves:
 2. **Set up session keys** for delegated operations (see `contracts/agent-account/`)
 3. **Publish capabilities** via `@starknet-agentic/agent-passport`
 4. **Connect to MCP server** for AI-agent operations (see `packages/starknet-mcp-server/`)
+5. **(Optional) Enable Huginn thought provenance**:
+   - Deploy/verify HuginnRegistry on Sepolia using `contracts/huginn-registry/scripts/deploy_sepolia.sh` and `verify_sepolia.sh`
+   - Set `HUGINN_REGISTRY_ADDRESS` from `contracts/huginn-registry/deployments/sepolia.json` in agents that log reasoning on-chain
+
+### Agent Passport (recommended immediately after onboarding)
+
+Use canonical ERC-8004 metadata keys:
+
+- `caps`
+- `capability:<name>`
+- `passport:schema`
+
+Example (from repo root, replace `AGENT_ID`):
+
+```bash
+cd skills/starknet-identity
+npx tsx scripts/set-metadata.ts AGENT_ID caps '["predict","multi-predict"]'
+npx tsx scripts/set-metadata.ts AGENT_ID capability:predict '{"name":"predict","category":"prediction","mcpTool":"starknet_call_contract"}'
+npx tsx scripts/set-metadata.ts AGENT_ID passport:schema 'https://starknet-agentic.dev/schemas/agent-passport.schema.json'
+```
 
 ## Architecture
 

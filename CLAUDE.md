@@ -28,7 +28,7 @@ Infrastructure layer for AI agents on Starknet. Provides Cairo smart contracts (
 starknet-agentic/
 ├── packages/
 │   ├── create-starknet-agent/            # CLI scaffolding tool (COMPLETE)
-│   ├── starknet-mcp-server/              # MCP server (PRODUCTION - 9 tools)
+│   ├── starknet-mcp-server/              # MCP server (PRODUCTION - 23 tools)
 │   ├── starknet-a2a/                     # A2A protocol adapter (FUNCTIONAL)
 │   ├── starknet-agent-passport/          # Capability metadata client (FUNCTIONAL)
 │   ├── x402-starknet/                    # X-402 payment protocol (FUNCTIONAL)
@@ -44,8 +44,8 @@ starknet-agentic/
 │   ├── starknet-wallet/                  # Wallet management skill (COMPLETE)
 │   ├── starknet-mini-pay/                # P2P payments + Telegram bot (COMPLETE)
 │   ├── starknet-anonymous-wallet/        # Privacy-focused wallet (COMPLETE)
-│   ├── starknet-defi/                    # DeFi operations skill (TEMPLATE)
-│   ├── starknet-identity/                # Identity & reputation skill (TEMPLATE)
+│   ├── starknet-defi/                    # DeFi operations skill (EXPANDED, Sepolia baseline)
+│   ├── starknet-identity/                # Identity & reputation skill (EXPANDED, Sepolia baseline)
 │   └── huginn-onboard/                   # Cross-chain onboarding skill (COMPLETE)
 ├── examples/
 │   ├── hello-agent/                      # Minimal E2E proof (WORKING)
@@ -81,7 +81,7 @@ NOTE: The Agent Account contract at `contracts/agent-account/` (~570 lines main 
 |------|---------|-------------------|
 | Install TS deps | `pnpm install` | repo root |
 | Build TS packages | `pnpm build` | repo root |
-| Test TS packages | `pnpm test` | repo root |
+| Test TS packages + integration | `pnpm test` | repo root |
 | Build Cairo contracts | `scarb build` | `contracts/erc8004-cairo/` |
 | Test Cairo contracts | `snforge test` | `contracts/erc8004-cairo/` |
 | Run specific Cairo test | `snforge test --filter test_name` | `contracts/erc8004-cairo/` |
@@ -115,6 +115,13 @@ NOTE: The Agent Account contract at `contracts/agent-account/` (~570 lines main 
 - Include code examples with starknet.js patterns
 - Reference avnu SDK for all DeFi operations
 - List error codes with recovery steps
+
+### MCP vs Skills Boundary (v1)
+- MCP tools are the execution layer; skills are the guidance layer
+- If MCP already exposes a capability, skills should reference it in `MCP Tools Used`
+- If MCP does not expose a capability yet, skills may bundle scripts but must include `Standalone Execution (No MCP Tool Yet)` with rationale
+- Avoid duplicate execution paths for operations already exposed by MCP tools
+- Keep v1 defaults Sepolia-first; defer mainnet runbooks and activation
 
 ### Git
 - Conventional commits preferred (feat:, fix:, docs:, chore:)
@@ -170,17 +177,20 @@ Metadata schema keys: `agentName`, `agentType`, `version`, `model`, `status`, `f
 
 <key_addresses>
 
-### Mainnet Tokens
+### Sepolia v1 Defaults
+- RPC baseline: use Sepolia endpoints for v1 validation and examples
+- avnu Sepolia: `https://sepolia.api.avnu.fi`
+- avnu Paymaster Sepolia: `https://sepolia.paymaster.avnu.fi`
+
+### Mainnet Tokens (Reference Only, Not v1 Default)
 - ETH: `0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7`
 - STRK: `0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d`
 - USDC: `0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8`
 - USDT: `0x068f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8`
 
 ### API Endpoints
-- avnu Mainnet: `https://starknet.api.avnu.fi`
-- avnu Sepolia: `https://sepolia.api.avnu.fi`
-- avnu Paymaster Mainnet: `https://starknet.paymaster.avnu.fi`
-- avnu Paymaster Sepolia: `https://sepolia.paymaster.avnu.fi`
+- avnu Mainnet (reference): `https://starknet.api.avnu.fi`
+- avnu Paymaster Mainnet (reference): `https://starknet.paymaster.avnu.fi`
 
 </key_addresses>
 
@@ -189,8 +199,10 @@ Metadata schema keys: `agentName`, `agentType`, `version`, `model`, `status`, `f
 ### Adding a new skill
 1. Create `skills/<skill-name>/SKILL.md` with YAML frontmatter
 2. Follow AgentSkills spec in `references/agentskills/SPECS.md`
-3. Include code examples, error handling, token addresses
-4. Optionally add `references/` and `scripts/` subdirectories
+3. Add `MCP Tools Used` if capability is already exposed by MCP
+4. If MCP coverage does not exist, add `Standalone Execution (No MCP Tool Yet)` with rationale
+5. Include code examples, error handling, token addresses
+6. Optionally add `references/` and `scripts/` subdirectories
 
 ### Adding a new MCP tool
 1. Define tool schema with Zod in `packages/starknet-mcp-server/src/tools/`
@@ -261,7 +273,7 @@ Always consult `references/` before relying on training data for Starknet-specif
 |-----------|--------|----------|
 | create-starknet-agent CLI | **Complete** (scaffolding tool) | `packages/create-starknet-agent/` |
 | ERC-8004 Cairo contracts | **Production** (131+ unit + 47 E2E tests) | `contracts/erc8004-cairo/` |
-| MCP server | **Production** (9 tools, 1,600+ lines) | `packages/starknet-mcp-server/` |
+| MCP server | **Production** (23 tools, 1,600+ lines) | `packages/starknet-mcp-server/` |
 | A2A adapter | **Functional** (437 lines) | `packages/starknet-a2a/` |
 | Agent Passport client | **Functional** (142 lines) | `packages/starknet-agent-passport/` |
 | X-402 Starknet signing | **Functional** (110 lines) | `packages/x402-starknet/` |
@@ -271,8 +283,8 @@ Always consult `references/` before relying on training data for Starknet-specif
 | Skill: starknet-wallet | **Complete** (465 lines) | `skills/starknet-wallet/` |
 | Skill: starknet-mini-pay | **Complete** (Python CLI + Telegram bot) | `skills/starknet-mini-pay/` |
 | Skill: starknet-anonymous-wallet | **Complete** (271 lines) | `skills/starknet-anonymous-wallet/` |
-| Skill: starknet-defi | **Template** (needs expansion) | `skills/starknet-defi/` |
-| Skill: starknet-identity | **Template** (needs expansion) | `skills/starknet-identity/` |
+| Skill: starknet-defi | **Expanded** (Sepolia baseline; in-review hardening) | `skills/starknet-defi/` |
+| Skill: starknet-identity | **Expanded** (Sepolia baseline; in-review hardening) | `skills/starknet-identity/` |
 | Skill: huginn-onboard | **Complete** (cross-chain onboarding) | `skills/huginn-onboard/` |
 | Example: hello-agent | **Working** (E2E proof) | `examples/hello-agent/` |
 | Example: defi-agent | **Working** (~337 lines, arb example) | `examples/defi-agent/` |
@@ -282,7 +294,7 @@ Always consult `references/` before relying on training data for Starknet-specif
 | Docs & specs | **Complete** (updated 2026-02-10) | `docs/` |
 | CI/CD | **Implemented** (11 jobs: typecheck, lint, test, 3x cairo, website, skills, smoke) | `.github/workflows/` |
 | Framework extensions | **TODO** (deferred to v2.0) | Not yet created |
-| MCP identity tools | **TODO** (nice-to-have) | Not yet implemented |
+| MCP identity tools | **Implemented** (identity + reputation + validation request tools shipped) | `packages/starknet-mcp-server/` |
 
 </implementation_status>
 

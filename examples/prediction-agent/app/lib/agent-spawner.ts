@@ -11,6 +11,27 @@
 import type { Account } from "starknet";
 import { AGENT_PERSONAS, type AgentPersona } from "./agent-personas";
 
+export type ChildServerTier = "nano" | "micro" | "small";
+export type ChildServerStatus = "starting" | "running" | "stopping" | "dead";
+
+export interface ChildServerRuntime {
+  provider: "bitsage-cloud";
+  machineId: string;
+  flyMachineId: string;
+  tier: ChildServerTier;
+  region?: string;
+  preferredRegions?: string[];
+  regionFailureLog?: Array<{ region: string; failedAt: number }>;
+  status: ChildServerStatus;
+  createdAt: number;
+  lastHeartbeatAt: number | null;
+  consecutiveHeartbeatFailures?: number;
+  failoverCount?: number;
+  lastFailoverAt?: number | null;
+  depositTxHash?: string;
+  lastError?: string;
+}
+
 export interface AgentBudget {
   totalBudget: bigint;
   spent: bigint;
@@ -38,6 +59,8 @@ export interface SpawnedAgent {
   account?: Account;
   /** ERC-8004 identity token ID from the IdentityRegistry. */
   agentId?: bigint;
+  /** Optional server runtime backing this child agent. */
+  runtime?: ChildServerRuntime;
 }
 
 export interface SpawnAgentConfig {
@@ -61,6 +84,25 @@ export interface SerializedSpawnedAgent {
   maxBetStrk: number;
   createdAt: number;
   status: "running" | "paused" | "stopped";
+  walletAddress?: string;
+  agentId?: string;
+  runtime?: {
+    provider: "bitsage-cloud";
+    machineId: string;
+    flyMachineId?: string;
+    tier: ChildServerTier;
+    region?: string;
+    preferredRegions?: string[];
+    regionFailureLog?: Array<{ region: string; failedAt: number }>;
+    status: ChildServerStatus;
+    createdAt?: number;
+    lastHeartbeatAt: number | null;
+    consecutiveHeartbeatFailures?: number;
+    failoverCount?: number;
+    lastFailoverAt?: number | null;
+    depositTxHash?: string;
+    lastError?: string;
+  };
 }
 
 /**
@@ -164,6 +206,123 @@ class AgentSpawnerRegistry {
     return this.agents.get(id) ?? null;
   }
 
+  restore(serialized: SerializedSpawnedAgent): SpawnedAgent {
+    const existing = this.agents.get(serialized.id);
+    if (existing) {
+      existing.status = serialized.status;
+      existing.walletAddress = serialized.walletAddress;
+      if (serialized.agentId) {
+        try {
+          existing.agentId = BigInt(serialized.agentId);
+        } catch {
+          // ignore invalid persisted agentId
+        }
+      }
+      if (serialized.runtime) {
+        existing.runtime = {
+          provider: "bitsage-cloud",
+          machineId: serialized.runtime.machineId,
+          flyMachineId:
+            serialized.runtime.flyMachineId ?? serialized.runtime.machineId,
+          tier: serialized.runtime.tier,
+          region: serialized.runtime.region,
+          preferredRegions: serialized.runtime.preferredRegions ?? [],
+          regionFailureLog: serialized.runtime.regionFailureLog ?? [],
+          status: serialized.runtime.status,
+          createdAt: serialized.runtime.createdAt ?? Date.now(),
+          lastHeartbeatAt: serialized.runtime.lastHeartbeatAt ?? null,
+          consecutiveHeartbeatFailures:
+            serialized.runtime.consecutiveHeartbeatFailures ?? 0,
+          failoverCount: serialized.runtime.failoverCount ?? 0,
+          lastFailoverAt: serialized.runtime.lastFailoverAt ?? null,
+          depositTxHash: serialized.runtime.depositTxHash,
+          lastError: serialized.runtime.lastError,
+        };
+      }
+      return existing;
+    }
+
+    const knownPersona = AGENT_PERSONAS.find((p) => p.id === serialized.personaId);
+    const persona: AgentPersona = knownPersona
+      ? {
+          ...knownPersona,
+          id: serialized.id,
+          name: serialized.name,
+          preferredSources:
+            serialized.preferredSources?.length > 0
+              ? serialized.preferredSources
+              : knownPersona.preferredSources,
+        }
+      : {
+          id: serialized.id,
+          name: serialized.name,
+          agentType: serialized.agentType || "custom-forecaster",
+          model: serialized.model || "claude-sonnet-4-5",
+          biasFactor: 0.0,
+          confidence: 0.8,
+          preferredSources: serialized.preferredSources ?? [
+            "polymarket",
+            "coingecko",
+            "news",
+            "social",
+          ],
+          systemPrompt: `You are ${serialized.name}, a custom AI forecasting agent.`,
+        };
+
+    const budgetWei = BigInt(Math.floor((serialized.budgetStrk ?? 300) * 1e18));
+    const maxBetWei = BigInt(Math.floor((serialized.maxBetStrk ?? 10) * 1e18));
+
+    const restored: SpawnedAgent = {
+      id: serialized.id,
+      name: serialized.name,
+      persona,
+      budget: {
+        totalBudget: budgetWei,
+        spent: 0n,
+        maxBetSize: maxBetWei,
+      },
+      createdAt: serialized.createdAt ?? Date.now(),
+      status: serialized.status,
+      stats: {
+        predictions: 0,
+        bets: 0,
+        pnl: 0n,
+      },
+      walletAddress: serialized.walletAddress,
+    };
+
+    if (serialized.agentId) {
+      try {
+        restored.agentId = BigInt(serialized.agentId);
+      } catch {
+        // ignore invalid persisted agentId
+      }
+    }
+
+    if (serialized.runtime) {
+      restored.runtime = {
+        provider: "bitsage-cloud",
+        machineId: serialized.runtime.machineId,
+        flyMachineId: serialized.runtime.flyMachineId ?? serialized.runtime.machineId,
+        tier: serialized.runtime.tier,
+        region: serialized.runtime.region,
+        preferredRegions: serialized.runtime.preferredRegions ?? [],
+        regionFailureLog: serialized.runtime.regionFailureLog ?? [],
+        status: serialized.runtime.status,
+        createdAt: serialized.runtime.createdAt ?? Date.now(),
+        lastHeartbeatAt: serialized.runtime.lastHeartbeatAt ?? null,
+        consecutiveHeartbeatFailures: serialized.runtime.consecutiveHeartbeatFailures ?? 0,
+        failoverCount: serialized.runtime.failoverCount ?? 0,
+        lastFailoverAt: serialized.runtime.lastFailoverAt ?? null,
+        depositTxHash: serialized.runtime.depositTxHash,
+        lastError: serialized.runtime.lastError,
+      };
+    }
+
+    this.agents.set(restored.id, restored);
+    return restored;
+  }
+
   private createCustomPersona(
     id: string,
     config: SpawnAgentConfig
@@ -236,6 +395,25 @@ export function serializeAgent(
     // On-chain identity (Phase D) — exposed in API but private key never included
     walletAddress: agent.walletAddress,
     agentId: agent.agentId?.toString(),
+    runtime: agent.runtime
+      ? {
+          provider: agent.runtime.provider,
+          machineId: agent.runtime.machineId,
+          flyMachineId: agent.runtime.flyMachineId,
+          tier: agent.runtime.tier,
+          region: agent.runtime.region,
+          preferredRegions: agent.runtime.preferredRegions,
+          regionFailureLog: agent.runtime.regionFailureLog,
+          status: agent.runtime.status,
+          createdAt: agent.runtime.createdAt,
+          lastHeartbeatAt: agent.runtime.lastHeartbeatAt,
+          consecutiveHeartbeatFailures: agent.runtime.consecutiveHeartbeatFailures,
+          failoverCount: agent.runtime.failoverCount,
+          lastFailoverAt: agent.runtime.lastFailoverAt,
+          depositTxHash: agent.runtime.depositTxHash,
+          lastError: agent.runtime.lastError,
+        }
+      : undefined,
   };
 }
 
@@ -255,5 +433,26 @@ export function serializeForStorage(agent: SpawnedAgent): SerializedSpawnedAgent
     maxBetStrk: Number(agent.budget.maxBetSize / 10n ** 18n),
     createdAt: agent.createdAt,
     status: agent.status,
+    walletAddress: agent.walletAddress,
+    agentId: agent.agentId?.toString(),
+    runtime: agent.runtime
+      ? {
+          provider: agent.runtime.provider,
+          machineId: agent.runtime.machineId,
+          flyMachineId: agent.runtime.flyMachineId,
+          tier: agent.runtime.tier,
+          region: agent.runtime.region,
+          preferredRegions: agent.runtime.preferredRegions,
+          regionFailureLog: agent.runtime.regionFailureLog,
+          status: agent.runtime.status,
+          createdAt: agent.runtime.createdAt,
+          lastHeartbeatAt: agent.runtime.lastHeartbeatAt,
+          consecutiveHeartbeatFailures: agent.runtime.consecutiveHeartbeatFailures,
+          failoverCount: agent.runtime.failoverCount,
+          lastFailoverAt: agent.runtime.lastFailoverAt,
+          depositTxHash: agent.runtime.depositTxHash,
+          lastError: agent.runtime.lastError,
+        }
+      : undefined,
   };
 }

@@ -7,7 +7,7 @@ import { Callout, Collapsible } from "@/components/docs";
 
 # MCP Tools Reference
 
-This page documents all 14 tools exposed by the Starknet MCP Server (10 core + 4 conditional). Each tool includes its description, parameters, return values, and usage examples.
+This page documents the tools exposed by the Starknet MCP Server. Each tool includes its description, parameters, return values, and usage examples.
 
 <Callout type="info" title="Tool Invocation">
   These tools are invoked automatically by your AI assistant. You describe what you want in natural language, and the AI selects the appropriate tool and parameters.
@@ -25,11 +25,22 @@ This page documents all 14 tools exposed by the Starknet MCP Server (10 core + 4
 | [`starknet_call_contract`](#starknet_call_contract) | Call view function | No |
 | [`starknet_invoke_contract`](#starknet_invoke_contract) | Invoke contract function | Yes |
 | [`starknet_estimate_fee`](#starknet_estimate_fee) | Estimate transaction fee | No |
+| [`starknet_create_payment_link`](#starknet_create_payment_link) | Create Starknet payment link | No |
+| [`starknet_parse_payment_link`](#starknet_parse_payment_link) | Parse payment link fields | No |
+| [`starknet_create_invoice`](#starknet_create_invoice) | Create payment invoice payload | No |
+| [`starknet_get_invoice_status`](#starknet_get_invoice_status) | Check invoice status/fulfillment | No |
+| [`starknet_generate_qr`](#starknet_generate_qr) | Generate QR-style payload | No |
 | [`starknet_build_calls`](#starknet_build_calls) | Build unsigned calls for external signing | No |
 | [`x402_starknet_sign_payment_required`](#x402_starknet_sign_payment_required) | Sign X-402 payment | No |
 | [`starknet_register_agent`](#starknet_register_agent) | Register ERC-8004 identity | Yes |
+| [`starknet_get_agent_info`](#starknet_get_agent_info) | Read consolidated agent identity state | No |
 | [`starknet_set_agent_metadata`](#starknet_set_agent_metadata) | Set agent metadata | Yes |
+| [`starknet_update_agent_metadata`](#starknet_update_agent_metadata) | Alias for metadata updates | Yes |
 | [`starknet_get_agent_metadata`](#starknet_get_agent_metadata) | Read agent metadata | No |
+| [`starknet_get_agent_passport`](#starknet_get_agent_passport) | Read Agent Passport metadata | No |
+| [`starknet_give_feedback`](#starknet_give_feedback) | Submit reputation feedback | Yes |
+| [`starknet_get_reputation`](#starknet_get_reputation) | Read reputation summary | No |
+| [`starknet_request_validation`](#starknet_request_validation) | Request third-party validation | Yes |
 | [`starknet_deploy_agent_account`](#starknet_deploy_agent_account) | Deploy agent account | Yes |
 
 ---
@@ -975,6 +986,149 @@ Sign a base64-encoded PAYMENT-REQUIRED header containing Starknet typedData. Par
 
 ---
 
+## starknet_create_payment_link
+
+Create shareable Starknet payment links in `starknet:<address>?...` format.
+
+**Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `address` | string | Yes | Recipient Starknet address |
+| `amount` | string | No | Human-readable amount (e.g. `"1.25"`) |
+| `token` | string | No | Token symbol or address (defaults to `STRK` when amount is present) |
+| `memo` | string | No | Optional memo (max 256 chars) |
+| `invoiceId` | string | No | Optional invoice id from `starknet_create_invoice` |
+
+**Returns**
+
+```json
+{
+  "paymentLink": "starknet:0x04f3...?amount=1.25&token=USDC&memo=coffee",
+  "address": "0x04f3...",
+  "amount": "1.25",
+  "amountRaw": "1250000",
+  "token": "USDC",
+  "tokenAddress": "0x053c...",
+  "decimals": 6
+}
+```
+
+---
+
+## starknet_parse_payment_link
+
+Parse `starknet:` payment links into normalized fields.
+
+**Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `paymentLink` | string | Yes | Full `starknet:` payment link |
+
+**Returns**
+
+```json
+{
+  "scheme": "starknet",
+  "address": "0x04f3...",
+  "amount": "1.25",
+  "amountRaw": "1250000",
+  "token": "USDC",
+  "tokenAddress": "0x053c...",
+  "memo": "coffee",
+  "invoiceId": "eyJ2IjoxLC4uLn0"
+}
+```
+
+---
+
+## starknet_create_invoice
+
+Create a stateless invoice payload and payment link for request/collect flows.
+
+**Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `recipient` | string | Yes | Recipient Starknet address |
+| `amount` | string | Yes | Human-readable amount |
+| `token` | string | No | Token symbol/address (default: `USDC`) |
+| `memo` | string | No | Invoice description |
+| `expiresInSeconds` | number | No | Expiry in seconds (default `3600`, min `60`, max `604800`) |
+
+**Returns**
+
+```json
+{
+  "invoiceId": "eyJ2IjoxLCJ...snip",
+  "status": "pending",
+  "paymentLink": "starknet:0x04f3...?amount=10&token=USDC&invoice=eyJ2Ijox...",
+  "expiresAt": 1771960000
+}
+```
+
+---
+
+## starknet_get_invoice_status
+
+Decode invoice metadata and optionally verify fulfillment using an on-chain transaction hash.
+
+**Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `invoiceId` | string | Yes | Invoice id from `starknet_create_invoice` |
+| `transactionHash` | string | No | Tx hash to verify payment transfer events |
+
+**Returns**
+
+```json
+{
+  "invoiceId": "eyJ2IjoxLCJ...snip",
+  "status": "paid",
+  "expired": false,
+  "verification": {
+    "transactionHash": "0xabc...",
+    "matchedTransferCount": 1,
+    "paidAmountRaw": "1000000",
+    "requiredAmountRaw": "1000000"
+  }
+}
+```
+
+---
+
+## starknet_generate_qr
+
+Generate QR-style SVG payloads from raw content or Starknet payment fields.
+
+**Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `content` | string | No | Raw payload to encode |
+| `address` | string | No | Payment recipient when `content` is omitted |
+| `amount` | string | No | Optional amount |
+| `token` | string | No | Optional token |
+| `memo` | string | No | Optional memo |
+| `invoiceId` | string | No | Optional invoice id |
+| `format` | string | No | `data_url` (default) or `svg` |
+
+**Returns**
+
+```json
+{
+  "content": "starknet:0x04f3...?amount=1&token=USDC",
+  "format": "data_url",
+  "mimeType": "image/svg+xml",
+  "dataUrl": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iLi4uIg==",
+  "qrBase64": "PHN2ZyB4bWxucz0iLi4uIg=="
+}
+```
+
+---
+
 ## starknet_register_agent
 
 Register a new ERC-8004 agent identity in the IdentityRegistry. This is a conditional tool that only appears when `ERC8004_IDENTITY_REGISTRY_ADDRESS` is configured.
@@ -1059,6 +1213,39 @@ Requires `AVNU_PAYMASTER_API_KEY` for sponsored mode.
 | `REGISTRY_NOT_CONFIGURED` | `ERC8004_IDENTITY_REGISTRY_ADDRESS` not set | Configure the environment variable |
 | `REGISTRATION_FAILED` | Registry transaction reverted | Check deployer has sufficient funds |
 | `EVENT_NOT_FOUND` | Registered event missing | Check transaction on explorer |
+
+---
+
+## starknet_get_agent_info
+
+Read consolidated ERC-8004 identity state: existence, owner, wallet, token URI, and selected metadata keys.
+
+<Callout type="info" title="Conditional Tool">
+  This tool requires the `ERC8004_IDENTITY_REGISTRY_ADDRESS` environment variable.
+</Callout>
+
+**Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | string | Yes | Agent ID (u256 as decimal or hex string) |
+| `metadata_keys` | string[] | No | Metadata keys to fetch (defaults to common identity keys) |
+
+**Returns**
+
+```json
+{
+  "agentId": "42",
+  "exists": true,
+  "owner": "0x...",
+  "wallet": "0x...",
+  "tokenUri": "ipfs://...",
+  "metadata": {
+    "agentName": "Forecast Bot",
+    "status": "active"
+  }
+}
+```
 
 ---
 
@@ -1175,6 +1362,14 @@ Set on-chain metadata for an ERC-8004 agent identity. This is a conditional tool
 
 ---
 
+## starknet_update_agent_metadata
+
+Alias for `starknet_set_agent_metadata`.
+
+Use the same parameters and expect the same result shape as `starknet_set_agent_metadata`. This alias exists for compatibility with tool naming conventions that prefer explicit update verbs.
+
+---
+
 ## starknet_get_agent_metadata
 
 Read on-chain metadata for an ERC-8004 agent identity. This is a read-only operation that does not create a transaction.
@@ -1279,6 +1474,134 @@ If the key has never been set:
 | `REGISTRY_NOT_CONFIGURED` | `ERC8004_IDENTITY_REGISTRY_ADDRESS` not set | Configure the environment variable |
 | `EMPTY_KEY` | Key is empty string | Provide a non-empty key |
 | `RPC_ERROR` | Network communication failed | Check RPC URL and connectivity |
+
+---
+
+## starknet_get_agent_passport
+
+Read Agent Passport metadata from ERC-8004 IdentityRegistry using the canonical keys:
+
+- `caps`
+- `capability:<name>`
+- `passport:schema`
+
+This tool is read-only and helps clients consume a normalized passport view without doing multiple manual metadata calls.
+
+<Callout type="info" title="Conditional Tool">
+  This tool requires the `ERC8004_IDENTITY_REGISTRY_ADDRESS` environment variable to be set. If not configured, the tool is not exposed.
+</Callout>
+
+**Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | string | Yes | Agent ID (u256 as decimal or hex string) |
+
+**Returns**
+
+```json
+{
+  "agentId": "42",
+  "identityRegistry": "0x05e4f6a7b8c9d0...",
+  "schema": "https://starknet-agentic.dev/schemas/agent-passport.schema.json",
+  "caps": ["predict", "multi-predict"],
+  "capabilities": [
+    { "name": "predict", "category": "prediction", "mcpTool": "starknet_call_contract" }
+  ],
+  "issues": []
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `agentId` | string | Agent ID queried |
+| `identityRegistry` | string | IdentityRegistry address used |
+| `schema` | string \| undefined | Passport schema id if set |
+| `caps` | string[] | Canonical capability index |
+| `capabilities` | object[] | Parsed `capability:<name>` payloads |
+| `issues` | string[] | Missing/invalid payload diagnostics |
+
+**Error Codes**
+
+| Error | Cause | Recovery |
+|-------|-------|----------|
+| `REGISTRY_NOT_CONFIGURED` | `ERC8004_IDENTITY_REGISTRY_ADDRESS` not set | Configure the environment variable |
+| `INVALID_CAPS` | `caps` metadata is not a valid JSON array of strings | Rewrite `caps` with valid JSON |
+| `RPC_ERROR` | Network call failed while reading metadata | Retry and verify RPC connectivity |
+
+---
+
+## starknet_give_feedback
+
+Submit feedback for an agent to ERC-8004 ReputationRegistry.
+
+<Callout type="info" title="Conditional Tool">
+  This tool requires `ERC8004_REPUTATION_REGISTRY_ADDRESS`.
+</Callout>
+
+**Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | string | Yes | Agent ID (u256 as decimal or hex string) |
+| `value` | string | Yes | Signed i128 feedback value |
+| `value_decimals` | number | No | Decimal precision for `value` (u8, default `0`) |
+| `tag1` | string | No | Primary feedback tag |
+| `tag2` | string | No | Secondary feedback tag |
+| `endpoint` | string | No | Endpoint/context string |
+| `feedback_uri` | string | No | URI with detailed feedback payload |
+| `feedback_hash` | string | No | Optional u256 attestation hash |
+| `gasfree` | boolean | No | Enable gasfree mode |
+
+---
+
+## starknet_get_reputation
+
+Read aggregated feedback summary from ERC-8004 ReputationRegistry.
+
+<Callout type="info" title="Conditional Tool">
+  This tool requires `ERC8004_REPUTATION_REGISTRY_ADDRESS`.
+</Callout>
+
+**Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | string | Yes | Agent ID (u256 as decimal or hex string) |
+| `tag1` | string | No | Primary tag filter |
+| `tag2` | string | No | Secondary tag filter |
+
+**Returns**
+
+```json
+{
+  "agentId": "42",
+  "count": "12",
+  "summaryValueRaw": "875",
+  "valueDecimals": 2,
+  "summaryValue": "8.75"
+}
+```
+
+---
+
+## starknet_request_validation
+
+Create validation requests in ERC-8004 ValidationRegistry.
+
+<Callout type="info" title="Conditional Tool">
+  This tool requires `ERC8004_VALIDATION_REGISTRY_ADDRESS`.
+</Callout>
+
+**Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `validator_address` | string | Yes | Address that should answer the request |
+| `agent_id` | string | Yes | Agent ID (u256 as decimal or hex string) |
+| `request_uri` | string | Yes | URI with validation request details |
+| `request_hash` | string | No | Optional u256 request hash |
+| `gasfree` | boolean | No | Enable gasfree mode |
 
 ---
 

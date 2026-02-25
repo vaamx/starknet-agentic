@@ -1,0 +1,12 @@
+{
+  "network": "sepolia",
+  "status": "not_deployed",
+  "deployedAt": null,
+  "rpcUrl": "https://starknet-sepolia.public.blastapi.io",
+  "deployerAddress": null,
+  "verifierAddress": null,
+  "classHash": null,
+  "registryAddress": null,
+  "transactionHash": null,
+  "notes": "Run scripts/deploy_sepolia.sh and commit this file with real addresses after operator approval."
+}

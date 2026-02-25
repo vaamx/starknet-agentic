@@ -5,7 +5,13 @@
   "scripts": {
     "dev": "next dev --port 3001",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "vitest run app/lib/*.test.ts",
+    "chaos:sim": "tsx scripts/chaos-sim.ts",
+    "preflight": "bash scripts/preflight.sh",
+    "secrets:audit": "node scripts/secrets-audit.mjs",
+    "launch:closure": "node scripts/launch-closure.mjs",
+    "smoke:deployed": "node scripts/smoke-deployed.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
@@ -25,6 +31,7 @@
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.21.0",
     "typescript": "^5.7.0"
   }
 }

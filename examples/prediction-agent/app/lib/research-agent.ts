@@ -12,17 +12,31 @@ import {
   type DataSourceName,
 } from "./data-sources/index";
 import { forecastMarket, type ForecastResult } from "./agent-forecaster";
+import {
+  agenticForecastMarket,
+  type AgenticForecastEvent,
+} from "./forecast-tools";
+import { config } from "./config";
 import type { AgentPersona } from "./agent-personas";
 
 export interface ResearchEvent {
   type:
     | "research_start"
     | "research_complete"
+    | "tool_call"
+    | "tool_result"
     | "forecast_text"
     | "forecast_complete";
   sources?: DataSourceName[];
   results?: DataSourceResult[];
   content?: string;
+  toolName?: string;
+  toolUseId?: string;
+  input?: Record<string, unknown>;
+  result?: string;
+  isError?: boolean;
+  source?: string;
+  dataPoints?: number;
   probability?: number;
   reasoning?: string;
 }
@@ -73,10 +87,16 @@ export async function* researchAndForecast(
   const brief = buildResearchBrief(results);
 
   // 4. Run forecast with enriched context
-  const generator = forecastMarket(question, {
-    ...marketContext,
-    researchBrief: brief,
-  });
+  const useToolUse = config.toolUseEnabled;
+  const generator = useToolUse
+    ? agenticForecastMarket(question, {
+        ...marketContext,
+        researchBrief: brief,
+      })
+    : forecastMarket(question, {
+        ...marketContext,
+        researchBrief: brief,
+      });
 
   let fullText = "";
   let result: ForecastResult | undefined;
@@ -84,11 +104,38 @@ export async function* researchAndForecast(
   while (true) {
     const { value, done } = await generator.next();
     if (done) {
-      result = value;
+      result = value as ForecastResult;
       break;
     }
-    fullText += value;
-    yield { type: "forecast_text", content: value };
+
+    if (useToolUse) {
+      const event = value as AgenticForecastEvent;
+      if (event.type === "reasoning_chunk") {
+        fullText += event.content;
+        yield { type: "forecast_text", content: event.content };
+      } else if (event.type === "tool_call") {
+        yield {
+          type: "tool_call",
+          toolName: event.toolName,
+          toolUseId: event.toolUseId,
+          input: event.input,
+        };
+      } else if (event.type === "tool_result") {
+        yield {
+          type: "tool_result",
+          toolName: event.toolName,
+          toolUseId: event.toolUseId,
+          result: event.result,
+          isError: event.isError,
+          source: event.source,
+          dataPoints: event.dataPoints,
+        };
+      }
+    } else {
+      const chunk = value as string;
+      fullText += chunk;
+      yield { type: "forecast_text", content: chunk };
+    }
   }
 
   const finalResult = result ?? { reasoning: fullText, probability: 0.5 };

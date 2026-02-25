@@ -18,6 +18,14 @@ export async function GET() {
   const baseUrl = process.env.VERCEL_URL
     ? `https://${process.env.VERCEL_URL}`
     : "http://localhost:3001";
+  const agentPassport = {
+    schema: "https://starknet-agentic.dev/schemas/agent-passport.schema.json",
+    capabilities: [
+      { name: "predict", category: "prediction", endpoint: `${baseUrl}/api/predict` },
+      { name: "multi-predict", category: "prediction", endpoint: `${baseUrl}/api/multi-predict` },
+      { name: "openclaw-forecast", category: "messaging", endpoint: `${baseUrl}/api/openclaw/forecast` },
+    ],
+  };
 
   const manifest = {
     schema_version: "1.0",
@@ -146,13 +154,17 @@ export async function GET() {
     blockchain: {
       network: "starknet-sepolia",
       agentAddress:    process.env.AGENT_ADDRESS ?? "0x0",
+      agentId:         process.env.AGENT_ID ?? "1",
+      identityRegistry: process.env.IDENTITY_REGISTRY_ADDRESS ?? "0x0",
       factoryAddress:  process.env.MARKET_FACTORY_ADDRESS ?? "0x0",
       huginnRegistry:  process.env.HUGINN_REGISTRY_ADDRESS ?? "0x0",
       collateralToken: {
         symbol:  "STRK",
         address: "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
       },
+      passportMetadataKeys: ["caps", "capability:<name>", "passport:schema"],
     },
+    agentPassport,
 
     // ── Feature flags ──────────────────────────────────────────────────────
     features: [

@@ -7,23 +7,48 @@
  */
 
 import { NextRequest } from "next/server";
+import { z } from "zod";
+import { enforceRateLimit, jsonError } from "@/lib/api-guard";
+import { config } from "@/lib/config";
+import { validatePeerUrl } from "@/lib/peer-url-safety";
 
 export const maxDuration = 60;
+const delegateBodySchema = z.object({
+  agentCardUrl: z.string().url(),
+  question: z.string().trim().min(3).max(500),
+  marketId: z.number().int().min(1).optional(),
+});
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
-  const { agentCardUrl, question, marketId } = body as {
-    agentCardUrl: string;
-    question: string;
-    marketId?: number;
-  };
+  const rateLimited = await enforceRateLimit(request, "openclaw_delegate", {
+    windowMs: 60_000,
+    maxRequests: 20,
+  });
+  if (rateLimited) return rateLimited;
 
-  if (!agentCardUrl || !question) {
-    return new Response(
-      JSON.stringify({ error: "agentCardUrl and question are required" }),
-      { status: 400, headers: { "Content-Type": "application/json" } }
+  let agentCardUrl: string;
+  let question: string;
+  let marketId: number | undefined;
+  try {
+    const body = delegateBodySchema.parse(await request.json());
+    ({ agentCardUrl, question, marketId } = body);
+  } catch (err: any) {
+    return jsonError("Invalid request body", 400, err?.issues ?? err?.message);
+  }
+
+  const validatedCardUrl = validatePeerUrl(
+    agentCardUrl,
+    config.openclawAllowPrivatePeers
+  );
+  if (!validatedCardUrl.ok) {
+    return jsonError(
+      `Unsafe agentCardUrl: ${validatedCardUrl.error}`,
+      400
     );
   }
+  agentCardUrl = validatedCardUrl.url.toString();
+
+  const normalizedQuestion = question.trim();
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -45,15 +70,33 @@ export async function POST(request: NextRequest) {
         const card = await cardRes.json();
 
         // 2. Find predict endpoint — check card.url + /api/predict or skills[].endpoint
-        const baseUrl = card.url ?? new URL(agentCardUrl).origin;
+        const cardBaseRaw =
+          typeof card?.url === "string" ? card.url : new URL(agentCardUrl).origin;
+        const validatedBaseUrl = validatePeerUrl(
+          cardBaseRaw,
+          config.openclawAllowPrivatePeers
+        );
+        if (!validatedBaseUrl.ok) {
+          throw new Error(`Unsafe base URL from agent card: ${validatedBaseUrl.error}`);
+        }
+        const baseUrl = validatedBaseUrl.url.origin;
         let predictEndpoint = `${baseUrl}/api/predict`;
 
         if (Array.isArray(card.skills)) {
           const predictSkill = card.skills.find(
-            (s: any) => s.id === "predict" && s.endpoint
+            (s: any) => s.id === "predict" && typeof s.endpoint === "string"
           );
           if (predictSkill?.endpoint) {
-            predictEndpoint = predictSkill.endpoint;
+            const validatedPredict = validatePeerUrl(
+              predictSkill.endpoint,
+              config.openclawAllowPrivatePeers
+            );
+            if (!validatedPredict.ok) {
+              throw new Error(
+                `Unsafe predict endpoint from agent card: ${validatedPredict.error}`
+              );
+            }
+            predictEndpoint = validatedPredict.url.toString();
           }
         }
 
@@ -68,7 +111,7 @@ export async function POST(request: NextRequest) {
         const forecastRes = await fetch(predictEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question, marketId }),
+          body: JSON.stringify({ question: normalizedQuestion, marketId }),
           signal: AbortSignal.timeout(55000),
         });
 
@@ -136,6 +179,7 @@ export async function POST(request: NextRequest) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }

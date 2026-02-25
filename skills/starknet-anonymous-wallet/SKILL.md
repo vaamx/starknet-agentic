@@ -17,6 +17,13 @@ This skill provides **agent-facing scripts** for:
 - Preflight (simulate + fee estimate)
 - Allowance checks with human amounts
 
+## Standalone Execution (No MCP Tool Yet)
+
+This skill currently bundles direct execution scripts because Typhoon privacy flows are not yet exposed through the Starknet MCP server.
+
+- Use these scripts as a standalone runtime for anonymous account workflows.
+- Do not duplicate equivalent MCP logic for standard wallet operations unless privacy-specific behavior is required.
+
 ## Prerequisites
 
 ```bash
@@ -30,8 +37,8 @@ These scripts talk to Starknet via JSON-RPC. Configure one of:
 - Set `STARKNET_RPC_URL` in your environment (recommended), OR
 - Pass `rpcUrl` in the JSON input for scripts that support it.
 
-If neither is provided, scripts fall back to the public Lava mainnet RPC:
-- `https://rpc.starknet.lava.build:443`
+If neither is provided, scripts fall back to the public Sepolia RPC:
+- `https://starknet-sepolia.public.blastapi.io`
 
 ## CRITICAL: Account Creation Flow
 

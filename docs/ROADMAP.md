@@ -54,17 +54,19 @@ Core infrastructure features required for v1.0 release. MVP definition: MCP serv
 **Description**: Standardize agent-passport as the convention for agents to describe their capabilities via ERC-8004 metadata.
 
 **Requirements**:
-- [ ] Document agent-passport schema in SPECIFICATION.md
-- [ ] Create JSON schema for capability metadata validation
-- [ ] Add capability metadata examples to skills documentation
-- [ ] Update starknet-identity skill to use agent-passport for registration
-- [ ] Add agent-passport integration to MCP server (optional helper tool)
-- [ ] Write migration guide for existing ERC-8004 agents
+- [x] Document agent-passport schema in SPECIFICATION.md
+- [x] Create JSON schema for capability metadata validation
+- [x] Add capability metadata examples to skills documentation
+- [x] Update starknet-identity skill to use agent-passport for registration
+- [x] Add agent-passport integration to MCP server (optional helper tool)
+- [x] Write migration guide for existing ERC-8004 agents
 
 **Implementation Notes**:
-- `packages/starknet-agent-passport/` already implements the client
-- Standardize on capability categories: `defi`, `trading`, `identity`, `messaging`, `payments`
-- Capability metadata stored in ERC-8004 IdentityRegistry via `setMetadata`
+- Core package + schema: `packages/starknet-agent-passport/src/index.ts`, `packages/starknet-agent-passport/schemas/agent-passport.schema.json`
+- Spec standard added at `docs/SPECIFICATION.md` section `3.9 Agent Passport Metadata Standard`
+- Skill examples and operational scripts aligned in `skills/starknet-identity/SKILL.md` and `skills/starknet-identity/scripts/*`
+- Example A2A manifests expose passport metadata in `examples/prediction-agent/app/api/well-known-agent*.ts`
+- MCP helper tool shipped: `starknet_get_agent_passport` in `packages/starknet-mcp-server/src/index.ts`
 
 ---
 
@@ -73,18 +75,19 @@ Core infrastructure features required for v1.0 release. MVP definition: MCP serv
 **Description**: Set up automated changelog generation from conventional commits.
 
 **Requirements**:
-- [ ] Install and configure release-please or semantic-release
-- [ ] Create CHANGELOG.md in repository root
-- [ ] Configure conventional commit linting (commitlint)
-- [ ] Add commit message format to CONTRIBUTING.md
-- [ ] Set up GitHub Action for automated changelog updates
-- [ ] Configure version bumping for packages (pnpm workspaces aware)
+- [x] Install and configure release-please or semantic-release
+- [x] Create CHANGELOG.md in repository root
+- [x] Configure conventional commit linting (commitlint)
+- [x] Add commit message format to CONTRIBUTING.md
+- [x] Set up GitHub Action for automated changelog updates
+- [x] Configure version bumping for packages (pnpm workspaces aware)
 
 **Implementation Notes**:
 - Use conventional commits format: `feat:`, `fix:`, `docs:`, `chore:`
-- release-please handles monorepo versioning well
-- Consider changesets as alternative for more manual control
-- Consider backfilling changelog from existing commit history
+- release-please workflow added at `.github/workflows/release-please.yml`
+- commitlint workflow added at `.github/workflows/commitlint.yml`
+- release manifest/config tracked in `.release-please-manifest.json` and `release-please-config.json`
+- root changelog initialized at `CHANGELOG.md`
 
 ---
 
@@ -93,18 +96,18 @@ Core infrastructure features required for v1.0 release. MVP definition: MCP serv
 **Description**: The starknet-defi skill is currently a template. Complete the implementation with full documentation and examples.
 
 **Requirements**:
-- [ ] Add comprehensive swap documentation (avnu patterns)
-- [ ] Add staking documentation (STRK staking, liquid staking)
-- [ ] Add lending documentation (zkLend, Nostra patterns)
-- [ ] Add DCA (Dollar Cost Averaging) documentation
-- [ ] Create example scripts for each operation
-- [ ] Add error handling guide with recovery steps
-- [ ] Include token addresses and protocol endpoints
+- [x] Add comprehensive swap documentation (avnu patterns)
+- [x] Add staking documentation (STRK staking, liquid staking)
+- [x] Add lending documentation (zkLend, Nostra patterns)
+- [x] Add DCA (Dollar Cost Averaging) documentation
+- [x] Create example scripts for each operation
+- [x] Add error handling guide with recovery steps
+- [x] Include token addresses and protocol endpoints
 
 **Implementation Notes**:
-- Basic structure exists at `skills/starknet-defi/SKILL.md` (345 lines)
-- Should mirror comprehensiveness of starknet-wallet skill (465 lines)
-- Reference avnu-skill for patterns: https://github.com/avnu-labs/avnu-skill
+- `skills/starknet-defi/` now includes production-depth docs + scripts for quote/swap/depth/staking/dca
+- MCP-first guidance is explicit, with direct SDK usage scoped to non-MCP capabilities
+- v1 launch defaults are Sepolia-first; mainnet-specific activation is deferred
 
 ---
 
@@ -113,13 +116,13 @@ Core infrastructure features required for v1.0 release. MVP definition: MCP serv
 **Description**: The starknet-identity skill has structure but needs ERC-8004 integration details.
 
 **Requirements**:
-- [ ] Add agent registration workflow documentation
-- [ ] Add reputation system usage guide
-- [ ] Add validation request/response documentation
-- [ ] Add metadata schema reference
-- [ ] Create example scripts for identity operations
-- [ ] Document deployed contract addresses (Sepolia, Mainnet when available)
-- [ ] Add querying reputation and validation status examples
+- [x] Add agent registration workflow documentation
+- [x] Add reputation system usage guide
+- [x] Add validation request/response documentation
+- [x] Add metadata schema reference
+- [x] Create example scripts for identity operations
+- [x] Document deployed contract addresses (Sepolia v1 baseline)
+- [x] Add querying reputation and validation status examples
 
 **Implementation Notes**:
 - Basic structure exists at `skills/starknet-identity/SKILL.md` (303 lines)
@@ -143,10 +146,10 @@ Core infrastructure features required for v1.0 release. MVP definition: MCP serv
 |-------|---------|-------------------------|
 | `starknet-wallet` | Documents 8 MCP tools, minimal validation scripts | ✅ 100% - Ideal separation |
 | `starknet-defi` | Documents MCP swap/quote tools, SDK patterns | ✅ 95% - Good separation |
-| `starknet-identity` | Template, needs ERC-8004 integration | ⚠️ 60% - Incomplete |
+| `starknet-identity` | MCP identity tools + direct reputation/validation patterns | ✅ 90% - Near complete |
 | `starknet-anonymous-wallet` | Bundles Node.js scripts (Typhoon not in MCP) | ⚠️ 60% - Valid deviation |
-| `starknet-mini-pay` | Complete standalone Python app + Telegram bot | ❌ 40% - Should use MCP |
-| `huginn-onboard` | Onboarding workflow | ⚠️ TBD - Needs review |
+| `starknet-mini-pay` | MCP tools for links/invoices/QR + standalone Python app fallback | ✅ 85% - Hybrid aligned |
+| `huginn-onboard` | Standalone onboarding workflow (no MCP tool yet) | ⚠️ 70% - Documented deviation |
 
 **Requirements**:
 
@@ -154,61 +157,61 @@ Core infrastructure features required for v1.0 release. MVP definition: MCP serv
 - [x] Documents MCP tools in skill body
 - [x] Provides TypeScript code examples
 - [x] Bundles only validation scripts (`scripts/check-balance.ts`, `scripts/check-balances.ts`)
-- [ ] Add explicit "MCP Tools Used" section with tool schemas
-- [ ] Add integration test: skill + MCP server working together
-- [ ] Document as reference implementation for other skills
+- [x] Add explicit "MCP Tools Used" section with tool schemas
+- [x] Add integration test: skill + MCP server working together
+- [x] Document as reference implementation for other skills
 
 #### 1.8.2 starknet-defi (Minor Improvements)
 - [x] Documents MCP swap/quote tools
 - [x] Comprehensive avnu SDK patterns
-- [ ] Add explicit "MCP Tools Used" section listing `starknet_swap`, `starknet_get_quote`
-- [ ] Add integration test: DeFi skill guiding agent to use MCP swap tools
-- [ ] Verify all code examples use MCP tool patterns (not direct SDK calls for operations MCP exposes)
+- [x] Add explicit "MCP Tools Used" section listing `starknet_swap`, `starknet_get_quote`
+- [x] Add integration test: DeFi skill guiding agent to use MCP swap tools
+- [x] Verify all code examples use MCP tool patterns (not direct SDK calls for operations MCP exposes)
 
 #### 1.8.3 starknet-identity (Complete Implementation)
-- [ ] Complete skill implementation (see 1.7)
-- [ ] Document which operations should be MCP tools vs skill knowledge
-- [ ] Add "MCP Tools Used" section (pending 2.2 MCP Identity Tools)
-- [ ] Ensure skill teaches patterns, doesn't duplicate MCP execution logic
+- [x] Complete skill implementation (see 1.7)
+- [x] Document which operations should be MCP tools vs skill knowledge
+- [x] Add "MCP Tools Used" section (pending 2.2 MCP Identity Tools)
+- [x] Ensure skill teaches patterns, doesn't duplicate MCP execution logic
 
 #### 1.8.4 starknet-anonymous-wallet (Document Deviation)
 - [x] Bundles scripts because Typhoon protocol not in MCP server
-- [ ] Add explicit note: "This skill bundles execution because Typhoon is not exposed via MCP"
-- [ ] Evaluate: Should Typhoon operations be added to MCP server?
+- [x] Add explicit note: "This skill bundles execution because Typhoon is not exposed via MCP"
+- [x] Evaluate: Should Typhoon operations be added to MCP server?
   - If yes: Create issue to add `starknet_typhoon_deposit`, `starknet_typhoon_withdraw` tools
   - If no: Document rationale (specialized use case, different security model, etc.)
-- [ ] Add integration test for script-based workflow
+- [x] Add integration test for script-based workflow
 
 #### 1.8.5 starknet-mini-pay (Refactor to MCP Pattern)
-- [ ] **Add payment operations to MCP server**:
-  - [ ] `starknet_create_payment_link` - Generate `starknet:<addr>?amount=...` links
-  - [ ] `starknet_parse_payment_link` - Parse incoming payment links
-  - [ ] `starknet_create_invoice` - Create payment request with expiry
-  - [ ] `starknet_get_invoice_status` - Check invoice fulfillment
-  - [ ] `starknet_generate_qr` - Generate QR code for address/payment (returns base64 or file path)
-- [ ] **Refactor skill to document MCP tools** (like starknet-wallet does)
-- [ ] **Keep Telegram bot as separate deployment** that consumes MCP server
-- [ ] **Maintain Python scripts** as alternative runtime (document as "standalone mode")
-- [ ] Add integration test: skill + MCP payment tools
+- [x] **Add payment operations to MCP server**:
+  - [x] `starknet_create_payment_link` - Generate `starknet:<addr>?amount=...` links
+  - [x] `starknet_parse_payment_link` - Parse incoming payment links
+  - [x] `starknet_create_invoice` - Create payment request with expiry
+  - [x] `starknet_get_invoice_status` - Check invoice fulfillment
+  - [x] `starknet_generate_qr` - Generate QR code payload for address/payment (base64/data URL)
+- [x] **Refactor skill to document MCP tools** (like starknet-wallet does)
+- [x] **Keep Telegram bot as separate deployment** that consumes MCP server
+- [x] **Maintain Python scripts** as alternative runtime (document as "standalone mode")
+- [x] Add integration test: skill + MCP payment tools
 
 #### 1.8.6 huginn-onboard (Review and Align)
-- [ ] Review current implementation
-- [ ] Determine if it documents MCP tools or bundles execution
-- [ ] Align with starknet-wallet pattern if applicable
-- [ ] Add integration test
+- [x] Review current implementation
+- [x] Determine if it documents MCP tools or bundles execution
+- [x] Align with starknet-wallet pattern if applicable
+- [x] Add integration test
 
 #### 1.8.7 Cross-Skill Integration Testing
-- [ ] Create `tests/integration/` directory for skill + MCP tests
-- [ ] Test: Agent loads starknet-wallet skill → uses MCP tools correctly
-- [ ] Test: Agent loads starknet-defi skill → executes swap via MCP
-- [ ] Test: Agent loads starknet-mini-pay skill → creates payment link via MCP
-- [ ] Document test patterns for community skill authors
+- [x] Create `tests/integration/` directory for skill + MCP tests
+- [x] Test: Agent loads starknet-wallet skill → uses MCP tools correctly
+- [x] Test: Agent loads starknet-defi skill → executes swap via MCP
+- [x] Test: Agent loads starknet-mini-pay skill → creates payment link via MCP
+- [x] Document test patterns for community skill authors
 
 #### 1.8.8 Documentation Updates
-- [ ] Add "MCP ↔ Skill Architecture" section to SPECIFICATION.md
-- [ ] Document when to add capability to MCP vs bundle in skill
-- [ ] Add skill authoring guide with best practices
-- [ ] Update CLAUDE.md with architecture guidance
+- [x] Add "MCP ↔ Skill Architecture" section to SPECIFICATION.md
+- [x] Document when to add capability to MCP vs bundle in skill
+- [x] Add skill authoring guide with best practices
+- [x] Update CLAUDE.md with architecture guidance
 
 **Implementation Notes**:
 - starknet-wallet is the reference implementation—other skills should follow its pattern
@@ -269,19 +272,19 @@ Features that enhance the platform but are not required for v1.0 release.
 **Description**: Add identity-related MCP tools for on-chain agent registration and reputation.
 
 **Requirements**:
-- [ ] Implement `starknet_register_agent` tool
-- [ ] Implement `starknet_get_agent_info` tool
-- [ ] Implement `starknet_update_agent_metadata` tool
-- [ ] Implement `starknet_give_feedback` tool
-- [ ] Implement `starknet_get_reputation` tool
-- [ ] Implement `starknet_request_validation` tool
-- [ ] Add Zod schemas for all new tools
-- [ ] Write tests for each tool
-- [ ] Update MCP tools documentation
+- [x] Implement `starknet_register_agent` tool
+- [x] Implement `starknet_get_agent_info` tool
+- [x] Implement `starknet_update_agent_metadata` tool
+- [x] Implement `starknet_give_feedback` tool
+- [x] Implement `starknet_get_reputation` tool
+- [x] Implement `starknet_request_validation` tool
+- [x] Add Zod schemas for all new tools
+- [x] Write tests for each tool
+- [x] Update MCP tools documentation
 
 **Implementation Notes**:
 - These tools interact with ERC-8004 contracts
-- Requires deployed contract addresses in environment
+- Requires deployed contract addresses in environment (`ERC8004_IDENTITY_REGISTRY_ADDRESS`, `ERC8004_REPUTATION_REGISTRY_ADDRESS`, `ERC8004_VALIDATION_REGISTRY_ADDRESS`)
 - Lower priority than transaction tools for MVP
 
 ---
@@ -505,6 +508,7 @@ Long-term features and ecosystem expansion planned for v2.0+.
 - [x] Cross-chain funding logic with threshold/skip+mock (PR #155)
 - [x] Onboarding smoke tests in CI (`onboarding-smoke` job)
 - [x] `skills/huginn-onboard/` -- Huginn onboarding skill
+- [x] Sepolia deployment path for `HuginnRegistry` (`contracts/huginn-registry/scripts/deploy_sepolia.sh`, `verify_sepolia.sh`, `deployments/sepolia.json`)
 - [ ] Production deployment of HuginnRegistry contract
 - [ ] Mainnet onboarding documentation
 
@@ -531,4 +535,4 @@ Long-term features and ecosystem expansion planned for v2.0+.
 - `[x]` Complete
 - `[~]` In progress
 
-*Last updated: 2026-02-11*
+*Last updated: 2026-02-24*

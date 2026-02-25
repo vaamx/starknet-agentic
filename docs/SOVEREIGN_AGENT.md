@@ -256,6 +256,7 @@ When `thriving` for 3 consecutive ticks and `CHILD_AGENT_ENABLED=true`:
 |----------|---------|
 | AgentAccountFactory | `0x2f69e566802910359b438ccdb3565dce304a7cc52edbf9fd246d6ad2cd89ce4` |
 | IdentityRegistry (ERC-8004) | `0x72eb37b0389e570bf8b158ce7f0e1e3489de85ba43ab3876a0594df7231631` |
+| HuginnRegistry | See `contracts/huginn-registry/deployments/sepolia.json` |
 | STRK token | `0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d` |
 | BitsageCreditEscrow | pending deploy — set as `BITSAGE_ESCROW_ADDRESS` |
 
@@ -283,6 +284,7 @@ SURVIVAL_MODEL_HEALTHY=claude-sonnet-4-6
 SURVIVAL_MODEL_LOW=claude-haiku-4-5-20251001
 
 # ── Huginn ─────────────────────────────────────────────────────────────────
+# Sepolia source of truth: contracts/huginn-registry/deployments/sepolia.json
 HUGINN_REGISTRY_ADDRESS=0x...
 
 # ── X-402 (optional) ───────────────────────────────────────────────────────

@@ -1,20 +1,10 @@
 import { Contract, type AccountInterface, type ProviderInterface, byteArray, type ByteArray } from "starknet"
 import { identityRegistryAbi } from "./identityRegistryAbi.js"
 
-export type AgentCapability = {
-  /** Stable identifier, ex: "swap" or "balance" */
-  name: string
-  /** Human description */
-  description?: string
-  /** Optional endpoint or tool id */
-  endpoint?: string
-  /** Optional schema/versioning hooks */
-  version?: string
-  /** Free-form payload */
-  [k: string]: unknown
-}
-
 export const PASSPORT_CAPS_KEY = "caps" as const
+export const PASSPORT_SCHEMA_KEY = "passport:schema" as const
+export const PASSPORT_SCHEMA_ID =
+  "https://starknet-agentic.dev/schemas/agent-passport.schema.json" as const
 
 /** Standard capability categories for Agent Passport */
 export const CAPABILITY_CATEGORIES = [
@@ -29,12 +19,24 @@ export const CAPABILITY_CATEGORIES = [
 export type CapabilityCategory = (typeof CAPABILITY_CATEGORIES)[number]
 
 export type PassportCapability = {
+  /** Stable identifier, ex: "swap", "transfer", "forecast" */
   name: string
+  /** High-level capability class */
   category: CapabilityCategory
+  /** Semantic version of capability behavior */
   version?: string
+  /** Human-readable description */
   description?: string
+  /** Optional endpoint for this capability */
   endpoint?: string
+  /** Optional MCP tool name advertised by this capability */
+  mcpTool?: string
+  /** Optional A2A skill id for discovery cards */
+  a2aSkillId?: string
 }
+
+/** Backward-compatible alias used by early docs/examples */
+export type AgentCapability = PassportCapability
 
 export type AgentPassport = {
   capabilities: PassportCapability[]
@@ -52,6 +54,12 @@ export function validatePassport(data: unknown): { valid: boolean; errors?: stri
   }
 
   const obj = data as Record<string, unknown>
+  const topLevelKeys = Object.keys(obj)
+  for (const k of topLevelKeys) {
+    if (k !== "capabilities") {
+      errors.push(`Unexpected top-level key: ${k}`)
+    }
+  }
 
   if (!Array.isArray(obj.capabilities)) {
     return { valid: false, errors: ["'capabilities' must be an array"] }
@@ -62,7 +70,10 @@ export function validatePassport(data: unknown): { valid: boolean; errors?: stri
   }
 
   const validCategories = new Set<string>(CAPABILITY_CATEGORIES)
+  const seenNames = new Set<string>()
   const namePattern = /^[a-z][a-z0-9-]*$/
+  const versionPattern = /^\d+\.\d+(\.\d+)?$/
+  const mcpToolPattern = /^[a-z][a-z0-9_]*$/
 
   for (let i = 0; i < obj.capabilities.length; i++) {
     const cap = obj.capabilities[i]
@@ -74,6 +85,11 @@ export function validatePassport(data: unknown): { valid: boolean; errors?: stri
     }
 
     const c = cap as Record<string, unknown>
+    for (const k of Object.keys(c)) {
+      if (!["name", "category", "version", "description", "endpoint", "mcpTool", "a2aSkillId"].includes(k)) {
+        errors.push(`${prefix}: unexpected field '${k}'`)
+      }
+    }
 
     if (typeof c.name !== "string" || !c.name) {
       errors.push(`${prefix}.name: required string`)
@@ -81,13 +97,17 @@ export function validatePassport(data: unknown): { valid: boolean; errors?: stri
       errors.push(`${prefix}.name: must match pattern ^[a-z][a-z0-9-]*$`)
     } else if (c.name.length > 64) {
       errors.push(`${prefix}.name: max 64 characters`)
+    } else if (seenNames.has(c.name)) {
+      errors.push(`${prefix}.name: duplicate capability name '${c.name}'`)
+    } else {
+      seenNames.add(c.name)
     }
 
     if (typeof c.category !== "string" || !validCategories.has(c.category)) {
       errors.push(`${prefix}.category: must be one of ${CAPABILITY_CATEGORIES.join(", ")}`)
     }
 
-    if (c.version !== undefined && (typeof c.version !== "string" || !/^\d+\.\d+(\.\d+)?$/.test(c.version))) {
+    if (c.version !== undefined && (typeof c.version !== "string" || !versionPattern.test(c.version))) {
       errors.push(`${prefix}.version: must match pattern ^\\d+\\.\\d+(\\.\\d+)?$`)
     }
 
@@ -98,9 +118,24 @@ export function validatePassport(data: unknown): { valid: boolean; errors?: stri
     if (c.endpoint !== undefined && typeof c.endpoint !== "string") {
       errors.push(`${prefix}.endpoint: must be a string`)
     }
+
+    if (c.mcpTool !== undefined && (typeof c.mcpTool !== "string" || !mcpToolPattern.test(c.mcpTool))) {
+      errors.push(`${prefix}.mcpTool: must match pattern ^[a-z][a-z0-9_]*$`)
+    }
+
+    if (c.a2aSkillId !== undefined && (typeof c.a2aSkillId !== "string" || !namePattern.test(c.a2aSkillId))) {
+      errors.push(`${prefix}.a2aSkillId: must match pattern ^[a-z][a-z0-9-]*$`)
+    }
   }
 
   return errors.length > 0 ? { valid: false, errors } : { valid: true }
+}
+
+function assertPassportValid(passport: AgentPassport) {
+  const validation = validatePassport(passport)
+  if (!validation.valid) {
+    throw new Error(`Invalid agent passport: ${(validation.errors ?? []).join("; ")}`)
+  }
 }
 
 export function capabilityKey(name: string): string {
@@ -137,13 +172,38 @@ export function parseCapsList(raw: string | undefined): string[] {
     if (typeof x !== "string") throw new Error("caps metadata entries must be strings")
     return x
   })
-  // Deduplicate while preserving order
   return [...new Set(names)]
 }
 
 export function stringifyCapsList(names: string[]): string {
   const normalized = [...new Set(names.map((n) => n.trim()).filter(Boolean))]
   return JSON.stringify(normalized)
+}
+
+function parseCapabilityPayload(capabilityName: string, raw: string): PassportCapability {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Invalid JSON for '${capabilityKey(capabilityName)}': ${message}`)
+  }
+
+  const validation = validatePassport({ capabilities: [parsed] })
+  if (!validation.valid) {
+    throw new Error(
+      `Invalid capability payload for '${capabilityKey(capabilityName)}': ${(validation.errors ?? []).join("; ")}`
+    )
+  }
+
+  const capability = parsed as PassportCapability
+  if (capability.name !== capabilityName) {
+    throw new Error(
+      `Capability key/value mismatch: key is '${capabilityName}' but payload name is '${capability.name}'`
+    )
+  }
+
+  return capability
 }
 
 export class IdentityRegistryPassportClient {
@@ -182,26 +242,67 @@ export class IdentityRegistryPassportClient {
   }
 
   /**
-   * Publishes a capability object under `capability:<name>` and updates the `caps` index.
-   *
-   * Convention:
-   * - `caps` is a JSON array of strings (capability names)
-   * - each `capability:<name>` value is JSON for the capability object
+   * Publishes one capability under `capability:<name>` and updates the `caps` index.
+   * Also writes `passport:schema` to advertise the schema used by this payload.
    */
   async publishCapability(args: { agentId: bigint; capability: AgentCapability }) {
     const { agentId, capability } = args
-    if (!capability.name?.trim()) throw new Error("capability.name missing")
+    assertPassportValid({ capabilities: [capability] })
 
     const capsRaw = await this.getMetadata(agentId, PASSPORT_CAPS_KEY).catch(() => "")
     const caps = parseCapsList(capsRaw)
     const nextCaps = caps.includes(capability.name) ? caps : [...caps, capability.name]
 
-    // 1) publish capability payload
     await this.setMetadata(agentId, capabilityKey(capability.name), JSON.stringify(capability))
-
-    // 2) update index
     await this.setMetadata(agentId, PASSPORT_CAPS_KEY, stringifyCapsList(nextCaps))
+    await this.setMetadata(agentId, PASSPORT_SCHEMA_KEY, PASSPORT_SCHEMA_ID)
 
     return { caps: nextCaps }
+  }
+
+  /**
+   * Publishes a full passport object and rewrites the canonical `caps` index.
+   * Missing/removed capability entries are not deleted automatically.
+   */
+  async publishPassport(args: { agentId: bigint; passport: AgentPassport }) {
+    const { agentId, passport } = args
+    assertPassportValid(passport)
+
+    for (const capability of passport.capabilities) {
+      await this.setMetadata(agentId, capabilityKey(capability.name), JSON.stringify(capability))
+    }
+
+    await this.setMetadata(
+      agentId,
+      PASSPORT_CAPS_KEY,
+      stringifyCapsList(passport.capabilities.map((capability) => capability.name))
+    )
+    await this.setMetadata(agentId, PASSPORT_SCHEMA_KEY, PASSPORT_SCHEMA_ID)
+
+    return { caps: passport.capabilities.map((capability) => capability.name) }
+  }
+
+  /**
+   * Reads canonical `caps` and reconstructs the full passport from `capability:<name>` entries.
+   */
+  async getPassport(agentId: bigint): Promise<AgentPassport | null> {
+    const capsRaw = await this.getMetadata(agentId, PASSPORT_CAPS_KEY).catch(() => "")
+    const caps = parseCapsList(capsRaw)
+    if (caps.length === 0) {
+      return null
+    }
+
+    const capabilities: PassportCapability[] = []
+    for (const capabilityName of caps) {
+      const raw = await this.getMetadata(agentId, capabilityKey(capabilityName))
+      if (!raw || !raw.trim()) {
+        throw new Error(`Missing capability metadata payload for '${capabilityKey(capabilityName)}'`)
+      }
+      capabilities.push(parseCapabilityPayload(capabilityName, raw))
+    }
+
+    const passport = { capabilities }
+    assertPassportValid(passport)
+    return passport
   }
 }

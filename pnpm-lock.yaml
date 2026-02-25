@@ -192,6 +192,9 @@ importers:
       tailwindcss:
         specifier: ^3.4.17
         version: 3.4.17
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
       typescript:
         specifier: ^5.7.0
         version: 5.9.2
@@ -432,13 +435,13 @@ importers:
     dependencies:
       '@avnu/avnu-sdk':
         specifier: ^4.0.1
-        version: 4.0.1(ethers@6.16.0)(starknet@6.24.1)
+        version: 4.0.1(ethers@6.16.0)(starknet@8.9.1)
       dotenv:
         specifier: ^16.0.0
         version: 16.4.7
       starknet:
-        specifier: ^6.23.1
-        version: 6.24.1
+        specifier: ^8.9.1
+        version: 8.9.1
     devDependencies:
       tsx:
         specifier: ^4.0.0
@@ -453,8 +456,8 @@ importers:
         specifier: ^16.0.0
         version: 16.4.7
       starknet:
-        specifier: ^6.23.1
-        version: 6.24.1
+        specifier: ^8.9.1
+        version: 8.9.1
     devDependencies:
       tsx:
         specifier: ^4.0.0

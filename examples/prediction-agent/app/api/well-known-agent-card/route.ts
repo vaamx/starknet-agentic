@@ -18,6 +18,35 @@ export async function GET() {
   const baseUrl = process.env.VERCEL_URL
     ? `https://${process.env.VERCEL_URL}`
     : "http://localhost:3001";
+  const agentPassport = {
+    schema: "https://starknet-agentic.dev/schemas/agent-passport.schema.json",
+    capabilities: [
+      {
+        name: "predict",
+        category: "prediction",
+        version: "2.0.0",
+        description: "Single-agent prediction endpoint for binary markets",
+        endpoint: `${baseUrl}/api/predict`,
+        a2aSkillId: "predict",
+      },
+      {
+        name: "multi-predict",
+        category: "prediction",
+        version: "2.0.0",
+        description: "Multi-agent superforecasting debate endpoint",
+        endpoint: `${baseUrl}/api/multi-predict`,
+        a2aSkillId: "multi-predict",
+      },
+      {
+        name: "openclaw-forecast",
+        category: "messaging",
+        version: "2.0.0",
+        description: "Inbound OpenClaw peer forecast intake",
+        endpoint: `${baseUrl}/api/openclaw/forecast`,
+        a2aSkillId: "openclaw-forecast",
+      },
+    ],
+  };
 
   const card = {
     // ── Identity ───────────────────────────────────────────────────────────
@@ -187,11 +216,15 @@ export async function GET() {
     starknetIdentity: {
       network: "sepolia",
       agentAddress: process.env.AGENT_ADDRESS ?? "0x0",
+      agentId: process.env.AGENT_ID ?? "1",
+      identityRegistryAddress: process.env.IDENTITY_REGISTRY_ADDRESS ?? "0x0",
       factoryAddress: process.env.MARKET_FACTORY_ADDRESS ?? "0x0",
       huginnRegistryAddress: process.env.HUGINN_REGISTRY_ADDRESS ?? "0x0",
       collateralToken: "STRK",
       standard: "ERC-8004",
+      passportMetadataKeys: ["caps", "capability:<name>", "passport:schema"],
     },
+    agentPassport,
 
     // ── Protocol support ───────────────────────────────────────────────────
     protocols: ["A2A", "MCP", "ERC-8004", "X-402"],

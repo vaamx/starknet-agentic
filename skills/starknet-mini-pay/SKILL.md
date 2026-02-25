@@ -50,6 +50,23 @@ Simple P2P payments on Starknet. Like Lightning, but native.
 | **Telegram Bot** | Send/receive via Telegram commands |
 | **Transaction History** | Track all transfers with status |
 
+## MCP Tools Used
+
+Use MCP tools as the default execution path:
+
+- `starknet_create_payment_link`
+- `starknet_parse_payment_link`
+- `starknet_create_invoice`
+- `starknet_get_invoice_status`
+- `starknet_generate_qr`
+- `starknet_transfer` (for settlement)
+
+These tools keep payment workflows in the MCP execution layer while this skill focuses on UX patterns (link sharing, invoices, bot flows, error handling).
+
+## Standalone Execution (Optional Fallback)
+
+Python CLI and Telegram scripts in `scripts/` remain available as a standalone mode for environments where MCP is not available. For v1 production, prefer MCP tools first and keep scripts for local ops or migration compatibility.
+
 ## Quick Start
 
 ### CLI Usage

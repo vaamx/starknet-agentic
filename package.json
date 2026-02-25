@@ -18,8 +18,10 @@
   ],
   "scripts": {
     "build": "pnpm -r build",
-    "test": "pnpm -r test",
+    "test": "pnpm -r test && pnpm run test:integration",
+    "test:integration": "vitest run tests/integration",
     "lint": "pnpm -r lint",
+    "lint:commits": "pnpm dlx @commitlint/cli@20 --config commitlint.config.cjs --last --verbose",
     "demo:hello-agent": "node examples/hello-agent/index.mjs"
   },
   "devDependencies": {

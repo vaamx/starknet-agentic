@@ -14,8 +14,7 @@ jobs:
       - name: Ping heartbeat endpoint
         run: |
           curl -s -X POST "${{ secrets.AGENT_APP_URL }}/api/heartbeat" \
-            -H "Content-Type: application/json" \
-            -d "{\"secret\":\"${{ secrets.HEARTBEAT_SECRET }}\"}" \
+            -H "x-heartbeat-secret: ${{ secrets.HEARTBEAT_SECRET }}" \
             --max-time 55 \
             --fail-with-body
         env:

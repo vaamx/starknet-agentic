@@ -3,12 +3,19 @@
  * POST /api/openclaw/forecast
  *
  * External agents submit forecasts to our markets.
- * Validated, stored in-memory, optionally logged to Huginn.
+ * Validated, persisted in local state store, optionally logged to Huginn.
  */
 
 import { NextRequest } from "next/server";
 import { MARKET_QUESTIONS } from "@/lib/market-reader";
 import { logThoughtOnChain } from "@/lib/huginn-executor";
+import { config } from "@/lib/config";
+import { z } from "zod";
+import { enforceRateLimit, jsonError } from "@/lib/api-guard";
+import {
+  getPersistedExternalForecasts,
+  upsertPersistedExternalForecast,
+} from "@/lib/state-store";
 
 export interface ExternalForecast {
   agentName: string;
@@ -19,54 +26,47 @@ export interface ExternalForecast {
   receivedAt: number;
 }
 
-// In-memory store: marketId → array of external forecasts
-const externalForecasts = new Map<number, ExternalForecast[]>();
+const inboundForecastSchema = z.object({
+  question: z.string().trim().min(3).max(500).optional(),
+  probability: z.number().min(0).max(1),
+  agentName: z.string().trim().min(1).max(80),
+  agentCardUrl: z.string().url().optional(),
+  reasoning: z.string().trim().min(3).max(5000).optional(),
+});
 
 /** Get stored external forecasts for a market (for consensus use). */
-export function getExternalForecasts(marketId: number): ExternalForecast[] {
-  return externalForecasts.get(marketId) ?? [];
+export async function getExternalForecasts(
+  marketId: number
+): Promise<ExternalForecast[]> {
+  return await getPersistedExternalForecasts(
+    marketId,
+    config.openclawForecastTtlHours
+  );
 }
 
 /** Compute a simple average of external forecasts for a market. */
-export function getExternalConsensus(marketId: number): number | null {
-  const forecasts = externalForecasts.get(marketId);
+export async function getExternalConsensus(
+  marketId: number
+): Promise<number | null> {
+  const forecasts = await getExternalForecasts(marketId);
   if (!forecasts || forecasts.length === 0) return null;
   return forecasts.reduce((sum, f) => sum + f.probability, 0) / forecasts.length;
 }
 
 export async function POST(request: NextRequest) {
-  let body: any;
+  const rateLimited = await enforceRateLimit(request, "openclaw_forecast", {
+    windowMs: 60_000,
+    maxRequests: 60,
+  });
+  if (rateLimited) return rateLimited;
+
+  let body: z.infer<typeof inboundForecastSchema>;
   try {
-    body = await request.json();
+    body = inboundForecastSchema.parse(await request.json());
   } catch {
-    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonError("Invalid JSON body", 400);
   }
-
-  const { question, probability, agentName, agentCardUrl, reasoning } = body as {
-    question?: string;
-    probability?: number;
-    agentName?: string;
-    agentCardUrl?: string;
-    reasoning?: string;
-  };
-
-  // Validate probability
-  if (typeof probability !== "number" || probability < 0 || probability > 1) {
-    return new Response(
-      JSON.stringify({ error: "probability must be a number in [0, 1]" }),
-      { status: 400, headers: { "Content-Type": "application/json" } }
-    );
-  }
-
-  if (!agentName) {
-    return new Response(
-      JSON.stringify({ error: "agentName is required" }),
-      { status: 400, headers: { "Content-Type": "application/json" } }
-    );
-  }
+  const { question, probability, agentName, agentCardUrl, reasoning } = body;
 
   // Fuzzy-match question to a market ID
   let matchedMarketId: number | null = null;
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
   }
 
   const forecast: ExternalForecast = {
-    agentName,
+    agentName: agentName.trim(),
     agentCardUrl,
     probability,
     reasoning,
@@ -113,16 +113,17 @@ export async function POST(request: NextRequest) {
   };
 
   if (matchedMarketId !== null) {
-    const existing = externalForecasts.get(matchedMarketId) ?? [];
-    // Deduplicate by agentName — keep only latest from each agent
-    const filtered = existing.filter((f) => f.agentName !== agentName);
-    externalForecasts.set(matchedMarketId, [...filtered, forecast]);
+    await upsertPersistedExternalForecast(
+      matchedMarketId,
+      forecast,
+      config.openclawForecastTtlHours
+    );
   }
 
   // Compute weighted consensus (simple average across all sources)
   const weightedConsensus =
     matchedMarketId !== null
-      ? getExternalConsensus(matchedMarketId)
+      ? await getExternalConsensus(matchedMarketId)
       : null;
 
   return new Response(

@@ -48,6 +48,20 @@ test: add edge case coverage for arb scanner
 
 Common prefixes: `feat`, `fix`, `docs`, `chore`, `test`, `refactor`, `ci`.
 
+Commit format is enforced in PR CI by `.github/workflows/commitlint.yml`.
+You can run a local check for the latest commit with:
+
+```bash
+pnpm lint:commits
+```
+
+## Release Flow (Workspace Versioning)
+
+- Version bumps and release notes are automated by `release-please` on pushes to `main`.
+- Configuration is tracked in `release-please-config.json` + `.release-please-manifest.json`.
+- Release PRs are generated from conventional commits and update changed workspace packages.
+- Root changelog updates are written to `CHANGELOG.md`.
+
 ## Style
 
 - Keep PRs small (one logical change).

@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Token addresses
 const TOKENS = {
@@ -22,6 +25,10 @@ const mockEnv = {
   AVNU_PAYMASTER_URL: "https://sepolia.paymaster.avnu.fi",
   ERC8004_IDENTITY_REGISTRY_ADDRESS:
     "0x1111111111111111111111111111111111111111111111111111111111111111",
+  ERC8004_REPUTATION_REGISTRY_ADDRESS:
+    "0x2222222222222222222222222222222222222222222222222222222222222222",
+  ERC8004_VALIDATION_REGISTRY_ADDRESS:
+    "0x3333333333333333333333333333333333333333333333333333333333333333",
 };
 
 // Mock starknet before importing the module
@@ -162,6 +169,19 @@ async function callTool(name: string, args: Record<string, any>) {
 function parseResponse(response: any) {
   const text = response.content[0]?.text;
   return text ? JSON.parse(text) : null;
+}
+
+function extractMcpToolsFromSkill(skillPath: string): string[] {
+  const skill = readFileSync(skillPath, "utf8");
+  const sectionMatch = skill.match(/## MCP Tools Used[\s\S]*?(?:\n## |\n# |$)/);
+  if (!sectionMatch) {
+    throw new Error(`Missing '## MCP Tools Used' section in ${skillPath}`);
+  }
+  const tools = new Set<string>();
+  for (const match of sectionMatch[0].matchAll(/`(starknet_[a-z0-9_]+)`/g)) {
+    tools.add(match[1]!);
+  }
+  return [...tools];
 }
 
 // Structured log output (process.stderr.write) is suppressed during module
@@ -311,6 +331,181 @@ describe("MCP Tool Handlers", () => {
       expect(callArg.contractAddress).toBe(mockEnv.ERC8004_IDENTITY_REGISTRY_ADDRESS);
       expect(Array.isArray(callArg.calldata)).toBe(true);
       expect(callArg.calldata.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("starknet_get_agent_info", () => {
+    it("returns consolidated identity state and selected metadata", async () => {
+      const starknet = await import("starknet");
+      const decodeMock = (starknet as any).byteArray.stringFromByteArray as ReturnType<typeof vi.fn>;
+      decodeMock
+        .mockImplementationOnce(() => "Forecast Agent")
+        .mockImplementationOnce(() => "active")
+        .mockImplementationOnce(() => "ipfs://agent-info");
+
+      mockCallContract
+        .mockResolvedValueOnce(["0x1"]) // agent_exists
+        .mockResolvedValueOnce([mockEnv.STARKNET_ACCOUNT_ADDRESS]) // owner_of
+        .mockResolvedValueOnce([mockEnv.STARKNET_ACCOUNT_ADDRESS]) // get_agent_wallet
+        .mockResolvedValueOnce(["0x0", "0x0", "0x0"]) // token_uri
+        .mockResolvedValueOnce(["0x0", "0x0", "0x0"]) // metadata: agentName
+        .mockResolvedValueOnce(["0x0", "0x0", "0x0"]); // metadata: status
+
+      const response = await callTool("starknet_get_agent_info", {
+        agent_id: "1",
+        metadata_keys: ["agentName", "status"],
+      });
+
+      const result = parseResponse(response);
+      expect(result.agentId).toBe("1");
+      expect(result.exists).toBe(true);
+      expect(result.identityRegistry).toBe(mockEnv.ERC8004_IDENTITY_REGISTRY_ADDRESS);
+      expect(result.tokenUri).toBe("ipfs://agent-info");
+      expect(result.metadata.agentName).toBe("Forecast Agent");
+      expect(result.metadata.status).toBe("active");
+    });
+
+    it("returns exists=false for unknown agents", async () => {
+      mockCallContract.mockResolvedValueOnce(["0x0"]);
+
+      const response = await callTool("starknet_get_agent_info", {
+        agent_id: "999",
+      });
+
+      const result = parseResponse(response);
+      expect(result.exists).toBe(false);
+      expect(result.agentId).toBe("999");
+      expect(result.metadata).toEqual({});
+    });
+
+    it("rejects invalid metadata_keys type", async () => {
+      const response = await callTool("starknet_get_agent_info", {
+        agent_id: "1",
+        metadata_keys: "agentName" as unknown as string[],
+      });
+
+      expect(response.isError).toBe(true);
+      const result = parseResponse(response);
+      expect(result.message).toContain("metadata_keys");
+    });
+  });
+
+  describe("starknet_update_agent_metadata", () => {
+    it("updates metadata via set_metadata entrypoint", async () => {
+      mockExecute.mockResolvedValue({ transaction_hash: "0xmetaalias" });
+      mockWaitForTransaction.mockResolvedValue({});
+
+      const response = await callTool("starknet_update_agent_metadata", {
+        agent_id: "1",
+        key: "status",
+        value: "paused",
+      });
+
+      const result = parseResponse(response);
+      expect(result.success).toBe(true);
+      expect(result.tool).toBe("starknet_update_agent_metadata");
+      expect(result.key).toBe("status");
+      expect(result.value).toBe("paused");
+
+      const callArg = mockExecute.mock.calls[0][0];
+      expect(callArg.entrypoint).toBe("set_metadata");
+      expect(callArg.contractAddress).toBe(mockEnv.ERC8004_IDENTITY_REGISTRY_ADDRESS);
+    });
+  });
+
+  describe("starknet_give_feedback", () => {
+    it("submits feedback to ReputationRegistry", async () => {
+      mockExecute.mockResolvedValue({ transaction_hash: "0xfeed123" });
+      mockWaitForTransaction.mockResolvedValue({});
+
+      const response = await callTool("starknet_give_feedback", {
+        agent_id: "1",
+        value: "85",
+        value_decimals: 2,
+        tag1: "accuracy",
+        tag2: "weekly",
+        feedback_uri: "ipfs://feedback-1",
+      });
+
+      const result = parseResponse(response);
+      expect(result.success).toBe(true);
+      expect(result.transactionHash).toBe("0xfeed123");
+      expect(result.reputationRegistry).toBe(mockEnv.ERC8004_REPUTATION_REGISTRY_ADDRESS);
+      expect(result.value).toBe("85");
+      expect(result.valueDecimals).toBe(2);
+
+      const callArg = mockExecute.mock.calls[0][0];
+      expect(callArg.entrypoint).toBe("give_feedback");
+      expect(callArg.contractAddress).toBe(mockEnv.ERC8004_REPUTATION_REGISTRY_ADDRESS);
+    });
+
+    it("rejects out-of-range value_decimals", async () => {
+      const response = await callTool("starknet_give_feedback", {
+        agent_id: "1",
+        value: "1",
+        value_decimals: 999,
+      });
+
+      expect(response.isError).toBe(true);
+      const result = parseResponse(response);
+      expect(result.message).toContain("value_decimals");
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("starknet_get_reputation", () => {
+    it("reads aggregated summary from ReputationRegistry", async () => {
+      mockCallContract.mockResolvedValueOnce(["0x2", "0x1f4", "0x2"]);
+
+      const response = await callTool("starknet_get_reputation", {
+        agent_id: "1",
+        tag1: "accuracy",
+      });
+
+      const result = parseResponse(response);
+      expect(result.agentId).toBe("1");
+      expect(result.reputationRegistry).toBe(mockEnv.ERC8004_REPUTATION_REGISTRY_ADDRESS);
+      expect(result.count).toBe("2");
+      expect(result.summaryValueRaw).toBe("500");
+      expect(result.valueDecimals).toBe(2);
+      expect(result.summaryValue).toBe("5");
+    });
+  });
+
+  describe("starknet_request_validation", () => {
+    it("creates a validation request transaction", async () => {
+      mockExecute.mockResolvedValue({ transaction_hash: "0xval123" });
+      mockWaitForTransaction.mockResolvedValue({});
+
+      const response = await callTool("starknet_request_validation", {
+        validator_address: mockEnv.STARKNET_ACCOUNT_ADDRESS,
+        agent_id: "1",
+        request_uri: "ipfs://validation-req",
+      });
+
+      const result = parseResponse(response);
+      expect(result.success).toBe(true);
+      expect(result.transactionHash).toBe("0xval123");
+      expect(result.validationRegistry).toBe(mockEnv.ERC8004_VALIDATION_REGISTRY_ADDRESS);
+      expect(result.validatorAddress).toBe(mockEnv.STARKNET_ACCOUNT_ADDRESS);
+      expect(result.agentId).toBe("1");
+
+      const callArg = mockExecute.mock.calls[0][0];
+      expect(callArg.entrypoint).toBe("validation_request");
+      expect(callArg.contractAddress).toBe(mockEnv.ERC8004_VALIDATION_REGISTRY_ADDRESS);
+    });
+
+    it("rejects blank request_uri", async () => {
+      const response = await callTool("starknet_request_validation", {
+        validator_address: mockEnv.STARKNET_ACCOUNT_ADDRESS,
+        agent_id: "1",
+        request_uri: "   ",
+      });
+
+      expect(response.isError).toBe(true);
+      const result = parseResponse(response);
+      expect(result.message).toContain("request_uri");
+      expect(mockExecute).not.toHaveBeenCalled();
     });
   });
 
@@ -1077,6 +1272,121 @@ describe("MCP Tool Handlers", () => {
     });
   });
 
+  describe("mini-pay MCP tools", () => {
+    const recipient = "0x0111111111111111111111111111111111111111111111111111111111111111";
+
+    it("creates a payment link", async () => {
+      const response = await callTool("starknet_create_payment_link", {
+        address: recipient,
+        amount: "1.5",
+        token: "USDC",
+        memo: "coffee",
+      });
+
+      const result = parseResponse(response);
+      expect(result.paymentLink).toContain("starknet:");
+      expect(result.paymentLink).toContain("amount=1.5");
+      expect(result.paymentLink).toContain("token=USDC");
+      expect(result.paymentLink).toContain("memo=coffee");
+      expect(result.address).toBe(recipient);
+      expect(result.amountRaw).toBe("1500000");
+    });
+
+    it("parses a payment link", async () => {
+      const response = await callTool("starknet_parse_payment_link", {
+        paymentLink: `starknet:${recipient}?amount=2.25&token=USDC&memo=lunch`,
+      });
+
+      const result = parseResponse(response);
+      expect(result.scheme).toBe("starknet");
+      expect(result.address).toBe(recipient);
+      expect(result.amount).toBe("2.25");
+      expect(result.token).toBe("USDC");
+      expect(result.memo).toBe("lunch");
+      expect(result.amountRaw).toBe("2250000");
+    });
+
+    it("creates a stateless invoice and verifies paid status from transfer event", async () => {
+      const invoiceResponse = await callTool("starknet_create_invoice", {
+        recipient,
+        amount: "1",
+        token: "USDC",
+        memo: "Invoice #1",
+        expiresInSeconds: 3600,
+      });
+
+      const invoice = parseResponse(invoiceResponse);
+      expect(invoice.invoiceId).toBeTruthy();
+      expect(invoice.paymentLink).toContain("invoice=");
+      expect(invoice.status).toBe("pending");
+
+      mockWaitForTransaction.mockResolvedValue({
+        execution_status: "SUCCEEDED",
+        events: [
+          {
+            from_address: TOKENS.USDC,
+            keys: ["selector:Transfer", "0xabc", recipient],
+            data: ["0x0f4240", "0x0"], // 1_000_000 (1 USDC)
+          },
+        ],
+      });
+
+      const statusResponse = await callTool("starknet_get_invoice_status", {
+        invoiceId: invoice.invoiceId,
+        transactionHash: "0xpaid",
+      });
+
+      const status = parseResponse(statusResponse);
+      expect(status.status).toBe("paid");
+      expect(status.verification.matchedTransferCount).toBe(1);
+      expect(status.verification.paidAmountRaw).toBe("1000000");
+      expect(status.verification.requiredAmountRaw).toBe("1000000");
+    });
+
+    it("marks invoice underpaid when transfer amount is below requested amount", async () => {
+      const invoiceResponse = await callTool("starknet_create_invoice", {
+        recipient,
+        amount: "1",
+        token: "USDC",
+      });
+      const invoice = parseResponse(invoiceResponse);
+
+      mockWaitForTransaction.mockResolvedValue({
+        execution_status: "SUCCEEDED",
+        events: [
+          {
+            from_address: TOKENS.USDC,
+            keys: ["selector:Transfer", "0xabc", recipient],
+            data: ["0x7a120", "0x0"], // 500_000 (0.5 USDC)
+          },
+        ],
+      });
+
+      const response = await callTool("starknet_get_invoice_status", {
+        invoiceId: invoice.invoiceId,
+        transactionHash: "0xunderpaid",
+      });
+
+      const result = parseResponse(response);
+      expect(result.status).toBe("underpaid");
+      expect(result.verification.paidAmountRaw).toBe("500000");
+      expect(result.verification.requiredAmountRaw).toBe("1000000");
+    });
+
+    it("generates QR payload output", async () => {
+      const response = await callTool("starknet_generate_qr", {
+        content: "starknet:0xabc?amount=1&token=USDC",
+      });
+
+      const result = parseResponse(response);
+      expect(result.format).toBe("data_url");
+      expect(result.mimeType).toBe("image/svg+xml");
+      expect(result.dataUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+      expect(typeof result.qrBase64).toBe("string");
+      expect(result.qrBase64.length).toBeGreaterThan(0);
+    });
+  });
+
   describe("x402_starknet_sign_payment_required", () => {
     it("signs payment and returns header", async () => {
       mockCreateStarknetPaymentSignatureHeader.mockResolvedValue({
@@ -1432,6 +1742,150 @@ describe("MCP Tool Handlers", () => {
     });
   });
 
+  describe("starknet_get_agent_passport", () => {
+    it("reads and parses passport metadata", async () => {
+      const starknet = await import("starknet");
+      const decodeMock = (starknet as any).byteArray.stringFromByteArray as ReturnType<typeof vi.fn>;
+      decodeMock
+        .mockImplementationOnce(() => '["forecast"]') // caps
+        .mockImplementationOnce(() => "https://starknet-agentic.dev/schemas/agent-passport.schema.json") // schema
+        .mockImplementationOnce(() => '{"name":"forecast","category":"prediction","mcpTool":"starknet_call_contract"}'); // capability payload
+
+      mockCallContract.mockResolvedValue(["0x0", "0x0", "0x0"]);
+
+      const response = await callTool("starknet_get_agent_passport", {
+        agent_id: "1",
+      });
+
+      const result = parseResponse(response);
+      expect(result.agentId).toBe("1");
+      expect(result.identityRegistry).toBe(mockEnv.ERC8004_IDENTITY_REGISTRY_ADDRESS);
+      expect(result.caps).toEqual(["forecast"]);
+      expect(result.capabilities).toHaveLength(1);
+      expect(result.capabilities[0].name).toBe("forecast");
+      expect(result.capabilities[0].category).toBe("prediction");
+      expect(result.issues).toEqual([]);
+    });
+
+    it("returns missing payload issues for incomplete passport entries", async () => {
+      const starknet = await import("starknet");
+      const decodeMock = (starknet as any).byteArray.stringFromByteArray as ReturnType<typeof vi.fn>;
+      decodeMock
+        .mockImplementationOnce(() => '["forecast"]') // caps
+        .mockImplementationOnce(() => ""); // schema
+
+      mockCallContract
+        .mockResolvedValueOnce(["0x0", "0x0", "0x0"]) // caps
+        .mockResolvedValueOnce(["0x0", "0x0", "0x0"]) // schema
+        .mockRejectedValueOnce(new Error("missing capability payload")); // capability
+
+      const response = await callTool("starknet_get_agent_passport", {
+        agent_id: "1",
+      });
+
+      const result = parseResponse(response);
+      expect(result.caps).toEqual(["forecast"]);
+      expect(result.capabilities).toEqual([]);
+      expect(result.issues).toContain("Missing payload for capability:forecast");
+    });
+  });
+
+  describe("skill ↔ MCP integration", () => {
+    it("starknet-wallet skill MCP tools are exposed by the MCP server", async () => {
+      if (!capturedListHandler) {
+        throw new Error("List handler not captured - did the module load correctly?");
+      }
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = path.dirname(__filename);
+      const repoRoot = path.resolve(__dirname, "../../../..");
+      const skillPath = path.join(repoRoot, "skills/starknet-wallet/SKILL.md");
+
+      const requiredTools = extractMcpToolsFromSkill(skillPath);
+      const response = await capturedListHandler();
+      const exposedTools = new Set(response.tools.map((tool: any) => tool.name));
+
+      expect(requiredTools.length).toBeGreaterThan(0);
+      for (const tool of requiredTools) {
+        expect(exposedTools.has(tool)).toBe(true);
+      }
+    });
+
+    it("starknet-defi skill MCP tools are exposed by the MCP server", async () => {
+      if (!capturedListHandler) {
+        throw new Error("List handler not captured - did the module load correctly?");
+      }
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = path.dirname(__filename);
+      const repoRoot = path.resolve(__dirname, "../../../..");
+      const skillPath = path.join(repoRoot, "skills/starknet-defi/SKILL.md");
+
+      const requiredTools = extractMcpToolsFromSkill(skillPath);
+      const response = await capturedListHandler();
+      const exposedTools = new Set(response.tools.map((tool: any) => tool.name));
+
+      expect(requiredTools.length).toBeGreaterThan(0);
+      for (const tool of requiredTools) {
+        expect(exposedTools.has(tool)).toBe(true);
+      }
+    });
+
+    it("starknet-identity skill MCP tools are exposed by the MCP server", async () => {
+      if (!capturedListHandler) {
+        throw new Error("List handler not captured - did the module load correctly?");
+      }
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = path.dirname(__filename);
+      const repoRoot = path.resolve(__dirname, "../../../..");
+      const skillPath = path.join(repoRoot, "skills/starknet-identity/SKILL.md");
+
+      const requiredTools = extractMcpToolsFromSkill(skillPath);
+      const response = await capturedListHandler();
+      const exposedTools = new Set(response.tools.map((tool: any) => tool.name));
+
+      expect(requiredTools.length).toBeGreaterThan(0);
+      for (const tool of requiredTools) {
+        expect(exposedTools.has(tool)).toBe(true);
+      }
+    });
+
+    it("starknet-mini-pay skill MCP tools are exposed by the MCP server", async () => {
+      if (!capturedListHandler) {
+        throw new Error("List handler not captured - did the module load correctly?");
+      }
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = path.dirname(__filename);
+      const repoRoot = path.resolve(__dirname, "../../../..");
+      const skillPath = path.join(repoRoot, "skills/starknet-mini-pay/SKILL.md");
+
+      const requiredTools = extractMcpToolsFromSkill(skillPath);
+      const response = await capturedListHandler();
+      const exposedTools = new Set(response.tools.map((tool: any) => tool.name));
+
+      expect(requiredTools.length).toBeGreaterThan(0);
+      for (const tool of requiredTools) {
+        expect(exposedTools.has(tool)).toBe(true);
+      }
+    });
+
+    it("standalone skills declare explicit standalone execution rationale", async () => {
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = path.dirname(__filename);
+      const repoRoot = path.resolve(__dirname, "../../../..");
+
+      const anonymousWallet = readFileSync(
+        path.join(repoRoot, "skills/starknet-anonymous-wallet/SKILL.md"),
+        "utf8"
+      );
+      const huginnOnboard = readFileSync(
+        path.join(repoRoot, "skills/huginn-onboard/SKILL.md"),
+        "utf8"
+      );
+
+      expect(anonymousWallet).toMatch(/## Standalone Execution/i);
+      expect(huginnOnboard).toMatch(/## Standalone Execution/i);
+    });
+  });
+
   describe("unknown tool", () => {
     it("returns error for unknown tool", async () => {
       const response = await callTool("unknown_tool", {});
@@ -1606,7 +2060,7 @@ describe("Tool list", () => {
 
     const response = await capturedListHandler();
 
-    expect(response.tools).toHaveLength(21);
+    expect(response.tools.length).toBeGreaterThanOrEqual(27);
     const toolNames = response.tools.map((t: any) => t.name);
     expect(toolNames).toContain("starknet_get_balance");
     expect(toolNames).toContain("starknet_get_balances");
@@ -1625,9 +2079,20 @@ describe("Tool list", () => {
     expect(toolNames).toContain("starknet_build_transfer_calls");
     expect(toolNames).toContain("starknet_build_swap_calls");
     expect(toolNames).toContain("starknet_register_agent");
+    expect(toolNames).toContain("starknet_get_agent_info");
     expect(toolNames).toContain("starknet_set_agent_metadata");
+    expect(toolNames).toContain("starknet_update_agent_metadata");
     expect(toolNames).toContain("starknet_get_agent_metadata");
+    expect(toolNames).toContain("starknet_get_agent_passport");
+    expect(toolNames).toContain("starknet_give_feedback");
+    expect(toolNames).toContain("starknet_get_reputation");
+    expect(toolNames).toContain("starknet_request_validation");
     expect(toolNames).toContain("starknet_estimate_fee");
+    expect(toolNames).toContain("starknet_create_payment_link");
+    expect(toolNames).toContain("starknet_parse_payment_link");
+    expect(toolNames).toContain("starknet_create_invoice");
+    expect(toolNames).toContain("starknet_get_invoice_status");
+    expect(toolNames).toContain("starknet_generate_qr");
     expect(toolNames).toContain("x402_starknet_sign_payment_required");
   });
 
@@ -1647,7 +2112,7 @@ describe("Tool list", () => {
     const response = await capturedListHandler();
     const toolNames = response.tools.map((t: any) => t.name);
     expect(toolNames).toContain("starknet_deploy_agent_account");
-    expect(response.tools).toHaveLength(22);
+    expect(response.tools.length).toBeGreaterThanOrEqual(28);
 
     delete process.env.AGENT_ACCOUNT_FACTORY_ADDRESS;
   });

@@ -9,10 +9,19 @@
  * Executes REAL on-chain transactions when agent account is configured.
  */
 
-import { getMarkets, MARKET_QUESTIONS, SUPER_BOWL_REGEX, type MarketState, registerQuestion } from "./market-reader";
+import {
+  getMarkets,
+  getAgentBrierStats,
+  getAgentPredictions,
+  MARKET_QUESTIONS,
+  SUPER_BOWL_REGEX,
+  type MarketState,
+  registerQuestion,
+} from "./market-reader";
 import {
   researchAndForecast,
   type MarketContext,
+  type ResearchEvent,
 } from "./research-agent";
 import { discoverMarkets } from "./market-discovery";
 import { gatherResearch, type DataSourceName } from "./data-sources";
@@ -23,6 +32,11 @@ import {
   type AgentPersona,
 } from "./agent-personas";
 import { type AgentBudget, type SpawnedAgent, agentSpawner } from "./agent-spawner";
+import { buildTickAgentActors, selectTickAgentActor } from "./agent-loop-rotation";
+import {
+  heartbeatChildServerRuntime,
+  provisionChildServerRuntime,
+} from "./child-runtime";
 import { Account, RpcProvider } from "starknet";
 import { placeBet, recordPrediction, isAgentConfigured, createMarket, getSignerMode } from "./starknet-executor";
 import { config } from "./config";
@@ -40,6 +54,55 @@ import {
 } from "./survival-engine";
 import { updateSoul, getSoulChildren, incrementSoulPredictions, incrementSoulBets } from "./soul";
 import { deployChildAgent } from "./child-spawner";
+import {
+  assessResearchCoverage,
+  checkResearchGate,
+  mergeResearchCoverage,
+  type ToolEvidence,
+} from "./research-quality";
+import {
+  computeBrierWeightedConsensus,
+  type ConsensusGuardrailReason,
+} from "./consensus-weighting";
+import { ensureAgentSpawnerHydrated, persistAgentSpawner } from "./agent-persistence";
+import { deriveConsensusAutotuneProfile } from "./consensus-autotune";
+
+export interface AgentActionConsensusMeta {
+  enabled: boolean;
+  applied: boolean;
+  guardrailReason: ConsensusGuardrailReason | null;
+  leadProbability: number;
+  finalProbability: number;
+  deltaFromLead: number;
+  peerCount: number;
+  peerWeightTotal: number;
+  minPeersUsed: number;
+  minPeerPredictionCountUsed: number;
+  minTotalPeerWeightUsed: number;
+  maxShiftUsed: number;
+  autotune: {
+    enabled: boolean;
+    sampleCount: number;
+    drift: number;
+    normalizedDrift: number;
+    reason?: "disabled" | "insufficient_samples";
+  };
+}
+
+export interface AgentActionRuntimeMeta {
+  event:
+    | "provisioned"
+    | "heartbeat_recovered"
+    | "failed_over"
+    | "terminated"
+    | "heartbeat_error";
+  machineId?: string;
+  previousMachineId?: string;
+  region?: string;
+  previousRegion?: string;
+  failoverCount?: number;
+  reason?: string;
+}
 
 export interface AgentAction {
   id: string;
@@ -54,6 +117,7 @@ export interface AgentAction {
     | "error"
     | "debate"
     | "market_creation"
+    | "runtime"
     | "defi_signal"
     | "defi_swap";
   marketId?: number;
@@ -72,6 +136,8 @@ export interface AgentAction {
   defiPair?: string;
   defiAmount?: string;
   debateTarget?: string;
+  consensusMeta?: AgentActionConsensusMeta;
+  runtimeMeta?: AgentActionRuntimeMeta;
 }
 
 
@@ -236,6 +302,7 @@ class AgentLoop {
    * Returns the actions generated during this tick.
    */
   async singleTick(): Promise<AgentAction[]> {
+    await ensureAgentSpawnerHydrated();
     this.tickCount++;
     this.lastTickAt = Date.now();
     const tickActions: AgentAction[] = [];
@@ -336,23 +403,43 @@ class AgentLoop {
       await this.runChildSpawn(survival, captureEmit);
     }
 
+    await this.runChildServerHeartbeats(captureEmit);
+
     if (openMarkets.length === 0) return tickActions;
 
-    // Pick the next agent in round-robin from built-in personas
-    const allPersonas = AGENT_PERSONAS;
-    const persona = allPersonas[this.agentRotationIndex % allPersonas.length];
-    this.agentRotationIndex++;
+    // Pick the next actor in round-robin (built-in + running spawned/child agents)
+    const tickActors = buildTickAgentActors(AGENT_PERSONAS, agentSpawner.list());
+    const selected = selectTickAgentActor(tickActors, this.agentRotationIndex);
+    if (!selected) {
+      captureEmit(
+        this.createAction({
+          agentId: "system",
+          agentName: "System",
+          type: "error",
+          detail: "No active agents available for autonomous tick",
+        })
+      );
+      return tickActions;
+    }
+    this.agentRotationIndex = selected.nextIndex;
 
     // Pick a random market
     const target = openMarkets[Math.floor(Math.random() * openMarkets.length)];
 
-    await this.runAgentOnMarketWithEmit(persona, target, undefined, captureEmit, survival);
+    await this.runAgentOnMarketWithEmit(
+      selected.actor.persona,
+      target,
+      selected.actor.spawned,
+      captureEmit,
+      survival
+    );
 
     return tickActions;
   }
 
   /** Legacy full tick — runs all agents on all markets */
   private async tick() {
+    await ensureAgentSpawnerHydrated();
     this.tickCount++;
     this.lastTickAt = Date.now();
 
@@ -447,7 +534,36 @@ class AgentLoop {
 
     // Generate forecast
     let probability: number;
+    let modelProbability: number | null = null;
     let reasoning: string = "";
+    let researchCoverage = {
+      requestedSources: sources.length,
+      nonEmptySources: 0,
+      totalDataPoints: 0,
+      emptySourceNames: [] as string[],
+      populatedSourceNames: [] as string[],
+    };
+    let consensusPeerCount = 0;
+    let consensusDelta = 0;
+    let consensusPeerWeightTotal = 0;
+    let consensusApplied = false;
+    let consensusGuardrailReason: ConsensusGuardrailReason | null = null;
+    let consensusLeadProbability: number | null = null;
+    let consensusMinPeersUsed = config.agentConsensusMinPeers;
+    let consensusMinPeerPredictionCountUsed =
+      config.agentConsensusMinPeerPredictions;
+    let consensusMinTotalPeerWeightUsed =
+      config.agentConsensusMinTotalPeerWeight;
+    let consensusMaxShiftUsed = config.agentConsensusMaxShift;
+    let consensusAutotuneMeta: AgentActionConsensusMeta["autotune"] = {
+      enabled: false,
+      sampleCount: 0,
+      drift: 0,
+      normalizedDrift: 0,
+      reason: "disabled",
+    };
+    let marketPeerPredictions = [] as Awaited<ReturnType<typeof getAgentPredictions>>;
+    const toolEvidence: ToolEvidence[] = [];
     try {
       if (!process.env.ANTHROPIC_API_KEY) {
         emit(
@@ -463,11 +579,27 @@ class AgentLoop {
         return;
       }
 
+      if (config.agentConsensusEnabled) {
+        try {
+          marketPeerPredictions = await getAgentPredictions(target.id);
+        } catch {
+          marketPeerPredictions = [];
+        }
+      }
+
       const context: MarketContext = {
         currentMarketProb: target.impliedProbYes,
         totalPool: (target.totalPool / 10n ** 18n).toString(),
         timeUntilResolution: `${Math.max(0, Math.floor((target.resolutionTime - Date.now() / 1000) / 86400))} days`,
         systemPrompt: persona.systemPrompt,
+        model: survival ? getModelForTier(survival.tier) : persona.model,
+        agentPredictions: marketPeerPredictions
+          .slice(0, Math.max(0, config.agentConsensusMaxPeers))
+          .map((p) => ({
+            agent: p.agent.slice(0, 10),
+            prob: p.predictedProb,
+            brier: p.brierScore,
+          })),
       };
 
       const gen = researchAndForecast(persona, question, context);
@@ -478,11 +610,191 @@ class AgentLoop {
           result = value;
           break;
         }
+        const event = value as ResearchEvent;
+        if (event.type === "research_complete" && event.results) {
+          researchCoverage = assessResearchCoverage(event.results);
+          emit(
+            this.createAction({
+              agentId,
+              agentName,
+              type: "research",
+              marketId: target.id,
+              question,
+              detail:
+                `Research evidence: ${researchCoverage.nonEmptySources}/${researchCoverage.requestedSources} ` +
+                `sources produced ${researchCoverage.totalDataPoints} data points.`,
+              sourcesUsed: sources,
+            })
+          );
+        } else if (event.type === "tool_call" && event.toolName) {
+          emit(
+            this.createAction({
+              agentId,
+              agentName,
+              type: "research",
+              marketId: target.id,
+              question,
+              detail: `Tool call: ${event.toolName}`,
+              sourcesUsed: sources,
+            })
+          );
+        } else if (event.type === "tool_result" && event.toolName) {
+          const source = event.source ?? event.toolName;
+          const dataPoints = Math.max(
+            0,
+            typeof event.dataPoints === "number" ? event.dataPoints : 0
+          );
+
+          toolEvidence.push({
+            source,
+            dataPoints,
+            isError: event.isError,
+          });
+
+          if (event.isError) {
+            emit(
+              this.createAction({
+                agentId,
+                agentName,
+                type: "error",
+                marketId: target.id,
+                question,
+                detail: `Tool ${event.toolName} failed during forecast.`,
+              })
+            );
+          } else {
+            emit(
+              this.createAction({
+                agentId,
+                agentName,
+                type: "research",
+                marketId: target.id,
+                question,
+                detail: `Tool ${event.toolName} returned ${dataPoints} data points.`,
+                sourcesUsed: sources,
+              })
+            );
+          }
+        }
       }
+      researchCoverage = mergeResearchCoverage(researchCoverage, toolEvidence);
+      emit(
+        this.createAction({
+          agentId,
+          agentName,
+          type: "research",
+          marketId: target.id,
+          question,
+          detail:
+            `Final evidence: ${researchCoverage.nonEmptySources}/${researchCoverage.requestedSources} ` +
+            `sources, ${researchCoverage.totalDataPoints} data points.`,
+          sourcesUsed: sources,
+        })
+      );
       probability = result?.probability;
       reasoning = result?.reasoning ?? "";
       if (typeof probability !== "number") {
         throw new Error("Forecast missing probability");
+      }
+      modelProbability = probability;
+
+      if (config.agentConsensusEnabled) {
+        const selfAddress = spawned?.walletAddress ?? config.AGENT_ADDRESS;
+        const leadStats = await getAgentBrierStats(selfAddress ?? "");
+        const autotune = deriveConsensusAutotuneProfile({
+          agentKey: selfAddress ?? agentId,
+          leadBrierScore: leadStats?.brierScore,
+          baseMinPeers: config.agentConsensusMinPeers,
+          baseMinPeerPredictionCount: config.agentConsensusMinPeerPredictions,
+          baseMinTotalPeerWeight: config.agentConsensusMinTotalPeerWeight,
+          baseMaxShift: config.agentConsensusMaxShift,
+        });
+        consensusMinPeersUsed = autotune.minPeers;
+        consensusMinPeerPredictionCountUsed = autotune.minPeerPredictionCount;
+        consensusMinTotalPeerWeightUsed = autotune.minTotalPeerWeight;
+        consensusMaxShiftUsed = autotune.maxShift;
+        consensusAutotuneMeta = {
+          enabled: autotune.enabled,
+          sampleCount: autotune.sampleCount,
+          drift: autotune.drift,
+          normalizedDrift: autotune.normalizedDrift,
+          reason: autotune.reason,
+        };
+        const consensus = computeBrierWeightedConsensus({
+          leadAgent: agentId,
+          leadProbability: probability,
+          leadBrierScore: leadStats?.brierScore,
+          leadPredictionCount: leadStats?.predictionCount,
+          peerPredictions: marketPeerPredictions,
+          selfAddress,
+          maxPeers: config.agentConsensusMaxPeers,
+          minPeers: autotune.minPeers,
+          minPeerPredictionCount: autotune.minPeerPredictionCount,
+          minTotalPeerWeight: autotune.minTotalPeerWeight,
+          maxShift: autotune.maxShift,
+          brierFloor: config.agentConsensusBrierFloor,
+          leadWeightMultiplier: config.agentConsensusLeadWeight,
+        });
+
+        consensusPeerCount = consensus.usedPeerCount;
+        consensusDelta = consensus.deltaFromLead;
+        consensusPeerWeightTotal = consensus.peerWeightTotal;
+        consensusApplied = consensus.applied;
+        consensusGuardrailReason = consensus.guardrailReason ?? null;
+        consensusLeadProbability = consensus.leadProbability;
+        probability = consensus.probability;
+
+        if (consensus.usedPeerCount > 0) {
+          const topPeers = consensus.entries
+            .filter((e) => e.role === "peer")
+            .slice(0, 3)
+            .map((e) => `${e.agent.slice(0, 10)}… w=${e.weight.toFixed(1)}`)
+            .join(", ");
+
+          emit(
+            this.createAction({
+              agentId,
+              agentName,
+              type: "research",
+              marketId: target.id,
+              question,
+              detail: consensus.applied
+                ? `Consensus blend: model ${(consensus.leadProbability * 100).toFixed(1)}% ` +
+                  `→ weighted ${(consensus.probability * 100).toFixed(1)}% ` +
+                  `using ${consensus.usedPeerCount} peer agents by Brier ` +
+                  `(peer weight ${consensus.peerWeightTotal.toFixed(1)})` +
+                  `${consensus.guardrailReason === "delta_clamped" ? ", shift clamped" : ""}. ` +
+                  `Guardrails p>=${consensusMinPeersUsed}, ` +
+                  `preds>=${consensusMinPeerPredictionCountUsed}, ` +
+                  `w>=${consensusMinTotalPeerWeightUsed.toFixed(1)}, ` +
+                  `shift<=${(consensusMaxShiftUsed * 100).toFixed(1)}pp.`
+                : `Consensus guardrail held lead estimate ${(consensus.leadProbability * 100).toFixed(1)}% ` +
+                  `(${consensus.guardrailReason ?? "unknown"}) using ${consensus.usedPeerCount} peers ` +
+                  `(peer weight ${consensus.peerWeightTotal.toFixed(1)}). ` +
+                  `Guardrails p>=${consensusMinPeersUsed}, ` +
+                  `preds>=${consensusMinPeerPredictionCountUsed}, ` +
+                  `w>=${consensusMinTotalPeerWeightUsed.toFixed(1)}, ` +
+                  `shift<=${(consensusMaxShiftUsed * 100).toFixed(1)}pp.`,
+              sourcesUsed: topPeers ? [...sources, `consensus:${topPeers}`] : sources,
+              consensusMeta: {
+                enabled: true,
+                applied: consensus.applied,
+                guardrailReason: consensus.guardrailReason ?? null,
+                leadProbability: consensus.leadProbability,
+                finalProbability: consensus.probability,
+                deltaFromLead: consensus.deltaFromLead,
+                peerCount: consensus.usedPeerCount,
+                peerWeightTotal: consensus.peerWeightTotal,
+                minPeersUsed: consensusMinPeersUsed,
+                minPeerPredictionCountUsed:
+                  consensusMinPeerPredictionCountUsed,
+                minTotalPeerWeightUsed: consensusMinTotalPeerWeightUsed,
+                maxShiftUsed: consensusMaxShiftUsed,
+                autotune: consensusAutotuneMeta,
+              },
+            })
+          );
+        }
       }
     } catch (err: any) {
       emit(
@@ -540,6 +852,38 @@ class AgentLoop {
       ? ` → Huginn: err(${(huginnResult.error ?? "").slice(0, 30)})`
       : "";
 
+    const predictionConsensusMeta =
+      config.agentConsensusEnabled && modelProbability !== null
+        ? {
+            enabled: true,
+            applied: consensusApplied,
+            guardrailReason: consensusGuardrailReason,
+            leadProbability: consensusLeadProbability ?? modelProbability,
+            finalProbability: probability,
+            deltaFromLead: consensusDelta,
+            peerCount: consensusPeerCount,
+            peerWeightTotal: consensusPeerWeightTotal,
+            minPeersUsed: consensusMinPeersUsed,
+            minPeerPredictionCountUsed: consensusMinPeerPredictionCountUsed,
+            minTotalPeerWeightUsed: consensusMinTotalPeerWeightUsed,
+            maxShiftUsed: consensusMaxShiftUsed,
+            autotune: consensusAutotuneMeta,
+          }
+        : undefined;
+
+    const consensusSuffix =
+      config.agentConsensusEnabled && modelProbability !== null
+        ? consensusApplied
+          ? ` [model ${Math.round(modelProbability * 100)}% → consensus ${Math.round(
+              probability * 100
+            )}% (${consensusPeerCount} peers, w=${consensusPeerWeightTotal.toFixed(1)}, ` +
+            `Δ ${(consensusDelta * 100).toFixed(1)}pp` +
+            `${consensusGuardrailReason === "delta_clamped" ? ", clamped" : ""})]`
+          : ` [consensus held lead by guardrail` +
+            `${consensusGuardrailReason ? `:${consensusGuardrailReason}` : ""}` +
+            ` (${consensusPeerCount} peers, w=${consensusPeerWeightTotal.toFixed(1)})]`
+        : "";
+
     if (predictionTxHash) {
       emit(
         this.createAction({
@@ -549,11 +893,14 @@ class AgentLoop {
           marketId: target.id,
           question,
           probability,
-          detail: `Predicted ${Math.round(probability * 100)}% YES on "${question}" [tx: ${predictionTxHash.slice(0, 16)}...]${huginnSuffix}`,
+          detail:
+            `Predicted ${Math.round(probability * 100)}% YES on "${question}"` +
+            `${consensusSuffix} [tx: ${predictionTxHash.slice(0, 16)}...]${huginnSuffix}`,
           txHash: predictionTxHash,
           huginnTxHash,
           reasoningHash,
           reasoning: reasoningSnippet,
+          consensusMeta: predictionConsensusMeta,
         })
       );
     } else {
@@ -585,7 +932,28 @@ class AgentLoop {
     // Decide whether to bet
     const confidence = Math.abs(probability - 0.5) * 2;
     const threshold = parseNumber(config.AGENT_BET_CONFIDENCE_THRESHOLD, 0.15);
-    const shouldBet = confidence > threshold;
+    const confidenceGate = confidence > threshold;
+    const researchGate = checkResearchGate(
+      researchCoverage,
+      config.agentMinEvidenceSources,
+      config.agentMinEvidencePoints
+    );
+    const shouldBet = confidenceGate && researchGate.ok;
+
+    if (confidenceGate && !researchGate.ok) {
+      emit(
+        this.createAction({
+          agentId,
+          agentName,
+          type: "error",
+          marketId: target.id,
+          question,
+          detail:
+            `Bet skipped: ${researchGate.reason}. ` +
+            `Need >=${config.agentMinEvidenceSources} sources and >=${config.agentMinEvidencePoints} data points.`,
+        })
+      );
+    }
 
     if (shouldBet) {
       const survivalMultiplier = survival ? getBetMultiplier(survival.tier) : 1.0;
@@ -987,6 +1355,32 @@ class AgentLoop {
     spawned.account = childAccount;
     spawned.agentId = result.agentId;
 
+    const runtimeProvision = await provisionChildServerRuntime(spawned);
+    if (runtimeProvision.status === "success") {
+      emit(this.createAction({
+        agentId: "replication",
+        agentName: "Replication Engine",
+        type: "runtime",
+        detail:
+          `Provisioned child runtime machine ${runtimeProvision.runtime.machineId} ` +
+          `(${runtimeProvision.runtime.tier}, ${runtimeProvision.runtime.status}` +
+          `${runtimeProvision.runtime.region ? `, ${runtimeProvision.runtime.region}` : ""}).`,
+        runtimeMeta: {
+          event: "provisioned",
+          machineId: runtimeProvision.runtime.machineId,
+          region: runtimeProvision.runtime.region,
+          failoverCount: runtimeProvision.runtime.failoverCount ?? 0,
+        },
+      }));
+    } else if (runtimeProvision.status === "error") {
+      emit(this.createAction({
+        agentId: "replication",
+        agentName: "Replication Engine",
+        type: "error",
+        detail: `Child server provisioning failed: ${runtimeProvision.error}`,
+      }));
+    }
+
     // Log lineage to Huginn
     await logThoughtOnChain(
       `Spawned child agent "${name}" at ${result.agentAddress}. ` +
@@ -1005,6 +1399,109 @@ class AgentLoop {
     // Phase E: update soul children
     const current = getSoulChildren();
     updateSoul({ children: [...current, { id: result.agentAddress, name, tier: "healthy" }] });
+    await persistAgentSpawner();
+  }
+
+  private async runChildServerHeartbeats(
+    emit: (action: AgentAction) => void
+  ): Promise<void> {
+    const spawnedChildren = agentSpawner
+      .list()
+      .filter((agent) => !agent.isBuiltIn && agent.status === "running");
+    let shouldPersist = false;
+    for (const child of spawnedChildren) {
+      const heartbeat = await heartbeatChildServerRuntime({
+        agent: child,
+        tickCount: this.tickCount,
+      });
+
+      if (heartbeat.status === "ok" && heartbeat.stateChanged) {
+        shouldPersist = true;
+        emit(
+          this.createAction({
+            agentId: child.id,
+            agentName: child.name,
+            type: "runtime",
+            detail: `Child runtime ${heartbeat.machineId} is now running.`,
+            runtimeMeta: {
+              event: "heartbeat_recovered",
+              machineId: heartbeat.machineId,
+              region: child.runtime?.region,
+              failoverCount: child.runtime?.failoverCount,
+            },
+          })
+        );
+      }
+
+      if (heartbeat.status === "failed_over") {
+        shouldPersist = true;
+        emit(
+          this.createAction({
+            agentId: child.id,
+            agentName: child.name,
+            type: "runtime",
+            detail:
+              `Child runtime failover: ${heartbeat.previousMachineId}` +
+              `${heartbeat.previousRegion ? ` (${heartbeat.previousRegion})` : ""}` +
+              ` → ${heartbeat.machineId}` +
+              `${heartbeat.region ? ` (${heartbeat.region})` : ""}. ` +
+              `Reason: ${heartbeat.reason}`,
+            runtimeMeta: {
+              event: "failed_over",
+              previousMachineId: heartbeat.previousMachineId,
+              machineId: heartbeat.machineId,
+              previousRegion: heartbeat.previousRegion,
+              region: heartbeat.region,
+              failoverCount: child.runtime?.failoverCount,
+              reason: heartbeat.reason,
+            },
+          })
+        );
+      }
+
+      if (heartbeat.status === "dead") {
+        shouldPersist = true;
+        emit(
+          this.createAction({
+            agentId: child.id,
+            agentName: child.name,
+            type: "error",
+            detail:
+              `Child runtime ${heartbeat.machineId} terminated: ${heartbeat.error}`,
+            runtimeMeta: {
+              event: "terminated",
+              machineId: heartbeat.machineId,
+              region: child.runtime?.region,
+              failoverCount: child.runtime?.failoverCount,
+              reason: heartbeat.error,
+            },
+          })
+        );
+      }
+
+      if (heartbeat.status === "error") {
+        shouldPersist = true;
+        emit(
+          this.createAction({
+            agentId: child.id,
+            agentName: child.name,
+            type: "error",
+            detail:
+              `Child runtime heartbeat failed (${heartbeat.machineId}): ${heartbeat.error}`,
+            runtimeMeta: {
+              event: "heartbeat_error",
+              machineId: heartbeat.machineId,
+              region: child.runtime?.region,
+              failoverCount: child.runtime?.failoverCount,
+              reason: heartbeat.error,
+            },
+          })
+        );
+      }
+    }
+    if (shouldPersist) {
+      await persistAgentSpawner();
+    }
   }
 }
 

@@ -1,4 +1,4 @@
-import { RpcProvider, Contract, shortString } from "starknet";
+import { RpcProvider, Contract, byteArray } from "starknet";
 import { config } from "./config";
 
 const provider = new RpcProvider({ nodeUrl: config.STARKNET_RPC_URL });
@@ -53,13 +53,27 @@ export interface AgentIdentity {
   moltbookId?: string;
   reputationScore: number;
   feedbackCount: number;
+  passport?: {
+    schema?: string;
+    capabilities: Array<{
+      name: string;
+      category: string;
+      version?: string;
+      description?: string;
+      endpoint?: string;
+      mcpTool?: string;
+      a2aSkillId?: string;
+    }>;
+  };
 }
 
-function feltToString(felt: bigint): string {
+function decodeMetadataValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value == null) return "";
   try {
-    return shortString.decodeShortString("0x" + felt.toString(16));
+    return byteArray.stringFromByteArray(value as any);
   } catch {
-    return "";
+    return String(value);
   }
 }
 
@@ -79,6 +93,8 @@ export async function getAgentIdentity(agentId: string): Promise<AgentIdentity |
       frameworkResult,
       endpointResult,
       moltbookResult,
+      capsResult,
+      schemaResult,
       ownerResult,
     ] =
       await Promise.all([
@@ -89,8 +105,41 @@ export async function getAgentIdentity(agentId: string): Promise<AgentIdentity |
         registry.get_metadata(agentId, "framework").catch(() => ""),
         registry.get_metadata(agentId, "a2aEndpoint").catch(() => ""),
         registry.get_metadata(agentId, "moltbookId").catch(() => ""),
+        registry.get_metadata(agentId, "caps").catch(() => ""),
+        registry.get_metadata(agentId, "passport:schema").catch(() => ""),
         registry.owner_of(agentId).catch(() => "0x0"),
       ]);
+
+    const capabilityNames = (() => {
+      try {
+        const parsed = JSON.parse(decodeMetadataValue(capsResult));
+        if (!Array.isArray(parsed)) return [] as string[];
+        return parsed.filter((item) => typeof item === "string") as string[];
+      } catch {
+        return [] as string[];
+      }
+    })();
+
+    const capabilityPayloads = await Promise.all(
+      capabilityNames.map(async (capName) => {
+        try {
+          const raw = await registry.get_metadata(agentId, `capability:${capName}`);
+          const parsed = JSON.parse(decodeMetadataValue(raw));
+          if (!parsed || typeof parsed !== "object") return null;
+          return parsed as {
+            name: string;
+            category: string;
+            version?: string;
+            description?: string;
+            endpoint?: string;
+            mcpTool?: string;
+            a2aSkillId?: string;
+          };
+        } catch {
+          return null;
+        }
+      })
+    );
 
     let reputationScore = 0;
     let feedbackCount = 0;
@@ -115,16 +164,31 @@ export async function getAgentIdentity(agentId: string): Promise<AgentIdentity |
 
     return {
       agentId,
-      name: String(nameResult || "Unknown Agent"),
-      agentType: String(typeResult || "forecaster"),
-      model: String(modelResult || "claude-sonnet-4-5"),
-      status: String(statusResult || "active"),
+      name: decodeMetadataValue(nameResult) || "Unknown Agent",
+      agentType: decodeMetadataValue(typeResult) || "forecaster",
+      model: decodeMetadataValue(modelResult) || "claude-sonnet-4-5",
+      status: decodeMetadataValue(statusResult) || "active",
       walletAddress: String(ownerResult),
-      framework: frameworkResult ? String(frameworkResult) : undefined,
-      a2aEndpoint: endpointResult ? String(endpointResult) : undefined,
-      moltbookId: moltbookResult ? String(moltbookResult) : undefined,
+      framework: frameworkResult ? decodeMetadataValue(frameworkResult) : undefined,
+      a2aEndpoint: endpointResult ? decodeMetadataValue(endpointResult) : undefined,
+      moltbookId: moltbookResult ? decodeMetadataValue(moltbookResult) : undefined,
       reputationScore,
       feedbackCount,
+      passport:
+        capabilityPayloads.filter(Boolean).length > 0
+          ? {
+              schema: decodeMetadataValue(schemaResult) || undefined,
+              capabilities: capabilityPayloads.filter(Boolean) as Array<{
+                name: string;
+                category: string;
+                version?: string;
+                description?: string;
+                endpoint?: string;
+                mcpTool?: string;
+                a2aSkillId?: string;
+              }>,
+            }
+          : undefined,
     };
   } catch {
     return null;
@@ -134,6 +198,9 @@ export async function getAgentIdentity(agentId: string): Promise<AgentIdentity |
 /** Generate A2A-compatible agent card from on-chain identity. */
 export async function generateAgentCard(agentId: string, baseUrl: string) {
   const identity = await getAgentIdentity(agentId);
+  const fallbackCaps = ["forecast", "predict", "bet", "analyze"];
+  const capsFromPassport = identity?.passport?.capabilities.map((cap) => cap.name) ?? [];
+  const advertisedCapabilities = capsFromPassport.length > 0 ? capsFromPassport : fallbackCaps;
 
   return {
     "@context": "https://a2a-protocol.org/schema/1.0",
@@ -143,7 +210,7 @@ export async function generateAgentCard(agentId: string, baseUrl: string) {
     description: "AI superforecaster agent on Starknet prediction markets",
     url: baseUrl,
     version: "1.0",
-    capabilities: ["forecast", "predict", "bet", "analyze"],
+    capabilities: advertisedCapabilities,
     identity: identity
       ? {
           starknet: {
@@ -156,6 +223,7 @@ export async function generateAgentCard(agentId: string, baseUrl: string) {
           framework: identity.framework,
           a2aEndpoint: identity.a2aEndpoint,
           moltbookId: identity.moltbookId,
+          agentPassport: identity.passport,
         }
       : undefined,
     endpoints: {

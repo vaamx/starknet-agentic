@@ -90,10 +90,8 @@ export default function MarketCard({
   );
   const isExpired = resolutionTime <= now;
 
-  const poolDisplay =
-    BigInt(totalPool) > 10n ** 18n
-      ? `${(Number(BigInt(totalPool)) / 1e18).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-      : `${totalPool}`;
+  const poolWei = safeBigInt(totalPool);
+  const poolDisplay = (poolWei / 10n ** 18n).toString();
 
   const statusLabel = status === 0
     ? (isExpired ? "PENDING" : "LIVE")
@@ -681,6 +679,14 @@ export default function MarketCard({
       </div>
     </div>
   );
+}
+
+function safeBigInt(value: string): bigint {
+  try {
+    return BigInt(value);
+  } catch {
+    return 0n;
+  }
 }
 
 function timeAgo(ts: number): string {
