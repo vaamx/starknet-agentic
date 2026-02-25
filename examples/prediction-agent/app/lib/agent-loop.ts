@@ -1008,17 +1008,54 @@ class AgentLoop {
         }
       }
     } catch (err: any) {
+      const errMessage = err?.message ?? "unknown error";
+      const canFallback =
+        /timed out|missing probability|tool/i.test(errMessage) ||
+        researchCoverage.totalDataPoints > 0;
+
+      if (!canFallback) {
+        emit(
+          this.createAction({
+            agentId,
+            agentName,
+            type: "error",
+            marketId: target.id,
+            question,
+            detail: `Forecast failed: ${errMessage}`,
+          })
+        );
+        return;
+      }
+
+      const peerMean =
+        marketPeerPredictions.length > 0
+          ? marketPeerPredictions.reduce((sum, p) => sum + p.predictedProb, 0) /
+            marketPeerPredictions.length
+          : target.impliedProbYes;
+      const fallbackProbability = Math.max(
+        0.05,
+        Math.min(0.95, target.impliedProbYes * 0.65 + peerMean * 0.35)
+      );
+
+      probability = fallbackProbability;
+      modelProbability = fallbackProbability;
+      reasoning =
+        `Fallback forecast used after model/tool failure: ${errMessage}. ` +
+        `Anchored to market prior ${(target.impliedProbYes * 100).toFixed(1)}% and peer mean ${(peerMean * 100).toFixed(1)}%.`;
+
       emit(
         this.createAction({
           agentId,
           agentName,
-          type: "error",
+          type: "research",
           marketId: target.id,
           question,
-          detail: `Forecast failed: ${err?.message ?? "unknown error"}`,
+          detail:
+            `Forecast fallback applied at ${(fallbackProbability * 100).toFixed(1)}% YES ` +
+            `(${errMessage}).`,
+          sourcesUsed: sources,
         })
       );
-      return;
     }
 
     // Phase E: Update soul with thesis snippet
