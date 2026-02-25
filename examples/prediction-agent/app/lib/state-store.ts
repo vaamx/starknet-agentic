@@ -255,7 +255,9 @@ async function writeState(state: PersistedPredictionAgentState): Promise<void> {
   };
 
   await ensureDirectory(STATE_FILE);
-  const tempPath = `${STATE_FILE}.tmp`;
+  const tempPath = `${STATE_FILE}.${process.pid}.${Date.now()}.${Math.random()
+    .toString(16)
+    .slice(2)}.tmp`;
   await fs.writeFile(tempPath, JSON.stringify(normalized, null, 2), "utf8");
   await fs.rename(tempPath, STATE_FILE);
 }

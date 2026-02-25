@@ -1300,7 +1300,19 @@ class AgentLoop {
         })
       );
 
-      const result = await tryResolveMarket(market.id, market.address, question);
+      let result: Awaited<ReturnType<typeof tryResolveMarket>>;
+      try {
+        result = await withTimeout(
+          tryResolveMarket(market.id, market.address, question),
+          8_000,
+          "Resolution timed out"
+        );
+      } catch (err: any) {
+        result = {
+          status: "error",
+          error: err?.message ?? "Resolution timed out",
+        };
+      }
 
       if (result.status === "resolved" && typeof result.outcome === "number") {
         const outcomeLabel: "YES" | "NO" = result.outcome === 1 ? "YES" : "NO";
