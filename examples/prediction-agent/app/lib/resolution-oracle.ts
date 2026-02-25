@@ -41,6 +41,12 @@ interface OracleDecision {
 const MIN_SPORTS_CONFIDENCE = 0.85;
 const MIN_GENERAL_CONFIDENCE = 0.90;
 const MIN_SPORTS_SEARCH_CONFIDENCE = 0.80;
+type EspnResult = Awaited<ReturnType<typeof fetchEspnScores>>;
+
+interface TeamScore {
+  name: string;
+  score: number;
+}
 
 function normalizeResolutionQuestion(marketId: number, question: string): string {
   const trimmed = question.trim();
@@ -58,6 +64,99 @@ function normalizeResolutionQuestion(marketId: number, question: string): string
   }
 
   return normalized;
+}
+
+function parseTeamScores(espnResult: EspnResult): TeamScore[] {
+  return (espnResult.data ?? [])
+    .map((point) => {
+      const nameMatch = String(point.label).match(/^(.*?)\s+\((Home|Away)\)$/i);
+      const scoreMatch = String(point.value).match(/Score:\s*(\d+)/i);
+      if (!nameMatch || !scoreMatch) return null;
+      return {
+        name: nameMatch[1].trim(),
+        score: Number(scoreMatch[1]),
+      };
+    })
+    .filter((entry): entry is TeamScore => !!entry && Number.isFinite(entry.score));
+}
+
+function deriveSportsOutcomeFromEspn(
+  question: string,
+  espnResult: EspnResult
+): OracleDecision | null {
+  const q = question.toLowerCase();
+  const teamScores = parseTeamScores(espnResult);
+
+  // Pattern: "<team> win ..."
+  const winMatch = question.match(/^(.+?)\s+win\b/i);
+  if (winMatch && teamScores.length >= 2) {
+    const teamToken = winMatch[1].trim().toLowerCase();
+    const target = teamScores.find((team) =>
+      team.name.toLowerCase().includes(teamToken)
+    );
+    if (target) {
+      const opponentBest = Math.max(
+        ...teamScores
+          .filter((team) => team.name !== target.name)
+          .map((team) => team.score)
+      );
+      const outcome: 0 | 1 = target.score > opponentBest ? 1 : 0;
+      return {
+        outcome,
+        confidence: 0.99,
+        reasoning: `Resolved from ESPN final score: ${target.name} ${target.score} vs opponent ${opponentBest}.`,
+      };
+    }
+  }
+
+  // Pattern: total score over/under X
+  const totalMatch = question.match(/total score\s+(over|under)\s+(\d+(?:\.\d+)?)/i);
+  if (totalMatch && teamScores.length >= 2) {
+    const total = teamScores.reduce((sum, team) => sum + team.score, 0);
+    const threshold = parseFloat(totalMatch[2]);
+    const isOver = totalMatch[1].toLowerCase() === "over";
+    const outcome: 0 | 1 = isOver ? (total > threshold ? 1 : 0) : total < threshold ? 1 : 0;
+    return {
+      outcome,
+      confidence: 0.98,
+      reasoning: `Resolved from ESPN final total ${total} vs threshold ${threshold} (${isOver ? "over" : "under"}).`,
+    };
+  }
+
+  // Pattern: 100+ rushing yards player
+  if (/100\+\s*rush|rush(?:ing)?\s+yards?\s+player/i.test(q)) {
+    const rushingLeader = espnResult.data.find((d) =>
+      String(d.label).toLowerCase().includes("rushingyards leader")
+    );
+    const yardsMatch = rushingLeader
+      ? String(rushingLeader.value).match(/(\d+)\s*YDS/i)
+      : null;
+    if (yardsMatch) {
+      const yards = Number(yardsMatch[1]);
+      const outcome: 0 | 1 = yards >= 100 ? 1 : 0;
+      return {
+        outcome,
+        confidence: 0.94,
+        reasoning: `Resolved from ESPN rushing leader stat: ${yards} yards.`,
+      };
+    }
+  }
+
+  // Pattern: overtime yes/no
+  if (/overtime/i.test(q)) {
+    const summary = `${espnResult.summary} ${espnResult.data
+      .map((d) => `${d.label}: ${d.value}`)
+      .join(" ")}`.toLowerCase();
+    const wentOvertime = /\bot\b|overtime/.test(summary);
+    const outcome: 0 | 1 = wentOvertime ? 1 : 0;
+    return {
+      outcome,
+      confidence: 0.9,
+      reasoning: `Resolved from ESPN status summary (${wentOvertime ? "overtime detected" : "no overtime detected"}).`,
+    };
+  }
+
+  return null;
 }
 
 /** Parse a price threshold from a question string. e.g. "above $0.15" → 0.15 */
@@ -135,6 +234,9 @@ async function resolveSports(
     espnResult.summary.startsWith("FINAL:") ||
     espnResult.data.some((d) => d.label === "Game Status" && d.value === "FINAL");
   if (!gameIsFinal) return null;
+
+  const deterministic = deriveSportsOutcomeFromEspn(question, espnResult);
+  if (deterministic) return deterministic;
 
   const evidence = [
     espnResult.summary,
