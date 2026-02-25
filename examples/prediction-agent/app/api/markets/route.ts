@@ -152,12 +152,12 @@ export async function GET(request: NextRequest) {
     });
   } catch (err: any) {
     if (cachedSnapshots.length > 0) {
-      const markets = applyMarketWindow(
+          const markets = applyMarketWindow(
         cachedSnapshots.map((snapshot) => ({
           id: snapshot.id,
           address: snapshot.address,
           questionHash: snapshot.questionHash,
-          question: snapshot.question,
+          question: resolveMarketQuestion(snapshot.id, snapshot.questionHash),
           resolutionTime: snapshot.resolutionTime,
           oracle: snapshot.oracle,
           collateralToken: snapshot.collateralToken,

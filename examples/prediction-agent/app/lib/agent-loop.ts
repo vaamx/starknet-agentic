@@ -5,7 +5,8 @@
  * 1. Client-driven polling: Dashboard sends POST { action: "tick" } every 60s
  * 2. Legacy server-side: setInterval (works locally, NOT on Vercel serverless)
  *
- * Each tick picks one agent + one market and runs research → forecast → bet.
+ * Each tick picks a configurable batch of agents and runs
+ * research → forecast → bet on high-impact markets.
  * Executes REAL on-chain transactions when agent account is configured.
  */
 
@@ -37,7 +38,7 @@ import {
   type AgentPersona,
 } from "./agent-personas";
 import { type AgentBudget, type SpawnedAgent, agentSpawner } from "./agent-spawner";
-import { buildTickAgentActors, selectTickAgentActor } from "./agent-loop-rotation";
+import { buildTickAgentActors, selectTickAgentActors } from "./agent-loop-rotation";
 import {
   heartbeatChildServerRuntime,
   provisionChildServerRuntime,
@@ -753,8 +754,19 @@ class AgentLoop {
         return runtime.schedulerMode === "parent";
       });
     const tickActors = buildTickAgentActors(AGENT_PERSONAS, parentEligibleSpawned);
-    const selected = selectTickAgentActor(tickActors, this.agentRotationIndex);
-    if (!selected) {
+    const actorsPerTick = Math.max(
+      1,
+      Math.min(
+        tickActors.length,
+        Number.isFinite(config.agentActorsPerTick) ? config.agentActorsPerTick : 1
+      )
+    );
+    const selected = selectTickAgentActors(
+      tickActors,
+      this.agentRotationIndex,
+      actorsPerTick
+    );
+    if (!selected || selected.actors.length === 0) {
       captureEmit(
         this.createAction({
           agentId: "system",
@@ -786,17 +798,23 @@ class AgentLoop {
       })
       .sort((a, b) => b.score - a.score);
     const topBand = rankedMarkets.slice(0, Math.min(4, rankedMarkets.length));
-    const target =
-      topBand[Math.floor(Math.random() * topBand.length)]?.market ??
-      openMarkets[Math.floor(Math.random() * openMarkets.length)];
+    const targetBand = topBand.length > 0 ? topBand.map((entry) => entry.market) : openMarkets;
+    const seedIndex = Math.floor(Math.random() * targetBand.length);
 
-    await this.runAgentOnMarketWithEmit(
-      selected.actor.persona,
-      target,
-      selected.actor.spawned,
-      captureEmit,
-      survival
-    );
+    for (let idx = 0; idx < selected.actors.length; idx += 1) {
+      const actor = selected.actors[idx];
+      const target =
+        targetBand[(seedIndex + idx) % targetBand.length] ??
+        openMarkets[Math.floor(Math.random() * openMarkets.length)];
+      if (!target) continue;
+      await this.runAgentOnMarketWithEmit(
+        actor.persona,
+        target,
+        actor.spawned,
+        captureEmit,
+        survival
+      );
+    }
 
     return tickActions;
   }

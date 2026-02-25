@@ -83,6 +83,7 @@ const envSchema = z.object({
   AGENT_AUTO_RESOLVE_EVERY: z.string().default("1"),
   AGENT_AUTO_RESOLVE_MAX_PER_TICK: z.string().default("1"),
   AGENT_AUTO_RESOLVE_COOLDOWN_SECS: z.string().default("900"),
+  AGENT_ACTORS_PER_TICK: z.string().default("3"),
   AGENT_MIN_EVIDENCE_SOURCES: z.string().default("2"),
   AGENT_MIN_EVIDENCE_POINTS: z.string().default("4"),
   AGENT_CONSENSUS_ENABLED: z.string().default("true"),
@@ -313,6 +314,10 @@ export const config = {
   agentAutoResolveCooldownSecs: Math.max(
     0,
     parseInt(rawConfig.AGENT_AUTO_RESOLVE_COOLDOWN_SECS, 10) || 900
+  ),
+  agentActorsPerTick: Math.max(
+    1,
+    Math.min(12, parseInt(rawConfig.AGENT_ACTORS_PER_TICK, 10) || 3)
   ),
   agentMinEvidenceSources: Math.max(
     1,
