@@ -149,7 +149,7 @@ const envSchema = z.object({
   SURVIVAL_TIER_THRIVING:  z.string().default("1000"),
   SURVIVAL_TIER_HEALTHY:   z.string().default("100"),
   SURVIVAL_TIER_LOW:       z.string().default("10"),
-  SURVIVAL_TIER_CRITICAL:  z.string().default("1"),
+  SURVIVAL_TIER_CRITICAL:  z.string().default("0.2"),
   SURVIVAL_CHECK_INTERVAL: z.string().default("3"),
   SURVIVAL_MODEL_THRIVING: z.string().default("claude-opus-4-6"),
   SURVIVAL_MODEL_HEALTHY:  z.string().default("claude-sonnet-4-6"),

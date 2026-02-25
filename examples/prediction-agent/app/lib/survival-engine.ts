@@ -60,7 +60,7 @@ function balanceToRawTier(balanceWei: bigint): SurvivalTier {
   const thriving = parseTierThreshold("SURVIVAL_TIER_THRIVING", 1000);
   const healthy  = parseTierThreshold("SURVIVAL_TIER_HEALTHY",  100);
   const low      = parseTierThreshold("SURVIVAL_TIER_LOW",      10);
-  const critical = parseTierThreshold("SURVIVAL_TIER_CRITICAL", 1);
+  const critical = parseTierThreshold("SURVIVAL_TIER_CRITICAL", 0.2);
 
   if (balanceWei >= thriving) return "thriving";
   if (balanceWei >= healthy)  return "healthy";

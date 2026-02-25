@@ -123,7 +123,7 @@ OPENCLAW_FORECAST_TTL_HOURS=72
 SURVIVAL_TIER_THRIVING=1000
 SURVIVAL_TIER_HEALTHY=100
 SURVIVAL_TIER_LOW=10
-SURVIVAL_TIER_CRITICAL=1
+SURVIVAL_TIER_CRITICAL=0.2
 
 # Optional: Huginn on-chain thought provenance
 # Source of truth (Sepolia): contracts/huginn-registry/deployments/sepolia.json
