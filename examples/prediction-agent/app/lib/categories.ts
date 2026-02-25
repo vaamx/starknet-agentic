@@ -23,10 +23,19 @@ const HIGH_PROFILE_REGEX =
   /trump|biden|musk|elon|powell|putin|zelensky|netanyahu|openai|nvidia|bitcoin|ethereum|super bowl|olympics/i;
 
 export function categorizeMarket(question: string): MarketCategory {
-  if (SPORTS_REGEX.test(question)) return "sports";
-  if (CRYPTO_REGEX.test(question)) return "crypto";
-  if (POLITICS_REGEX.test(question)) return "politics";
-  if (TECH_REGEX.test(question)) return "tech";
+  const normalized = String(question ?? "");
+  const isSports = SPORTS_REGEX.test(normalized);
+  const isPolitics = POLITICS_REGEX.test(normalized);
+  const isTech = TECH_REGEX.test(normalized);
+  const isCrypto = CRYPTO_REGEX.test(normalized);
+
+  // Category precedence favors real-world topics over crypto when mixed.
+  // Example: "Will Trump mention Bitcoin..." should map to politics.
+  if (isSports) return "sports";
+  if (isPolitics) return "politics";
+  if (isTech && !isCrypto) return "tech";
+  if (isCrypto) return "crypto";
+  if (isTech) return "tech";
   return "other";
 }
 

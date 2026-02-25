@@ -27,7 +27,11 @@ import {
 import { discoverMarkets } from "./market-discovery";
 import { gatherResearch, type DataSourceName } from "./data-sources";
 import { fetchCryptoPrices } from "./data-sources/crypto-prices";
-import { categorizeMarket, estimateEngagementScore } from "./categories";
+import {
+  categorizeMarket,
+  estimateEngagementScore,
+  type MarketCategory,
+} from "./categories";
 import {
   AGENT_PERSONAS,
   type AgentPersona,
@@ -178,6 +182,99 @@ function parseNumber(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+const ALL_DATA_SOURCE_NAMES = new Set<DataSourceName>([
+  "polymarket",
+  "coingecko",
+  "news",
+  "web",
+  "tavily",
+  "social",
+  "espn",
+  "github",
+  "onchain",
+  "rss",
+  "x",
+  "telegram",
+]);
+
+type DiscoverableCategory = Exclude<MarketCategory, "all">;
+
+const CATEGORY_SOURCE_PRIORITIES: Record<DiscoverableCategory, DataSourceName[]> = {
+  sports: ["espn", "news", "web", "social", "polymarket", "rss", "x"],
+  crypto: [
+    "coingecko",
+    "onchain",
+    "polymarket",
+    "news",
+    "web",
+    "social",
+    "x",
+    "rss",
+  ],
+  politics: ["news", "web", "rss", "social", "x", "polymarket", "tavily"],
+  tech: ["news", "web", "github", "social", "rss", "x", "polymarket"],
+  other: ["news", "web", "rss", "social", "x", "polymarket", "tavily"],
+};
+
+function toDataSourceName(value: string): DataSourceName | null {
+  if (ALL_DATA_SOURCE_NAMES.has(value as DataSourceName)) {
+    return value as DataSourceName;
+  }
+  return null;
+}
+
+function normalizeCategory(category: MarketCategory): DiscoverableCategory {
+  return category === "all" ? "other" : category;
+}
+
+function pickResearchSources(
+  question: string,
+  preferredSources?: string[]
+): DataSourceName[] {
+  const category = normalizeCategory(categorizeMarket(question));
+  const selected: DataSourceName[] = [];
+  const seen = new Set<DataSourceName>();
+
+  const add = (source: DataSourceName) => {
+    if (seen.has(source)) return;
+    seen.add(source);
+    selected.push(source);
+  };
+
+  for (const source of CATEGORY_SOURCE_PRIORITIES[category]) {
+    add(source);
+  }
+
+  for (const raw of preferredSources ?? []) {
+    const parsed = toDataSourceName(raw);
+    if (!parsed) continue;
+    add(parsed);
+  }
+
+  // Keep topic-specific signal focused; crypto-only sources add noise for
+  // politics/sports/tech markets.
+  if (category !== "crypto") {
+    const filtered = selected.filter(
+      (source) => source !== "coingecko" && source !== "onchain"
+    );
+    selected.length = 0;
+    selected.push(...filtered);
+  }
+  if (category !== "sports") {
+    const filtered = selected.filter((source) => source !== "espn");
+    selected.length = 0;
+    selected.push(...filtered);
+  }
+
+  // Ensure minimum breadth even when persona preferences are sparse.
+  for (const fallback of ["news", "web", "social", "rss"] as DataSourceName[]) {
+    add(fallback);
+    if (selected.length >= 5) break;
+  }
+
+  return selected.slice(0, 8);
 }
 
 function stableQuestionHash(input: string): string {
@@ -586,9 +683,9 @@ class AgentLoop {
       })[0];
     }
 
-    // Every N ticks, or whenever no active markets remain, attempt market creation.
-    const shouldRebalanceCreate =
-      !!rebalanceCategory && this.tickCount % 2 === 0;
+    // Rebalancing creation should not depend on in-memory tick counters because
+    // serverless instances are stateless between invocations.
+    const shouldRebalanceCreate = !!rebalanceCategory;
     const shouldCreate =
       openMarkets.length === 0 ||
       this.tickCount % this.marketCreationInterval === 0 ||
@@ -790,8 +887,9 @@ class AgentLoop {
 
     const question = resolveMarketQuestion(target.id, target.questionHash);
 
-    // Auto-add ESPN source for Super Bowl related markets
-    const sources = [...(persona.preferredSources ?? ["polymarket", "coingecko", "news", "social"])];
+    // Source selection is question/category aware so politics/tech/sports
+    // markets do not get forced through crypto-only data providers.
+    const sources = pickResearchSources(question, persona.preferredSources);
     if (SUPER_BOWL_REGEX.test(question) && !sources.includes("espn")) {
       sources.push("espn");
     }
@@ -879,7 +977,7 @@ class AgentLoop {
           })),
       };
 
-      const gen = researchAndForecast(persona, question, context);
+      const gen = researchAndForecast(persona, question, context, sources);
       const forecastStartedAt = Date.now();
       let result: any;
       while (true) {
@@ -1093,9 +1191,15 @@ class AgentLoop {
       }
     } catch (err: any) {
       const errMessage = err?.message ?? "unknown error";
+      const fallbackEvidenceGate = checkResearchGate(
+        researchCoverage,
+        Math.max(1, config.agentMinEvidenceSources - 1),
+        Math.max(2, Math.floor(config.agentMinEvidencePoints / 2))
+      );
       const canFallback =
-        /timed out|missing probability|tool/i.test(errMessage) ||
-        researchCoverage.totalDataPoints > 0;
+        fallbackEvidenceGate.ok &&
+        (/timed out|missing probability|tool/i.test(errMessage) ||
+          researchCoverage.totalDataPoints > 0);
 
       if (!canFallback) {
         emit(
@@ -1105,7 +1209,10 @@ class AgentLoop {
             type: "error",
             marketId: target.id,
             question,
-            detail: `Forecast failed: ${errMessage}`,
+            detail:
+              `Forecast failed: ${errMessage}. ` +
+              `Insufficient evidence (${researchCoverage.nonEmptySources} sources, ` +
+              `${researchCoverage.totalDataPoints} points).`,
           })
         );
         return;
@@ -1116,16 +1223,22 @@ class AgentLoop {
           ? marketPeerPredictions.reduce((sum, p) => sum + p.predictedProb, 0) /
             marketPeerPredictions.length
           : target.impliedProbYes;
+      const blended =
+        target.impliedProbYes * 0.4 + peerMean * 0.4 + 0.5 * 0.2;
+      const confidenceCap =
+        researchCoverage.totalDataPoints >= config.agentMinEvidencePoints
+          ? 0.2
+          : 0.12;
       const fallbackProbability = Math.max(
-        0.05,
-        Math.min(0.95, target.impliedProbYes * 0.65 + peerMean * 0.35)
+        0.5 - confidenceCap,
+        Math.min(0.5 + confidenceCap, blended)
       );
 
       probability = fallbackProbability;
       modelProbability = fallbackProbability;
       reasoning =
         `Fallback forecast used after model/tool failure: ${errMessage}. ` +
-        `Anchored to market prior ${(target.impliedProbYes * 100).toFixed(1)}% and peer mean ${(peerMean * 100).toFixed(1)}%.`;
+        `Anchored to market prior ${(target.impliedProbYes * 100).toFixed(1)}% and peer mean ${(peerMean * 100).toFixed(1)}%, with confidence capped due to partial evidence.`;
 
       emit(
         this.createAction({
@@ -1249,6 +1362,19 @@ class AgentLoop {
       );
     }
 
+    const peerMeanForDebate =
+      marketPeerPredictions.length > 0
+        ? marketPeerPredictions.reduce((sum, p) => sum + p.predictedProb, 0) /
+          marketPeerPredictions.length
+        : null;
+    const shouldForceDebate =
+      (peerMeanForDebate !== null &&
+        Math.abs(probability - peerMeanForDebate) >= 0.12) ||
+      Math.abs(probability - target.impliedProbYes) >= 0.18 ||
+      (config.agentConsensusEnabled &&
+        consensusPeerCount > 0 &&
+        Math.abs(consensusDelta) >= 0.05);
+
     await this.maybeRunDebate(
       {
         lead: persona,
@@ -1256,6 +1382,7 @@ class AgentLoop {
         probability,
         reasoning: reasoningSnippet ?? "",
         marketId: target.id,
+        force: shouldForceDebate,
       },
       emit
     );
@@ -1734,6 +1861,7 @@ class AgentLoop {
       probability: number;
       reasoning: string;
       marketId: number;
+      force?: boolean;
     },
     emit: (action: AgentAction) => void
   ) {
@@ -1743,7 +1871,7 @@ class AgentLoop {
     const interval = parseNumber(config.AGENT_DEBATE_INTERVAL, 3);
     if (interval <= 0) return;
     this.debateCounter += 1;
-    if (this.debateCounter % interval !== 0) return;
+    if (!params.force && this.debateCounter % interval !== 0) return;
 
     const challengers = AGENT_PERSONAS.filter((p) => p.id !== params.lead.id);
     if (challengers.length === 0) return;

@@ -135,30 +135,56 @@ interface PersistedPredictionAgentState {
   loopActions: PersistedLoopAction[];
 }
 
-const DEFAULT_STATE: PersistedPredictionAgentState = {
-  version: 1,
-  updatedAt: Date.now(),
-  spawnedAgents: [],
-  externalForecasts: {},
-  agentKeys: {},
-  proofs: [],
-  marketSnapshots: [],
-  loopRuntime: null,
-  loopActions: [],
-};
-
 const STATE_FILE =
   process.env.AGENT_STATE_FILE ||
   path.join(os.tmpdir(), "starknet-agentic-prediction-state.json");
+const STATE_BACKEND = (
+  process.env.AGENT_STATE_BACKEND || "auto"
+).toLowerCase();
+const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL?.replace(/\/+$/, "");
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const UPSTASH_STATE_KEY =
+  process.env.AGENT_STATE_UPSTASH_KEY ||
+  "starknet-agentic:prediction-agent:state:v1";
+const USE_UPSTASH_STATE =
+  STATE_BACKEND !== "file" &&
+  !!UPSTASH_URL &&
+  !!UPSTASH_TOKEN;
 
 let writeQueue: Promise<void> = Promise.resolve();
+let lastBackendWarningAt = 0;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object";
 }
 
+function createDefaultState(): PersistedPredictionAgentState {
+  return {
+    version: 1,
+    updatedAt: Date.now(),
+    spawnedAgents: [],
+    externalForecasts: {},
+    agentKeys: {},
+    proofs: [],
+    marketSnapshots: [],
+    loopRuntime: null,
+    loopActions: [],
+  };
+}
+
+function warnStateStore(message: string, err?: unknown): void {
+  const now = Date.now();
+  if (now - lastBackendWarningAt < 60_000) return;
+  lastBackendWarningAt = now;
+  if (err) {
+    console.warn(`[state-store] ${message}:`, err);
+  } else {
+    console.warn(`[state-store] ${message}`);
+  }
+}
+
 function normalizeState(raw: unknown): PersistedPredictionAgentState {
-  if (!isObject(raw)) return { ...DEFAULT_STATE };
+  if (!isObject(raw)) return createDefaultState();
 
   const version = raw.version === 1 ? 1 : 1;
   const updatedAt =
@@ -248,15 +274,78 @@ async function ensureDirectory(filePath: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
 }
 
-async function readState(): Promise<PersistedPredictionAgentState> {
+async function runUpstashPipeline(
+  commands: Array<Array<string>>
+): Promise<any[]> {
+  if (!USE_UPSTASH_STATE || !UPSTASH_URL || !UPSTASH_TOKEN) {
+    throw new Error("Upstash state backend not configured");
+  }
+
+  const response = await fetch(`${UPSTASH_URL}/pipeline`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${UPSTASH_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(commands),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Upstash pipeline failed: HTTP ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+async function readStateFromUpstash(): Promise<PersistedPredictionAgentState> {
+  const payload = await runUpstashPipeline([["GET", UPSTASH_STATE_KEY]]);
+  const raw = payload?.[0]?.result;
+
+  if (raw === null || raw === undefined || raw === "") {
+    return createDefaultState();
+  }
+
+  if (typeof raw === "string") {
+    return normalizeState(JSON.parse(raw));
+  }
+
+  return normalizeState(raw);
+}
+
+async function writeStateToUpstash(
+  state: PersistedPredictionAgentState
+): Promise<void> {
+  await runUpstashPipeline([["SET", UPSTASH_STATE_KEY, JSON.stringify(state)]]);
+}
+
+async function readStateFromFile(): Promise<PersistedPredictionAgentState> {
   try {
     const raw = await fs.readFile(STATE_FILE, "utf8");
     const parsed = JSON.parse(raw);
     return normalizeState(parsed);
   } catch (err: any) {
-    if (err?.code === "ENOENT") return { ...DEFAULT_STATE };
-    return { ...DEFAULT_STATE };
+    if (err?.code === "ENOENT") return createDefaultState();
+    return createDefaultState();
   }
+}
+
+async function readState(): Promise<PersistedPredictionAgentState> {
+  if (STATE_BACKEND === "upstash" && !USE_UPSTASH_STATE) {
+    warnStateStore(
+      "AGENT_STATE_BACKEND=upstash but Upstash credentials are missing; using file backend"
+    );
+  }
+
+  if (USE_UPSTASH_STATE) {
+    try {
+      return await readStateFromUpstash();
+    } catch (err) {
+      warnStateStore("Upstash read failed, falling back to file backend", err);
+    }
+  }
+
+  return await readStateFromFile();
 }
 
 async function writeState(state: PersistedPredictionAgentState): Promise<void> {
@@ -271,6 +360,15 @@ async function writeState(state: PersistedPredictionAgentState): Promise<void> {
     loopRuntime: state.loopRuntime ?? null,
     loopActions: state.loopActions ?? [],
   };
+
+  if (USE_UPSTASH_STATE) {
+    try {
+      await writeStateToUpstash(normalized);
+      return;
+    } catch (err) {
+      warnStateStore("Upstash write failed, falling back to file backend", err);
+    }
+  }
 
   await ensureDirectory(STATE_FILE);
   const tempPath = `${STATE_FILE}.${process.pid}.${Date.now()}.${Math.random()
