@@ -5,6 +5,7 @@
 import type { DataSourceResult, DataPoint } from "./index";
 import { fetchXTrends } from "./x-trends";
 import { fetchTelegramTrends } from "./telegram-trends";
+import { fetchWebSearch } from "./web-search";
 
 export async function fetchSocialTrends(
   question: string
@@ -14,7 +15,7 @@ export async function fetchSocialTrends(
     fetchTelegramTrends(question),
   ]);
 
-  const data: DataPoint[] = [
+  let data: DataPoint[] = [
     ...xResult.data.map((d) => ({ ...d, label: `X: ${d.label}` })),
     ...telegramResult.data.map((d) => ({ ...d, label: `TG: ${d.label}` })),
   ];
@@ -23,10 +24,21 @@ export async function fetchSocialTrends(
   if (xResult.data.length > 0) summaryParts.push("X");
   if (telegramResult.data.length > 0) summaryParts.push("Telegram");
 
-  const summary =
+  let summary =
     summaryParts.length > 0
       ? `Social signals from ${summaryParts.join(" + ")}.`
-      : "No social data provider configured.";
+      : "No direct social APIs configured.";
+
+  if (data.length === 0) {
+    const webFallback = await fetchWebSearch(`${question} reactions sentiment`);
+    if (webFallback.data.length > 0) {
+      data = webFallback.data.map((d) => ({
+        ...d,
+        label: `Proxy: ${d.label}`,
+      }));
+      summary = `Social proxy from web/news fallback (${webFallback.data.length} points).`;
+    }
+  }
 
   return {
     source: "social",

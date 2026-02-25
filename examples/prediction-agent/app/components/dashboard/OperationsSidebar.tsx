@@ -46,7 +46,11 @@ export default function OperationsSidebar({
   onTriggerTick,
 }: OperationsSidebarProps) {
   return (
-    <aside className="w-full xl:w-[360px] xl:shrink-0 space-y-4 xl:sticky xl:top-20">
+    <aside
+      id="operations-heading"
+      className="w-full xl:w-[360px] xl:shrink-0 space-y-4 xl:sticky xl:top-20"
+      aria-label="Agent Operations"
+    >
       <AutonomousEngineCard
         loopStatus={loopStatus}
         factoryConfigured={factoryConfigured}
@@ -57,15 +61,15 @@ export default function OperationsSidebar({
         onTriggerTick={onTriggerTick}
       />
 
-      <HardeningTelemetryCard metrics={metrics} metricsError={metricsError} />
-
-      <SurvivalDashboard />
+      <SpawnedAgentsCard spawnedAgents={spawnedAgents} />
 
       <SwarmDialogue isLoopRunning={autonomousMode} />
 
       <ResearchLab />
 
-      <OpenClawConnections />
+      <HardeningTelemetryCard metrics={metrics} metricsError={metricsError} />
+
+      <SurvivalDashboard />
 
       <AgentLeaderboard
         entries={leaderboard}
@@ -83,7 +87,7 @@ export default function OperationsSidebar({
         />
       )}
 
-      <SpawnedAgentsCard spawnedAgents={spawnedAgents} />
+      <OpenClawConnections />
     </aside>
   );
 }

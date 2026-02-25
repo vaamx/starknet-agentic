@@ -27,7 +27,7 @@ import {
 import { discoverMarkets } from "./market-discovery";
 import { gatherResearch, type DataSourceName } from "./data-sources";
 import { fetchCryptoPrices } from "./data-sources/crypto-prices";
-import { categorizeMarket } from "./categories";
+import { categorizeMarket, estimateEngagementScore } from "./categories";
 import {
   AGENT_PERSONAS,
   type AgentPersona,
@@ -536,8 +536,28 @@ class AgentLoop {
     }
     this.agentRotationIndex = selected.nextIndex;
 
-    // Pick a random market
-    const target = openMarkets[Math.floor(Math.random() * openMarkets.length)];
+    // Pick a high-impact market with light randomness so agents stay diverse
+    // without drifting into low-engagement loops.
+    const rankedMarkets = openMarkets
+      .map((market) => {
+        const question = resolveMarketQuestion(market.id, market.questionHash);
+        const engagement = estimateEngagementScore(
+          question,
+          market.resolutionTime
+        );
+        const poolStrk = Number(market.totalPool / 10n ** 18n);
+        const poolBoost = Number.isFinite(poolStrk)
+          ? Math.min(0.2, Math.log10(Math.max(1, poolStrk + 1)) / 10)
+          : 0;
+        const parityBoost = 1 - Math.min(1, Math.abs(market.impliedProbYes - 0.5) * 2);
+        const score = engagement + poolBoost + parityBoost * 0.12;
+        return { market, score };
+      })
+      .sort((a, b) => b.score - a.score);
+    const topBand = rankedMarkets.slice(0, Math.min(4, rankedMarkets.length));
+    const target =
+      topBand[Math.floor(Math.random() * topBand.length)]?.market ??
+      openMarkets[Math.floor(Math.random() * openMarkets.length)];
 
     await this.runAgentOnMarketWithEmit(
       selected.actor.persona,
@@ -1186,6 +1206,35 @@ class AgentLoop {
     }
 
     let suggestedCategory: string | undefined;
+    const openCategoryCounts = {
+      sports: 0,
+      crypto: 0,
+      politics: 0,
+      tech: 0,
+      other: 0,
+    };
+    const openMarkets = (existingMarkets ?? []).filter(
+      (market) => market.status === 0 && market.resolutionTime > Math.floor(Date.now() / 1000)
+    );
+    for (const market of openMarkets) {
+      const question = resolveMarketQuestion(market.id, market.questionHash);
+      const category = categorizeMarket(question);
+      if (category !== "all") {
+        openCategoryCounts[category] =
+          (openCategoryCounts[category] ?? 0) + 1;
+      }
+    }
+
+    const openTotal = Math.max(
+      1,
+      openCategoryCounts.sports +
+        openCategoryCounts.crypto +
+        openCategoryCounts.politics +
+        openCategoryCounts.tech +
+        openCategoryCounts.other
+    );
+    const cryptoShare = openCategoryCounts.crypto / openTotal;
+
     try {
       const sources: DataSourceName[] = ["news", "social", "coingecko", "github", "rss"];
       const research = await gatherResearch("trending markets", sources);
@@ -1200,7 +1249,26 @@ class AgentLoop {
       // Research failed, proceed without category bias
     }
 
-    const suggestions = await discoverMarkets(suggestedCategory, 6);
+    const categoryFloorOrder: Array<
+      "politics" | "sports" | "tech" | "other" | "crypto"
+    > = ["politics", "sports", "tech", "other", "crypto"];
+    const categoryPriority = new Map(
+      categoryFloorOrder.map((category, index) => [category, index] as const)
+    );
+    const leastRepresented = [...categoryFloorOrder].sort((a, b) => {
+      const aCount = openCategoryCounts[a] ?? 0;
+      const bCount = openCategoryCounts[b] ?? 0;
+      if (aCount === bCount) {
+        return (categoryPriority.get(a) ?? 0) - (categoryPriority.get(b) ?? 0);
+      }
+      return aCount - bCount;
+    })[0];
+
+    if (!suggestedCategory || (suggestedCategory === "crypto" && cryptoShare >= 0.45)) {
+      suggestedCategory = leastRepresented;
+    }
+
+    const suggestions = await discoverMarkets(suggestedCategory, 10);
     if (suggestions.length === 0) return false;
 
     const existingQuestions = new Set(
@@ -1212,8 +1280,29 @@ class AgentLoop {
         existingQuestions.add(resolved.toLowerCase());
       }
     }
+    const rankedSuggestions = suggestions
+      .map((suggestion) => {
+        const resolutionTime =
+          Math.floor(Date.now() / 1000) +
+          Math.max(1, suggestion.suggestedResolutionDays ?? 30) * 86_400;
+        const engagement = estimateEngagementScore(
+          suggestion.question,
+          resolutionTime
+        );
+        const categoryPenalty =
+          suggestion.category === "crypto" && cryptoShare >= 0.45 ? -0.12 : 0;
+        return {
+          suggestion,
+          score: engagement + categoryPenalty,
+        };
+      })
+      .sort((a, b) => b.score - a.score);
+
     const picked =
-      suggestions.find((s) => !existingQuestions.has(s.question.toLowerCase())) ??
+      rankedSuggestions
+        .map((entry) => entry.suggestion)
+        .find((s) => !existingQuestions.has(s.question.toLowerCase())) ??
+      rankedSuggestions[0]?.suggestion ??
       suggestions[0];
 
     const questionRaw = picked.question;

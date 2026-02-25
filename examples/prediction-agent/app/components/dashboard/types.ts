@@ -104,7 +104,7 @@ export interface LatestAgentTake {
   timestamp: number;
 }
 
-export type SortMode = "volume" | "ending" | "disagreement";
+export type SortMode = "volume" | "ending" | "disagreement" | "engagement";
 
 export interface CategoryTab {
   id: MarketCategory;

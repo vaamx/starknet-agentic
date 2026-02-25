@@ -27,6 +27,17 @@ type DebateEntry = {
   marketId?: number;
 };
 
+type ActivityPrediction = {
+  id: string;
+  actor: string;
+  type: string;
+  probability?: number;
+  marketId?: number;
+  question?: string;
+  detail?: string;
+  timestamp: number;
+};
+
 export default function SwarmDialogue({ isLoopRunning }: SwarmDialogueProps) {
   const [stances, setStances] = useState<Record<string, Stance>>({});
   const [debates, setDebates] = useState<DebateEntry[]>([]);
@@ -89,6 +100,89 @@ export default function SwarmDialogue({ isLoopRunning }: SwarmDialogueProps) {
     };
   }, []);
 
+  useEffect(() => {
+    fetch("/api/activity?limit=80")
+      .then((res) => res.json())
+      .then((payload) => {
+        const activities = Array.isArray(payload.activities)
+          ? (payload.activities as ActivityPrediction[])
+          : [];
+
+        const predictionActions = activities.filter(
+          (item) =>
+            item.type === "prediction" &&
+            typeof item.probability === "number" &&
+            typeof item.marketId === "number"
+        );
+
+        const stancesFromHistory: Record<string, Stance> = {};
+        for (const action of predictionActions.slice(0, 20)) {
+          const agentId = action.actor;
+          if (!agentId || stancesFromHistory[agentId]) continue;
+          stancesFromHistory[agentId] = {
+            agentId,
+            agentName: action.actor,
+            probability: action.probability ?? 0.5,
+            question: action.question,
+            reasoning: action.detail,
+            timestamp: action.timestamp,
+            marketId: action.marketId,
+          };
+        }
+        if (Object.keys(stancesFromHistory).length > 0) {
+          setStances((prev) => ({ ...stancesFromHistory, ...prev }));
+        }
+
+        const byMarket = new Map<number, ActivityPrediction[]>();
+        for (const action of predictionActions) {
+          const marketId = action.marketId as number;
+          const current = byMarket.get(marketId) ?? [];
+          current.push(action);
+          byMarket.set(marketId, current);
+        }
+
+        const syntheticDebates: DebateEntry[] = [];
+        for (const [marketId, entries] of byMarket) {
+          if (entries.length < 2) continue;
+          const sorted = [...entries].sort((a, b) => b.timestamp - a.timestamp);
+          const lead = sorted[0];
+          const challenger = sorted.find(
+            (candidate) =>
+              candidate.actor !== lead.actor &&
+              typeof candidate.probability === "number" &&
+              Math.abs((candidate.probability ?? 0.5) - (lead.probability ?? 0.5)) >=
+                0.15
+          );
+          if (!challenger) continue;
+          const leadPct = Math.round((lead.probability ?? 0.5) * 100);
+          const challengerPct = Math.round((challenger.probability ?? 0.5) * 100);
+          syntheticDebates.push({
+            id: `synthetic-${marketId}`,
+            from: challenger.actor,
+            to: lead.actor,
+            message: `Forecast divergence on market #${marketId}: ${challenger.actor} at ${challengerPct}% vs ${lead.actor} at ${leadPct}%.`,
+            question: lead.question ?? challenger.question,
+            timestamp: Math.max(lead.timestamp, challenger.timestamp),
+            marketId,
+          });
+        }
+
+        if (syntheticDebates.length > 0) {
+          setDebates((prev) => {
+            const existing = new Set(prev.map((item) => item.id));
+            const merged = [
+              ...syntheticDebates.filter((item) => !existing.has(item.id)),
+              ...prev,
+            ];
+            return merged
+              .sort((a, b) => b.timestamp - a.timestamp)
+              .slice(0, 12);
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const stanceEntries = useMemo(
     () =>
       Object.values(stances)
@@ -145,7 +239,10 @@ export default function SwarmDialogue({ isLoopRunning }: SwarmDialogueProps) {
         )}
 
         {debates.length === 0 ? (
-          <div className="text-[11px] text-white/40">No debate exchanges yet.</div>
+          <div className="text-[11px] text-white/40">
+            No debate exchanges yet. Debates appear after conflicting predictions
+            from multiple agents on the same market.
+          </div>
         ) : (
           <div className="space-y-2">
             {debates.map((debate) => {
