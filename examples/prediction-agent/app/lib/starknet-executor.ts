@@ -56,9 +56,9 @@ function normalizeTxError(err: unknown): string {
 }
 
 const STATIC_RESOURCE_BOUNDS = {
-  l1_gas: { max_amount: "0x186a0", max_price_per_unit: "0x3b9aca00" },
-  l2_gas: { max_amount: "0x186a0", max_price_per_unit: "0x3b9aca00" },
-  l1_data_gas: { max_amount: "0x186a0", max_price_per_unit: "0x3b9aca00" },
+  l1_gas: { max_amount: 100_000n, max_price_per_unit: 1_000_000_000n },
+  l2_gas: { max_amount: 100_000n, max_price_per_unit: 1_000_000_000n },
+  l1_data_gas: { max_amount: 100_000n, max_price_per_unit: 1_000_000_000n },
 };
 
 /** Execute calls as a V3 transaction (starknet.js v8 handles triple gas natively). */
