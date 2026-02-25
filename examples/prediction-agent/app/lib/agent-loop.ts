@@ -596,14 +596,16 @@ class AgentLoop {
       tickCount: this.tickCount,
     });
 
-    if (survival.tier === "dead") {
+    const readOnlyMode = survival.tier === "dead";
+    if (readOnlyMode) {
       captureEmit(this.createAction({
         agentId: "survival",
         agentName: "Survival Engine",
         type: "error",
-        detail: `DEAD — balance ${survival.balanceStrk.toFixed(2)} STRK. Halting all execution.`,
+        detail:
+          `DEAD — balance ${survival.balanceStrk.toFixed(2)} STRK. ` +
+          "Switching to research-only mode until wallet is funded.",
       }));
-      return tickActions;
     }
     // ── End Phase B ──────────────────────────────────────────────────────
 
@@ -623,7 +625,9 @@ class AgentLoop {
 
     const nowSec = Math.floor(Date.now() / 1000);
 
-    await this.runPendingResolutions(captureEmit, markets, nowSec);
+    if (!readOnlyMode) {
+      await this.runPendingResolutions(captureEmit, markets, nowSec);
+    }
 
     const openMarkets = markets.filter(
       (m) => m.status === 0 && m.resolutionTime > nowSec
@@ -690,7 +694,7 @@ class AgentLoop {
       openMarkets.length === 0 ||
       this.tickCount % this.marketCreationInterval === 0 ||
       shouldRebalanceCreate;
-    if (shouldCreate) {
+    if (!readOnlyMode && shouldCreate) {
       const created = await this.runMarketCreation(
         captureEmit,
         markets,
@@ -700,7 +704,8 @@ class AgentLoop {
     }
 
     // Periodic DeFi pulse (optional)
-    const shouldRunDefi = this.tickCount % this.defiInterval === 0;
+    const shouldRunDefi =
+      !readOnlyMode && this.tickCount % this.defiInterval === 0;
     if (shouldRunDefi) {
       await this.runDefiPulse(captureEmit, survival);
     }
@@ -708,6 +713,7 @@ class AgentLoop {
     // Phase G: Child replication trigger (only when thriving for 3+ consecutive ticks)
     if (
       config.childAgentEnabled &&
+      !readOnlyMode &&
       survival.replicationEligible &&
       this.thrivingTickCount >= 3 &&
       this.tickCount % config.childAgentReplicateEvery === 0 &&
@@ -883,7 +889,9 @@ class AgentLoop {
         execAccount = undefined;
       }
     }
-    const onChain = Boolean(execAccount) || isAgentConfigured();
+    const onChain =
+      (Boolean(execAccount) || isAgentConfigured()) &&
+      survival?.tier !== "dead";
 
     const question = resolveMarketQuestion(target.id, target.questionHash);
 
@@ -1357,7 +1365,9 @@ class AgentLoop {
           question,
           detail: onChain
             ? "Prediction not recorded on-chain"
-            : "Agent account not configured",
+            : survival?.tier === "dead"
+              ? "Research-only mode (wallet below survival floor)"
+              : "Agent account not configured",
         })
       );
     }
