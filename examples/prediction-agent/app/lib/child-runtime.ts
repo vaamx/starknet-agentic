@@ -5,6 +5,7 @@ import type {
   ChildServerTier,
   SpawnedAgent,
 } from "./agent-spawner";
+import { resolveAgentPrivateKey } from "./agent-key-custody";
 
 export interface ChildServerProvisionSuccess {
   status: "success";
@@ -361,6 +362,7 @@ export function shouldHeartbeatChildServer(
 }
 
 export function buildChildServerEnv(args: {
+  childAgentId: string;
   childName: string;
   childAddress: string;
   childPrivateKey: string;
@@ -374,7 +376,15 @@ export function buildChildServerEnv(args: {
     MARKET_FACTORY_ADDRESS: config.MARKET_FACTORY_ADDRESS,
     ACCURACY_TRACKER_ADDRESS: config.ACCURACY_TRACKER_ADDRESS,
     COLLATERAL_TOKEN_ADDRESS: config.COLLATERAL_TOKEN_ADDRESS,
+    CHILD_AGENT_ID: args.childAgentId,
     CHILD_AGENT_NAME: args.childName,
+    CHILD_AGENT_SELF_SCHEDULER_ENABLED: "true",
+    CHILD_AGENT_SELF_SCHEDULER_INTERVAL_MS: String(
+      config.childSelfSchedulerIntervalMs
+    ),
+    CHILD_AGENT_SELF_SCHEDULER_JITTER_MS: String(
+      config.childSelfSchedulerJitterMs
+    ),
   };
 
   if (config.HUGINN_REGISTRY_ADDRESS && config.HUGINN_REGISTRY_ADDRESS !== "0x0") {
@@ -403,10 +413,18 @@ export async function provisionChildServerRuntime(
     };
   }
 
-  if (!agent.walletAddress || !agent.privateKey) {
+  if (!agent.walletAddress) {
     return {
       status: "error",
-      error: "Child wallet credentials are missing",
+      error: "Child wallet address is missing",
+    };
+  }
+
+  const privateKey = await resolveAgentPrivateKey(agent);
+  if (!privateKey) {
+    return {
+      status: "error",
+      error: "Child wallet signing key is unavailable (key custody unresolved)",
     };
   }
 
@@ -422,7 +440,7 @@ export async function provisionChildServerRuntime(
     if (config.childServerEscrowDepositStrk > 0) {
       depositTxHash = await depositEscrowCredits({
         accountAddress: agent.walletAddress,
-        privateKey: agent.privateKey,
+        privateKey,
         amountStrk: config.childServerEscrowDepositStrk,
       });
     }
@@ -432,9 +450,10 @@ export async function provisionChildServerRuntime(
       agentAddress: agent.walletAddress,
       tier: resolveTier(config.childServerTier),
       envVars: buildChildServerEnv({
+        childAgentId: agent.id,
         childName: agent.name,
         childAddress: agent.walletAddress,
-        childPrivateKey: agent.privateKey,
+        childPrivateKey: privateKey,
         parentAddress: config.AGENT_ADDRESS,
       }),
       regions: policyRegions,
@@ -455,6 +474,7 @@ export async function provisionChildServerRuntime(
       failoverCount: 0,
       lastFailoverAt: null,
       depositTxHash,
+      schedulerMode: "self",
     };
 
     agent.runtime = runtime;
@@ -472,7 +492,9 @@ async function attemptRuntimeFailover(args: {
   const { agent, reason } = args;
   const runtime = agent.runtime;
   if (!runtime) return null;
-  if (!agent.walletAddress || !agent.privateKey) return null;
+  if (!agent.walletAddress) return null;
+  const privateKey = await resolveAgentPrivateKey(agent);
+  if (!privateKey) return null;
   const lockKey = agent.id || runtime.machineId;
   if (FAILOVER_LOCKS.has(lockKey)) return null;
 
@@ -518,9 +540,10 @@ async function attemptRuntimeFailover(args: {
       agentAddress: agent.walletAddress,
       tier: runtime.tier,
       envVars: buildChildServerEnv({
+        childAgentId: agent.id,
         childName: agent.name,
         childAddress: agent.walletAddress,
-        childPrivateKey: agent.privateKey,
+        childPrivateKey: privateKey,
         parentAddress: config.AGENT_ADDRESS,
       }),
       regions: failoverOrder,
@@ -537,6 +560,7 @@ async function attemptRuntimeFailover(args: {
     runtime.failoverCount = failoverCount + 1;
     runtime.lastFailoverAt = now;
     runtime.lastError = `failover: ${reason}`;
+    runtime.schedulerMode = runtime.schedulerMode ?? "self";
 
     return {
       status: "failed_over",

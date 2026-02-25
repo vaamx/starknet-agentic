@@ -13,6 +13,8 @@ import { AGENT_PERSONAS, type AgentPersona } from "./agent-personas";
 
 export type ChildServerTier = "nano" | "micro" | "small";
 export type ChildServerStatus = "starting" | "running" | "stopping" | "dead";
+export type ChildServerSchedulerMode = "parent" | "self";
+export type AgentKeyCustodyProvider = "memory" | "local-encrypted" | "aws-kms";
 
 export interface ChildServerRuntime {
   provider: "bitsage-cloud";
@@ -30,6 +32,7 @@ export interface ChildServerRuntime {
   lastFailoverAt?: number | null;
   depositTxHash?: string;
   lastError?: string;
+  schedulerMode?: ChildServerSchedulerMode;
 }
 
 export interface AgentBudget {
@@ -57,6 +60,10 @@ export interface SpawnedAgent {
   privateKey?: string;
   /** In-process Account instance for signing txs as this child. Ephemeral. */
   account?: Account;
+  /** Persisted encrypted key reference (KMS/local-encrypted) for signer recovery. */
+  keyRef?: string;
+  /** Key custody provider used for this agent signer. */
+  keyCustodyProvider?: AgentKeyCustodyProvider;
   /** ERC-8004 identity token ID from the IdentityRegistry. */
   agentId?: bigint;
   /** Optional server runtime backing this child agent. */
@@ -85,6 +92,8 @@ export interface SerializedSpawnedAgent {
   createdAt: number;
   status: "running" | "paused" | "stopped";
   walletAddress?: string;
+  keyRef?: string;
+  keyCustodyProvider?: AgentKeyCustodyProvider;
   agentId?: string;
   runtime?: {
     provider: "bitsage-cloud";
@@ -102,6 +111,7 @@ export interface SerializedSpawnedAgent {
     lastFailoverAt?: number | null;
     depositTxHash?: string;
     lastError?: string;
+    schedulerMode?: ChildServerSchedulerMode;
   };
 }
 
@@ -211,6 +221,8 @@ class AgentSpawnerRegistry {
     if (existing) {
       existing.status = serialized.status;
       existing.walletAddress = serialized.walletAddress;
+      existing.keyRef = serialized.keyRef;
+      existing.keyCustodyProvider = serialized.keyCustodyProvider;
       if (serialized.agentId) {
         try {
           existing.agentId = BigInt(serialized.agentId);
@@ -237,6 +249,7 @@ class AgentSpawnerRegistry {
           lastFailoverAt: serialized.runtime.lastFailoverAt ?? null,
           depositTxHash: serialized.runtime.depositTxHash,
           lastError: serialized.runtime.lastError,
+          schedulerMode: serialized.runtime.schedulerMode ?? "self",
         };
       }
       return existing;
@@ -289,6 +302,8 @@ class AgentSpawnerRegistry {
         pnl: 0n,
       },
       walletAddress: serialized.walletAddress,
+      keyRef: serialized.keyRef,
+      keyCustodyProvider: serialized.keyCustodyProvider,
     };
 
     if (serialized.agentId) {
@@ -316,6 +331,7 @@ class AgentSpawnerRegistry {
         lastFailoverAt: serialized.runtime.lastFailoverAt ?? null,
         depositTxHash: serialized.runtime.depositTxHash,
         lastError: serialized.runtime.lastError,
+        schedulerMode: serialized.runtime.schedulerMode ?? "self",
       };
     }
 
@@ -394,6 +410,8 @@ export function serializeAgent(
     },
     // On-chain identity (Phase D) — exposed in API but private key never included
     walletAddress: agent.walletAddress,
+    keyRef: agent.keyRef,
+    keyCustodyProvider: agent.keyCustodyProvider,
     agentId: agent.agentId?.toString(),
     runtime: agent.runtime
       ? {
@@ -412,6 +430,7 @@ export function serializeAgent(
           lastFailoverAt: agent.runtime.lastFailoverAt,
           depositTxHash: agent.runtime.depositTxHash,
           lastError: agent.runtime.lastError,
+          schedulerMode: agent.runtime.schedulerMode,
         }
       : undefined,
   };
@@ -434,6 +453,8 @@ export function serializeForStorage(agent: SpawnedAgent): SerializedSpawnedAgent
     createdAt: agent.createdAt,
     status: agent.status,
     walletAddress: agent.walletAddress,
+    keyRef: agent.keyRef,
+    keyCustodyProvider: agent.keyCustodyProvider,
     agentId: agent.agentId?.toString(),
     runtime: agent.runtime
       ? {
@@ -452,6 +473,7 @@ export function serializeForStorage(agent: SpawnedAgent): SerializedSpawnedAgent
           lastFailoverAt: agent.runtime.lastFailoverAt,
           depositTxHash: agent.runtime.depositTxHash,
           lastError: agent.runtime.lastError,
+          schedulerMode: agent.runtime.schedulerMode,
         }
       : undefined,
   };

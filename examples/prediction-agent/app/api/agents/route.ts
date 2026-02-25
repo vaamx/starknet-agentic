@@ -10,9 +10,16 @@ import { config } from "@/lib/config";
 import { deployChildAgent } from "@/lib/child-spawner";
 import { provisionChildServerRuntime } from "@/lib/child-runtime";
 import {
+  hasAgentSigningMaterial,
+  hydrateAgentAccount,
+  storeAgentPrivateKey,
+} from "@/lib/agent-key-custody";
+import {
   ensureAgentSpawnerHydrated,
   persistAgentSpawner,
 } from "@/lib/agent-persistence";
+
+export const runtime = "nodejs";
 
 const spawnSchema = z.object({
   name: z.string().min(2).max(64).optional(),
@@ -23,6 +30,9 @@ const spawnSchema = z.object({
   preferredSources: z.array(z.string()).optional(),
   sovereign: z.boolean().optional(),
   spawnServer: z.boolean().optional(),
+  walletAddress: z.string().trim().optional(),
+  walletPrivateKey: z.string().trim().optional(),
+  walletAgentId: z.union([z.string(), z.number()]).optional(),
 });
 
 /**
@@ -61,6 +71,91 @@ export async function POST(request: NextRequest) {
     maxBetStrk: payload.maxBetStrk ?? 10,
     preferredSources: payload.preferredSources,
   };
+
+  const byoWalletMode = Boolean(payload.walletAddress);
+  if (byoWalletMode) {
+    const normalizedAddress = String(payload.walletAddress).trim().toLowerCase();
+    if (!/^0x[0-9a-f]+$/i.test(normalizedAddress)) {
+      return Response.json(
+        {
+          error:
+            "walletAddress must be a valid 0x-prefixed Starknet address for BYO registration",
+        },
+        { status: 400 }
+      );
+    }
+
+    const agent = agentSpawner.spawn(spawnConfig);
+    agent.walletAddress = normalizedAddress;
+
+    const warnings: string[] = [];
+    if (payload.walletAgentId !== undefined) {
+      try {
+        agent.agentId = BigInt(payload.walletAgentId);
+      } catch {
+        warnings.push(
+          `walletAgentId "${String(payload.walletAgentId)}" is invalid and was ignored`
+        );
+      }
+    }
+
+    if (payload.walletPrivateKey) {
+      try {
+        const storedKey = await storeAgentPrivateKey({
+          agentId: agent.id,
+          walletAddress: normalizedAddress,
+          privateKey: payload.walletPrivateKey,
+        });
+        agent.keyRef = storedKey.keyRef;
+        agent.keyCustodyProvider = storedKey.provider;
+        agent.privateKey = payload.walletPrivateKey;
+        agent.account = await hydrateAgentAccount(agent) ?? undefined;
+      } catch (err: any) {
+        return Response.json(
+          {
+            error: `Failed to store BYO wallet signing key: ${err?.message ?? String(err)}`,
+          },
+          { status: 500 }
+        );
+      }
+    } else {
+      warnings.push(
+        "No walletPrivateKey provided. Agent can observe/forecast, but cannot place bets or sign on-chain writes."
+      );
+    }
+
+    const shouldProvisionRuntime =
+      payload.spawnServer === true ||
+      (config.childServerEnabled && payload.spawnServer !== false);
+
+    if (shouldProvisionRuntime) {
+      if (hasAgentSigningMaterial(agent)) {
+        const runtimeProvision = await provisionChildServerRuntime(agent);
+        if (runtimeProvision.status === "error") {
+          warnings.push(`Runtime provisioning failed: ${runtimeProvision.error}`);
+        } else if (runtimeProvision.status === "skipped") {
+          warnings.push(`Runtime provisioning skipped: ${runtimeProvision.reason}`);
+        }
+      } else {
+        warnings.push(
+          "Runtime provisioning skipped because wallet signing credentials are not registered."
+        );
+      }
+    }
+
+    await persistAgentSpawner();
+    return Response.json({
+      ok: true,
+      message: `Agent "${agent.name}" registered with BYO wallet`,
+      agent: serializeAgent(agent),
+      deployment: {
+        sovereign: false,
+        byoWallet: true,
+        walletAddress: normalizedAddress,
+      },
+      warnings: warnings.length > 0 ? warnings : undefined,
+    });
+  }
 
   // Default behavior: when child agents are enabled, /api/agents creates sovereign
   // agents unless explicitly opted out with { sovereign: false }.
@@ -111,6 +206,23 @@ export async function POST(request: NextRequest) {
   agent.privateKey = deploy.privateKey; // in-memory only
   agent.account = deploy.account;
   agent.agentId = deploy.agentId;
+  try {
+    const storedKey = await storeAgentPrivateKey({
+      agentId: agent.id,
+      walletAddress: deploy.agentAddress,
+      privateKey: deploy.privateKey,
+    });
+    agent.keyRef = storedKey.keyRef;
+    agent.keyCustodyProvider = storedKey.provider;
+    agent.account = (await hydrateAgentAccount(agent)) ?? deploy.account;
+  } catch (err: any) {
+    return Response.json(
+      {
+        error: `Failed to persist sovereign child signing key: ${err?.message ?? String(err)}`,
+      },
+      { status: 500 }
+    );
+  }
 
   const shouldProvisionRuntime =
     payload.spawnServer === true ||

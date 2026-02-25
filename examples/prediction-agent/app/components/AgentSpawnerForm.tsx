@@ -25,6 +25,10 @@ export default function AgentSpawnerForm({
   const [budgetStrk, setBudgetStrk] = useState("300");
   const [maxBetStrk, setMaxBetStrk] = useState("10");
   const [sovereignMode, setSovereignMode] = useState(true);
+  const [useByoWallet, setUseByoWallet] = useState(false);
+  const [walletAddress, setWalletAddress] = useState("");
+  const [walletPrivateKey, setWalletPrivateKey] = useState("");
+  const [walletAgentId, setWalletAgentId] = useState("");
   const [spawnServer, setSpawnServer] = useState(true);
   const [selectedSources, setSelectedSources] = useState<string[]>([
     "polymarket",
@@ -66,22 +70,42 @@ export default function AgentSpawnerForm({
       return;
     }
 
+    if (useByoWallet && !walletAddress.trim()) {
+      setError("BYO wallet mode requires a wallet address");
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
 
     try {
+      const body: Record<string, unknown> = {
+        name: name.trim(),
+        personaId,
+        budgetStrk: parseFloat(budgetStrk) || 300,
+        maxBetStrk: parseFloat(maxBetStrk) || 10,
+        preferredSources: selectedSources,
+      };
+
+      if (useByoWallet) {
+        body.sovereign = false;
+        body.spawnServer = spawnServer;
+        body.walletAddress = walletAddress.trim();
+        if (walletPrivateKey.trim()) {
+          body.walletPrivateKey = walletPrivateKey.trim();
+        }
+        if (walletAgentId.trim()) {
+          body.walletAgentId = walletAgentId.trim();
+        }
+      } else {
+        body.sovereign = sovereignMode;
+        body.spawnServer = sovereignMode ? spawnServer : false;
+      }
+
       const res = await fetch("/api/agents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          personaId,
-          budgetStrk: parseFloat(budgetStrk) || 300,
-          maxBetStrk: parseFloat(maxBetStrk) || 10,
-          preferredSources: selectedSources,
-          sovereign: sovereignMode,
-          spawnServer: sovereignMode ? spawnServer : false,
-        }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
@@ -104,6 +128,8 @@ export default function AgentSpawnerForm({
         createdAt: data.agent.createdAt ?? Date.now(),
         status: "running",
         walletAddress: data.agent.walletAddress,
+        keyRef: data.agent.keyRef,
+        keyCustodyProvider: data.agent.keyCustodyProvider,
         agentId: data.agent.agentId,
         runtime: data.agent.runtime
           ? {
@@ -123,6 +149,7 @@ export default function AgentSpawnerForm({
               lastFailoverAt: data.agent.runtime.lastFailoverAt ?? null,
               depositTxHash: data.agent.runtime.depositTxHash,
               lastError: data.agent.runtime.lastError,
+              schedulerMode: data.agent.runtime.schedulerMode,
             }
           : undefined,
       };
@@ -252,9 +279,19 @@ export default function AgentSpawnerForm({
                 <label className="flex items-center gap-2 text-xs text-white/70">
                   <input
                     type="checkbox"
-                    checked={sovereignMode}
-                    onChange={(e) => setSovereignMode(e.target.checked)}
+                    checked={useByoWallet}
+                    onChange={(e) => setUseByoWallet(e.target.checked)}
                     className="h-4 w-4"
+                  />
+                  Register BYO wallet (existing agent account)
+                </label>
+                <label className="flex items-center gap-2 text-xs text-white/70">
+                  <input
+                    type="checkbox"
+                    checked={sovereignMode}
+                    disabled={useByoWallet}
+                    onChange={(e) => setSovereignMode(e.target.checked)}
+                    className="h-4 w-4 disabled:opacity-40"
                   />
                   Deploy as sovereign child (on-chain wallet + autonomous identity)
                 </label>
@@ -269,6 +306,50 @@ export default function AgentSpawnerForm({
                   Provision dedicated server runtime
                 </label>
               </div>
+
+              {useByoWallet && (
+                <div className="space-y-2 border border-white/10 rounded-lg p-3 bg-white/5">
+                  <div>
+                    <label className="block text-[10px] font-mono uppercase tracking-wider text-white/40 mb-1.5">
+                      Wallet Address
+                    </label>
+                    <input
+                      type="text"
+                      value={walletAddress}
+                      onChange={(e) => setWalletAddress(e.target.value)}
+                      placeholder="0x..."
+                      className="neo-input w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-mono uppercase tracking-wider text-white/40 mb-1.5">
+                      Wallet Private Key (optional)
+                    </label>
+                    <input
+                      type="password"
+                      value={walletPrivateKey}
+                      onChange={(e) => setWalletPrivateKey(e.target.value)}
+                      placeholder="0x..."
+                      className="neo-input w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-mono uppercase tracking-wider text-white/40 mb-1.5">
+                      ERC-8004 Agent ID (optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={walletAgentId}
+                      onChange={(e) => setWalletAgentId(e.target.value)}
+                      placeholder="123"
+                      className="neo-input w-full"
+                    />
+                  </div>
+                  <p className="text-[10px] text-white/40">
+                    If private key is omitted, the agent can forecast but cannot sign bets.
+                  </p>
+                </div>
+              )}
 
               {/* Data Sources */}
               <div>

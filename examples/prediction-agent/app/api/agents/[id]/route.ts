@@ -9,6 +9,9 @@ import {
   ensureAgentSpawnerHydrated,
   persistAgentSpawner,
 } from "@/lib/agent-persistence";
+import { hasAgentSigningMaterial } from "@/lib/agent-key-custody";
+
+export const runtime = "nodejs";
 
 const controlSchema = z.object({
   action: z.enum(["stop", "pause", "resume", "provision_runtime"]),
@@ -81,11 +84,11 @@ export async function POST(
       agentSpawner.resume(id);
       break;
     case "provision_runtime":
-      if (!agent.walletAddress || !agent.privateKey) {
+      if (!agent.walletAddress || !hasAgentSigningMaterial(agent)) {
         return Response.json(
           {
             error:
-              "Agent has no sovereign wallet credentials, cannot provision runtime",
+              "Agent has no wallet signing credentials, cannot provision runtime",
           },
           { status: 400 }
         );

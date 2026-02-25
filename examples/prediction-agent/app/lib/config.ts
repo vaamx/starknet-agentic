@@ -167,6 +167,9 @@ const envSchema = z.object({
   CHILD_AGENT_SERVER_MAX_FAILOVERS: z.string().default("5"),
   CHILD_AGENT_SERVER_FAILOVER_COOLDOWN_SECS: z.string().default("180"),
   CHILD_AGENT_SERVER_REGION_QUARANTINE_SECS: z.string().default("600"),
+  CHILD_AGENT_SELF_SCHEDULER_ENABLED: z.string().default("false"),
+  CHILD_AGENT_SELF_SCHEDULER_INTERVAL_MS: z.string().default("60000"),
+  CHILD_AGENT_SELF_SCHEDULER_JITTER_MS: z.string().default("5000"),
   // Phase F — Compute reserve sweep (default OFF)
   COMPUTE_RESERVE_ENABLED:   z.string().default("false"),
   COMPUTE_RESERVE_THRESHOLD: z.string().default("200"),
@@ -178,6 +181,19 @@ const envSchema = z.object({
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
   OPENCLAW_ALLOW_PRIVATE_PEERS: z.string().default("false"),
   OPENCLAW_FORECAST_TTL_HOURS: z.string().default("72"),
+  // Phase H — Per-agent key custody
+  AGENT_KEY_CUSTODY_PROVIDER: z
+    .enum(["memory", "local-encrypted", "aws-kms"])
+    .default("memory"),
+  AGENT_KEY_CUSTODY_MASTER_KEY: z.string().default(""),
+  AGENT_KEY_CUSTODY_AWS_KMS_KEY_ID: z.string().optional(),
+  AGENT_KEY_CUSTODY_AWS_REGION: z.string().optional(),
+  // Phase I — Proof pipeline (receipt verify + Arweave anchor)
+  PROOF_PIPELINE_AUTO_ENABLED: z.string().default("true"),
+  PROOF_PIPELINE_MAX_RECORDS: z.string().default("500"),
+  PROOF_AUDIT_RELAY_URL: z.string().url().optional(),
+  PROOF_AUDIT_RELAY_API_KEY: z.string().optional(),
+  PROOF_ARWEAVE_GATEWAY: z.string().default("https://arweave.net"),
 });
 
 const rawConfig = envSchema.parse(process.env);
@@ -422,6 +438,16 @@ export const config = {
     0,
     parseInt(rawConfig.CHILD_AGENT_SERVER_REGION_QUARANTINE_SECS, 10) || 600
   ),
+  childSelfSchedulerEnabled:
+    rawConfig.CHILD_AGENT_SELF_SCHEDULER_ENABLED === "true",
+  childSelfSchedulerIntervalMs: Math.max(
+    10_000,
+    parseInt(rawConfig.CHILD_AGENT_SELF_SCHEDULER_INTERVAL_MS, 10) || 60_000
+  ),
+  childSelfSchedulerJitterMs: Math.max(
+    0,
+    parseInt(rawConfig.CHILD_AGENT_SELF_SCHEDULER_JITTER_MS, 10) || 5_000
+  ),
 
   // ── Phase F: Compute reserve derived helpers ─────────────────────────────
   computeReserveEnabled: rawConfig.COMPUTE_RESERVE_ENABLED === "true",
@@ -441,6 +467,22 @@ export const config = {
     1,
     parseInt(rawConfig.OPENCLAW_FORECAST_TTL_HOURS, 10) || 72
   ),
+
+  // ── Phase H: key custody derived helpers ─────────────────────────────────
+  agentKeyCustodyProvider: rawConfig.AGENT_KEY_CUSTODY_PROVIDER,
+  agentKeyCustodyMasterKey: rawConfig.AGENT_KEY_CUSTODY_MASTER_KEY,
+  agentKeyCustodyAwsKmsKeyId: rawConfig.AGENT_KEY_CUSTODY_AWS_KMS_KEY_ID,
+  agentKeyCustodyAwsRegion: rawConfig.AGENT_KEY_CUSTODY_AWS_REGION,
+
+  // ── Phase I: proof pipeline derived helpers ──────────────────────────────
+  proofPipelineAutoEnabled: rawConfig.PROOF_PIPELINE_AUTO_ENABLED !== "false",
+  proofPipelineMaxRecords: Math.max(
+    50,
+    parseInt(rawConfig.PROOF_PIPELINE_MAX_RECORDS, 10) || 500
+  ),
+  proofAuditRelayUrl: rawConfig.PROOF_AUDIT_RELAY_URL,
+  proofAuditRelayApiKey: rawConfig.PROOF_AUDIT_RELAY_API_KEY,
+  proofArweaveGateway: rawConfig.PROOF_ARWEAVE_GATEWAY,
 };
 
 export type Config = typeof config;
