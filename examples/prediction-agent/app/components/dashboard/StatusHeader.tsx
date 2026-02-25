@@ -49,11 +49,11 @@ export default function StatusHeader({
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 sm:gap-4 min-w-0">
             <div className="w-10 h-10 bg-neo-green/15 border border-neo-green/30 flex items-center justify-center shrink-0 rounded-xl shadow-[0_0_24px_rgba(0,229,204,0.18)]">
-              <span className="text-neo-green font-mono font-black text-sm">BS</span>
+              <span className="text-neo-green font-mono font-black text-sm">SA</span>
             </div>
             <div className="min-w-0">
               <h1 className="font-heading font-bold text-base sm:text-xl tracking-tight leading-none text-white truncate">
-                BitSage Swarm
+                Starknet Agentic Swarm
               </h1>
               <p className="text-[10px] font-mono text-white/45 tracking-wider uppercase mt-1 hidden sm:block">
                 Agentic Superforecasting Market Network
