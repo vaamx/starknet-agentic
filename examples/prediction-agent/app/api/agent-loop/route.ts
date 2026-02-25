@@ -5,6 +5,12 @@ import { config } from "@/lib/config";
 import { enforceRateLimit, getRequestSecret, jsonError } from "@/lib/api-guard";
 import { ensureAgentSpawnerHydrated } from "@/lib/agent-persistence";
 import { evaluateAndDispatchMetricAlerts } from "@/lib/agent-alerting";
+import {
+  getPersistedLoopActions,
+  getPersistedLoopRuntime,
+} from "@/lib/state-store";
+
+export const runtime = "nodejs";
 
 /**
  * Agent Loop control endpoint.
@@ -19,6 +25,24 @@ const actionSchema = z.object({
   action: z.enum(["tick", "start", "stop"]),
   intervalMs: z.number().int().min(5000).max(3_600_000).optional(),
 });
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(label)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 
 export async function POST(request: NextRequest) {
   await ensureAgentSpawnerHydrated();
@@ -50,7 +74,11 @@ export async function POST(request: NextRequest) {
   if (action === "tick") {
     // Client-driven tick: run one agent on one market and return results
     try {
-      const actions = await agentLoop.singleTick();
+      const actions = await withTimeout(
+        agentLoop.singleTick(),
+        config.agentLoopTickTimeoutMs,
+        `Tick timed out after ${config.agentLoopTickTimeoutMs}ms`
+      );
       let alerts:
         | Awaited<ReturnType<typeof evaluateAndDispatchMetricAlerts>>
         | undefined;
@@ -108,8 +136,31 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   await ensureAgentSpawnerHydrated();
   try {
-    const status = agentLoop.getStatus();
-    const actions = agentLoop.getActionLog(50);
+    const inMemoryStatus = agentLoop.getStatus();
+    const persistedRuntime = await getPersistedLoopRuntime();
+    const status =
+      persistedRuntime &&
+      !inMemoryStatus.lastTickAt &&
+      inMemoryStatus.tickCount === 0
+        ? {
+            ...inMemoryStatus,
+            tickCount: persistedRuntime.tickCount,
+            lastTickAt: persistedRuntime.lastTickAt,
+            intervalMs: persistedRuntime.intervalMs,
+          }
+        : inMemoryStatus;
+
+    const [inMemoryActions, persistedActions] = await Promise.all([
+      Promise.resolve(agentLoop.getActionLog(50)),
+      getPersistedLoopActions(50),
+    ]);
+    const dedupedById = new Map<string, any>();
+    for (const action of [...persistedActions, ...inMemoryActions]) {
+      dedupedById.set(action.id, action);
+    }
+    const actions = Array.from(dedupedById.values())
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .slice(-50);
     return Response.json({ status, actions });
   } catch (err: any) {
     return jsonError("Failed to fetch loop status", 500, err?.message ?? String(err));

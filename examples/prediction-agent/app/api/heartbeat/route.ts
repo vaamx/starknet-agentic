@@ -18,7 +18,9 @@ import { config } from "@/lib/config";
 import { z } from "zod";
 import { enforceRateLimit, getRequestSecret, jsonError } from "@/lib/api-guard";
 import { evaluateAndDispatchMetricAlerts } from "@/lib/agent-alerting";
+import { ensureAgentSpawnerHydrated } from "@/lib/agent-persistence";
 
+export const runtime = "nodejs";
 export const maxDuration = 60;
 
 let tickInProgress = false;
@@ -28,7 +30,26 @@ const heartbeatBodySchema = z
   })
   .optional();
 
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(label)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 export async function POST(request: NextRequest) {
+  await ensureAgentSpawnerHydrated();
   const rateLimited = await enforceRateLimit(request, "heartbeat", {
     windowMs: 60_000,
     maxRequests: 40,
@@ -66,7 +87,11 @@ export async function POST(request: NextRequest) {
     | undefined;
 
   try {
-    actions = await agentLoop.singleTick();
+    actions = await withTimeout(
+      agentLoop.singleTick(),
+      config.agentLoopTickTimeoutMs,
+      `Tick timed out after ${config.agentLoopTickTimeoutMs}ms`
+    );
     try {
       alertDispatch = await evaluateAndDispatchMetricAlerts({
         source: "heartbeat",

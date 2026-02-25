@@ -131,6 +131,9 @@ const envSchema = z.object({
       },
       { message: "AGENT_TOOL_MAX_TURNS must be an integer between 1 and 20" }
     ),
+  AGENT_LOOP_TICK_TIMEOUT_MS: z.string().default("35000"),
+  AGENT_RESEARCH_STEP_TIMEOUT_MS: z.string().default("10000"),
+  AGENT_RESEARCH_TOTAL_TIMEOUT_MS: z.string().default("25000"),
   // Phase A — Heartbeat authentication
   HEARTBEAT_SECRET: z.string().optional(),
   // Phase B — Survival tier thresholds (STRK amounts)
@@ -216,6 +219,15 @@ const defaults =
     ? REGISTRY_DEFAULTS.SN_MAIN
     : REGISTRY_DEFAULTS.SN_SEPOLIA;
 
+const agentResearchStepTimeoutMs = Math.max(
+  2_000,
+  parseInt(rawConfig.AGENT_RESEARCH_STEP_TIMEOUT_MS, 10) || 10_000
+);
+const agentResearchTotalTimeoutMs = Math.max(
+  agentResearchStepTimeoutMs,
+  parseInt(rawConfig.AGENT_RESEARCH_TOTAL_TIMEOUT_MS, 10) || 25_000
+);
+
 /**
  * Application configuration — extends rawConfig with:
  * - Defaulted registry addresses (chain-specific fallbacks)
@@ -247,6 +259,12 @@ export const config = {
    * Consumers should use this instead of re-parsing AGENT_TOOL_MAX_TURNS.
    */
   toolMaxTurns: Math.max(1, Math.min(20, parseInt(rawConfig.AGENT_TOOL_MAX_TURNS, 10) || 8)),
+  agentLoopTickTimeoutMs: Math.max(
+    5_000,
+    parseInt(rawConfig.AGENT_LOOP_TICK_TIMEOUT_MS, 10) || 35_000
+  ),
+  agentResearchStepTimeoutMs,
+  agentResearchTotalTimeoutMs,
   agentAutoResolveEnabled: rawConfig.AGENT_AUTO_RESOLVE_ENABLED !== "false",
   agentAutoResolveEvery: Math.max(
     1,

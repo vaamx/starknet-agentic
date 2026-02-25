@@ -70,6 +70,11 @@ import {
 import { ensureAgentSpawnerHydrated, persistAgentSpawner } from "./agent-persistence";
 import { deriveConsensusAutotuneProfile } from "./consensus-autotune";
 import { tryResolveMarket } from "./resolution-oracle";
+import {
+  appendPersistedLoopAction,
+  setPersistedLoopRuntime,
+  type PersistedLoopAction,
+} from "./state-store";
 
 export interface AgentActionConsensusMeta {
   enabled: boolean;
@@ -174,6 +179,26 @@ function parseNumber(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(label));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 function formatStrk(amount: bigint): string {
   return `${Number(amount / 10n ** 14n) / 10000} STRK`;
 }
@@ -210,6 +235,32 @@ function computeBetAmount(
   }
 
   return betWei;
+}
+
+function toPersistedLoopAction(action: AgentAction): PersistedLoopAction {
+  return {
+    id: action.id,
+    timestamp: action.timestamp,
+    agentId: action.agentId,
+    agentName: action.agentName,
+    type: action.type,
+    marketId: action.marketId,
+    question: action.question,
+    detail: action.detail,
+    probability: action.probability,
+    betAmount: action.betAmount,
+    betOutcome: action.betOutcome,
+    resolutionOutcome: action.resolutionOutcome,
+    sourcesUsed: action.sourcesUsed,
+    txHash: action.txHash,
+    huginnTxHash: action.huginnTxHash,
+    reasoningHash: action.reasoningHash,
+    reasoning: action.reasoning,
+    defiDirection: action.defiDirection,
+    defiPair: action.defiPair,
+    defiAmount: action.defiAmount,
+    debateTarget: action.debateTarget,
+  };
 }
 
 class AgentLoop {
@@ -286,6 +337,12 @@ class AgentLoop {
     if (this.actionLog.length > MAX_ACTION_LOG) {
       this.actionLog = this.actionLog.slice(-MAX_ACTION_LOG);
     }
+    void appendPersistedLoopAction(
+      toPersistedLoopAction(action),
+      MAX_ACTION_LOG
+    ).catch(() => {
+      // Persistence is best-effort in serverless/runtime-constrained environments.
+    });
     if (action.txHash) {
       void recordAgentActionProof({
         type: action.type,
@@ -332,6 +389,14 @@ class AgentLoop {
     await ensureAgentSpawnerHydrated();
     this.tickCount++;
     this.lastTickAt = Date.now();
+    void setPersistedLoopRuntime({
+      tickCount: this.tickCount,
+      lastTickAt: this.lastTickAt,
+      intervalMs: this.intervalMs,
+      updatedAt: Date.now(),
+    }).catch(() => {
+      // Best-effort runtime snapshot.
+    });
     const tickActions: AgentAction[] = [];
 
     const origEmit = this.emit.bind(this);
@@ -490,6 +555,14 @@ class AgentLoop {
     await ensureAgentSpawnerHydrated();
     this.tickCount++;
     this.lastTickAt = Date.now();
+    void setPersistedLoopRuntime({
+      tickCount: this.tickCount,
+      lastTickAt: this.lastTickAt,
+      intervalMs: this.intervalMs,
+      updatedAt: Date.now(),
+    }).catch(() => {
+      // Best-effort runtime snapshot.
+    });
 
     if (!isAgentConfigured()) {
       this.emit(
@@ -668,9 +741,27 @@ class AgentLoop {
       };
 
       const gen = researchAndForecast(persona, question, context);
+      const forecastStartedAt = Date.now();
       let result: any;
       while (true) {
-        const { value, done } = await gen.next();
+        const elapsedMs = Date.now() - forecastStartedAt;
+        const remainingMs = config.agentResearchTotalTimeoutMs - elapsedMs;
+        if (remainingMs <= 0) {
+          throw new Error(
+            `Research timed out after ${config.agentResearchTotalTimeoutMs}ms`
+          );
+        }
+
+        const stepTimeoutMs = Math.max(
+          1_000,
+          Math.min(config.agentResearchStepTimeoutMs, remainingMs)
+        );
+
+        const { value, done } = await withTimeout(
+          gen.next(),
+          stepTimeoutMs,
+          `Research step timed out after ${stepTimeoutMs}ms`
+        );
         if (done) {
           result = value;
           break;
