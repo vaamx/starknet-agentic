@@ -3,10 +3,12 @@ import { config } from "@/lib/config";
 import { agentLoop } from "@/lib/agent-loop";
 import { isAgentConfigured } from "@/lib/starknet-executor";
 import { hasSessionKeyConfigured } from "@/lib/session-policy";
+import { getStateStoreBackendInfo } from "@/lib/state-store";
 
 export async function GET() {
   try {
     const loop = agentLoop.getStatus();
+    const stateStore = getStateStoreBackendInfo();
     const checks = {
       rpcConfigured: !!config.STARKNET_RPC_URL,
       anthropicConfigured: !!process.env.ANTHROPIC_API_KEY,
@@ -16,6 +18,12 @@ export async function GET() {
       heartbeatProtected: !!config.HEARTBEAT_SECRET,
       sessionKeyConfigured: hasSessionKeyConfigured(),
       upstashRateLimitEnabled: config.upstashRateLimitEnabled,
+      stateStoreRequestedBackend: stateStore.requestedBackend,
+      stateStoreBackend: stateStore.effectiveBackend,
+      stateStoreUpstashConfigured: stateStore.upstashConfigured,
+      stateStoreDistributed:
+        stateStore.effectiveBackend === "upstash" &&
+        stateStore.upstashConfigured,
     };
 
     const hardFailures = [
