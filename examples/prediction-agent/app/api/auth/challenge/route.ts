@@ -3,13 +3,18 @@ import { z } from "zod";
 import { enforceRateLimit, jsonError } from "@/lib/api-guard";
 import { issueNetworkAuthChallenge } from "@/lib/network-auth";
 import { isStarknetAddress, normalizeWalletAddress } from "@/lib/agent-network";
-import { isManualAuthConfigured } from "@/lib/wallet-session";
+import {
+  isManualAuthConfigured,
+  MANUAL_AUTH_SCOPES,
+  normalizeManualAuthScopes,
+} from "@/lib/wallet-session";
 
 export const runtime = "nodejs";
 
 const challengeSchema = z.object({
   walletAddress: z.string().trim().min(4).max(120),
   ttlSecs: z.number().int().min(30).max(600).optional(),
+  scopes: z.array(z.enum(MANUAL_AUTH_SCOPES)).min(1).max(3).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -41,6 +46,7 @@ export async function POST(request: NextRequest) {
   const payload = {
     purpose: "manual_ui_session",
     walletAddress,
+    scopes: normalizeManualAuthScopes(body.scopes),
   };
 
   try {
@@ -65,4 +71,3 @@ export async function POST(request: NextRequest) {
     return jsonError("Failed to issue wallet challenge", 400, err?.message ?? String(err));
   }
 }
-

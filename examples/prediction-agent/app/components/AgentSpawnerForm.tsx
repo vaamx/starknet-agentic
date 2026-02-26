@@ -112,7 +112,7 @@ export default function AgentSpawnerForm({
       const data = await res.json();
 
       if (!res.ok) {
-        if (res.status === 401) {
+        if (res.status === 401 || res.status === 403) {
           setError("Wallet signature required. Use Connect User Wallet -> Verify Signature.");
           return;
         }

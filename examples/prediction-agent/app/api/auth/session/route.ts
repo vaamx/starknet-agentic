@@ -23,6 +23,6 @@ export async function GET(request: NextRequest) {
     authenticated: true,
     walletAddress: session.walletAddress,
     expiresAt: session.expiresAt,
+    scopes: session.scopes,
   });
 }
-
