@@ -23,6 +23,28 @@ interface TradeLogProps {
   isLoopRunning?: boolean;
 }
 
+function normalizeActivityText(value: string | undefined): string {
+  return (value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function activityFingerprint(activity: Activity): string {
+  const probability =
+    typeof activity.probability === "number"
+      ? activity.probability.toFixed(3)
+      : "";
+  return [
+    activity.type,
+    activity.actor.toLowerCase(),
+    activity.marketId ?? "",
+    activity.outcome ?? "",
+    activity.amount ?? "",
+    probability,
+    normalizeActivityText(activity.question),
+    normalizeActivityText(activity.detail).slice(0, 160),
+    normalizeActivityText(activity.debateTarget),
+  ].join("|");
+}
+
 const TYPE_COLORS: Record<string, string> = {
   bet: "text-neo-yellow",
   prediction: "text-neo-green",
@@ -57,9 +79,18 @@ export default function TradeLog({ isLoopRunning = false }: TradeLogProps) {
           if (data.activities) {
             setActivities((prev) => {
               const existingIds = new Set(prev.map((a) => a.id));
-              const newOnes = (data.activities as Activity[]).filter(
-                (a) => !existingIds.has(a.id)
+              const existingFingerprints = new Set(
+                prev.map((a) => activityFingerprint(a))
               );
+              const seenIncoming = new Set<string>();
+              const newOnes = (data.activities as Activity[]).filter((a) => {
+                if (existingIds.has(a.id)) return false;
+                const fingerprint = activityFingerprint(a);
+                if (existingFingerprints.has(fingerprint)) return false;
+                if (seenIncoming.has(fingerprint)) return false;
+                seenIncoming.add(fingerprint);
+                return true;
+              });
               if (newOnes.length === 0) return prev;
               return [...newOnes, ...prev].slice(0, 100);
             });
@@ -118,7 +149,16 @@ export default function TradeLog({ isLoopRunning = false }: TradeLogProps) {
             timestamp: parsed.timestamp,
           };
           setActivities((prev) => {
-            if (prev.some((item) => item.id === activity.id)) return prev;
+            const fingerprint = activityFingerprint(activity);
+            if (
+              prev.some(
+                (item) =>
+                  item.id === activity.id ||
+                  activityFingerprint(item) === fingerprint
+              )
+            ) {
+              return prev;
+            }
             return [activity, ...prev].slice(0, 100);
           });
         }
@@ -202,7 +242,7 @@ export default function TradeLog({ isLoopRunning = false }: TradeLogProps) {
           {hasActivities && (
             <div className="overflow-hidden border-b border-white/10 hidden sm:block">
               <div className="ticker-tape flex items-center gap-6 px-4 py-1.5 whitespace-nowrap">
-                {[...activities.slice(0, 8), ...activities.slice(0, 8)].map((a, i) => (
+                {activities.slice(0, 8).map((a, i) => (
                   <span key={`${a.id}-${i}`} className="flex items-center gap-1.5 text-[10px]">
                     <span className="text-white/40 font-mono">{timeAgo(a.timestamp)}</span>
                     {a.isAgent && (

@@ -7,6 +7,38 @@ import { getPersistedLoopActions, getPersistedMarketSnapshots } from "@/lib/stat
 
 export const runtime = "nodejs";
 
+function normalizeActivityText(value: string | undefined): string {
+  return (value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function activitySignature(activity: {
+  type: string;
+  actor: string;
+  marketId?: number;
+  question?: string;
+  outcome?: string;
+  amount?: string;
+  probability?: number;
+  debateTarget?: string;
+  detail?: string;
+}): string {
+  const probability =
+    typeof activity.probability === "number"
+      ? activity.probability.toFixed(3)
+      : "";
+  return [
+    activity.type,
+    normalizeActivityText(activity.actor),
+    activity.marketId ?? "",
+    normalizeActivityText(activity.question).slice(0, 120),
+    normalizeActivityText(activity.outcome),
+    normalizeActivityText(activity.amount),
+    probability,
+    normalizeActivityText(activity.debateTarget),
+    normalizeActivityText(activity.detail).slice(0, 160),
+  ].join("|");
+}
+
 /**
  * GET /api/activity?limit=30
  * Unified activity endpoint merging on-chain events with in-memory agent actions.
@@ -129,15 +161,20 @@ export async function GET(request: NextRequest) {
     }));
 
     // Merge and deduplicate by txHash
-    const seen = new Set<string>();
-    const merged = [...normalizedAgentActions, ...normalizedOnChain].filter((a) => {
-      if (a.txHash && seen.has(a.txHash)) return false;
-      if (a.txHash) seen.add(a.txHash);
-      return true;
-    });
-
-    // Sort by timestamp descending (newest first)
-    merged.sort((a, b) => b.timestamp - a.timestamp);
+    const seenTxHash = new Set<string>();
+    const seenSignature = new Set<string>();
+    const merged = [...normalizedAgentActions, ...normalizedOnChain]
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .filter((activity) => {
+        if (activity.txHash) {
+          if (seenTxHash.has(activity.txHash)) return false;
+          seenTxHash.add(activity.txHash);
+        }
+        const signature = activitySignature(activity);
+        if (seenSignature.has(signature)) return false;
+        seenSignature.add(signature);
+        return true;
+      });
 
     const source =
       merged.length === 0
