@@ -4,13 +4,14 @@
  * Returns fleet-wide stats + per-agent summaries.
  * Merges built-in agents with spawned agents, reads on-chain balances,
  * cross-references leaderboard Brier scores and action log.
+ *
+ * Optimized: balance reads + leaderboard run in parallel with 3s total cap.
  */
 
 import { NextResponse } from "next/server";
 import {
   agentSpawner,
   getBuiltInAgents,
-  serializeAgent,
   type SpawnedAgent,
 } from "@/lib/agent-spawner";
 import {
@@ -29,44 +30,6 @@ import { agentLoop, type AgentAction } from "@/lib/agent-loop";
 let fleetCache: { data: unknown; ts: number } | null = null;
 const CACHE_TTL_MS = 15_000;
 
-// ── Concurrency-limited balance reads ────────────────────────────────────────
-
-async function withConcurrencyLimit<T, R>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T) => Promise<R>
-): Promise<(R | null)[]> {
-  const results: (R | null)[] = new Array(items.length).fill(null);
-  let cursor = 0;
-
-  async function worker() {
-    while (cursor < items.length) {
-      const idx = cursor++;
-      try {
-        results[idx] = await fn(items[idx]);
-      } catch {
-        results[idx] = null;
-      }
-    }
-  }
-
-  const workers = Array.from(
-    { length: Math.min(concurrency, items.length) },
-    () => worker()
-  );
-  await Promise.all(workers);
-  return results;
-}
-
-async function readBalanceWithTimeout(address: string, timeoutMs = 3000): Promise<bigint> {
-  return Promise.race([
-    readStrkBalance(address),
-    new Promise<bigint>((_, reject) =>
-      setTimeout(() => reject(new Error("timeout")), timeoutMs)
-    ),
-  ]);
-}
-
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface FleetAgentSummary {
@@ -81,11 +44,7 @@ interface FleetAgentSummary {
   tier: SurvivalTier | null;
   brierScore: number | null;
   brierRank: number | null;
-  stats: {
-    predictions: number;
-    bets: number;
-    pnl: string;
-  };
+  stats: { predictions: number; bets: number; pnl: string };
   lastActionAt: number | null;
   activeMarkets: number;
   agentId: string | null;
@@ -124,42 +83,55 @@ export async function GET() {
     const spawned = agentSpawner.list();
     const allAgents: SpawnedAgent[] = [...builtIn, ...spawned];
 
-    // 2. Batch-read STRK balances for agents with wallets
+    // 2. Kick off balance reads + leaderboard in PARALLEL with 3s total cap
     const walleted = allAgents
       .map((a, i) => ({ agent: a, idx: i }))
       .filter((x) => !!x.agent.walletAddress);
 
-    const balances = await withConcurrencyLimit(
-      walleted,
-      8,
-      async (item) => readBalanceWithTimeout(item.agent.walletAddress!, 3000)
-    );
+    const balancePromise = walleted.length > 0
+      ? Promise.allSettled(
+          walleted.map(async (item) => {
+            try {
+              return await Promise.race([
+                readStrkBalance(item.agent.walletAddress!),
+                new Promise<bigint>((_, rej) => setTimeout(() => rej("timeout"), 2000)),
+              ]);
+            } catch {
+              return null;
+            }
+          })
+        )
+      : Promise.resolve([]);
 
+    const leaderboardPromise: Promise<LeaderboardEntry[]> = Promise.race([
+      getOnChainLeaderboard(),
+      new Promise<LeaderboardEntry[]>((resolve) =>
+        setTimeout(() => resolve([]), 3_000)
+      ),
+    ]).catch(() => []);
+
+    // Wait for both in parallel — max 3s
+    const [balanceResults, leaderboard] = await Promise.all([
+      balancePromise,
+      leaderboardPromise,
+    ]);
+
+    // 3. Process balance results
     const balanceMap = new Map<number, bigint>();
     walleted.forEach((item, bi) => {
-      const bal = balances[bi];
-      if (bal !== null) balanceMap.set(item.idx, bal);
+      const result = balanceResults[bi];
+      if (result && "status" in result && result.status === "fulfilled" && result.value !== null) {
+        balanceMap.set(item.idx, result.value as bigint);
+      }
     });
 
-    // 3. Cross-reference leaderboard
-    let leaderboard: LeaderboardEntry[] = [];
-    try {
-      leaderboard = await Promise.race([
-        getOnChainLeaderboard(),
-        new Promise<LeaderboardEntry[]>((_, reject) =>
-          setTimeout(() => reject(new Error("timeout")), 8_000)
-        ),
-      ]);
-    } catch {
-      // leaderboard unavailable — continue without scores
-    }
-
+    // 4. Leaderboard lookup
     const brierMap = new Map<string, LeaderboardEntry>();
     for (const entry of leaderboard) {
       brierMap.set(entry.agent, entry);
     }
 
-    // 4. Cross-reference action log
+    // 5. Action log (in-memory, instant)
     const recentActions: AgentAction[] = agentLoop.getActionLog(200);
     const lastActionMap = new Map<string, number>();
     const activeMarketsMap = new Map<string, Set<number>>();
@@ -176,17 +148,13 @@ export async function GET() {
       }
     }
 
-    // 5. Build per-agent summaries
+    // 6. Build per-agent summaries
     let totalStrkWei = 0n;
     let brierSum = 0;
     let brierCount = 0;
     let fleetPnlWei = 0n;
     const tierDist: Record<string, number> = {
-      thriving: 0,
-      healthy: 0,
-      low: 0,
-      critical: 0,
-      dead: 0,
+      thriving: 0, healthy: 0, low: 0, critical: 0, dead: 0,
     };
     let runningCount = 0;
 
@@ -202,10 +170,7 @@ export async function GET() {
         totalStrkWei += balanceWei;
         if (tier) tierDist[tier] = (tierDist[tier] ?? 0) + 1;
       }
-      if (brierScore !== null) {
-        brierSum += brierScore;
-        brierCount++;
-      }
+      if (brierScore !== null) { brierSum += brierScore; brierCount++; }
       if (agent.status === "running") runningCount++;
       fleetPnlWei += agent.stats.pnl;
 
@@ -233,12 +198,7 @@ export async function GET() {
         biasFactor: agent.persona.biasFactor,
         confidence: agent.persona.confidence,
         runtime: agent.runtime
-          ? {
-              provider: agent.runtime.provider,
-              status: agent.runtime.status,
-              region: agent.runtime.region,
-              tier: agent.runtime.tier,
-            }
+          ? { provider: agent.runtime.provider, status: agent.runtime.status, region: agent.runtime.region, tier: agent.runtime.tier }
           : null,
         createdAt: agent.createdAt,
       };

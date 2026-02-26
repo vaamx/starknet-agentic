@@ -86,6 +86,7 @@ export default function Dashboard() {
   const [agentWalletAddress, setAgentWalletAddress] = useState<string | null>(null);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasWarmCacheRef = useRef(false);
   const deferredQuery = useDeferredValue(searchQuery);
 
   useEffect(() => {
@@ -113,6 +114,7 @@ export default function Dashboard() {
         source?: "onchain" | "cache";
       };
       if (Array.isArray(parsed.markets) && parsed.markets.length > 0) {
+        hasWarmCacheRef.current = true;
         setMarkets(parsed.markets);
         setLeaderboard(Array.isArray(parsed.leaderboard) ? parsed.leaderboard : []);
         setPredictions(parsed.predictions ?? {});
@@ -157,7 +159,7 @@ export default function Dashboard() {
     setLoadError(null);
 
     try {
-      const marketsRes = await fetchWithTimeout("/api/markets?status=open&limit=20&hideEmpty=true", 25_000);
+      const marketsRes = await fetchWithTimeout("/api/markets?status=open&limit=20&hideEmpty=true", 8_000);
       if (!marketsRes) throw new Error("Markets request timed out — showing cached data");
       if (!marketsRes.ok) throw new Error(`Markets API failed: HTTP ${marketsRes.status}`);
 
@@ -179,7 +181,7 @@ export default function Dashboard() {
       );
       if (showLoading) setLoading(false);
 
-      const leaderboardPromise: Promise<LeaderboardEntry[]> = fetchWithTimeout("/api/leaderboard", 15_000)
+      const leaderboardPromise: Promise<LeaderboardEntry[]> = fetchWithTimeout("/api/leaderboard", 5_000)
         .then(async (res) => {
           if (!res || !res.ok) return [];
           const payload = await res.json();
@@ -189,7 +191,7 @@ export default function Dashboard() {
 
       const detailResults = await Promise.allSettled(
         marketList.map(async (market) => {
-          const res = await fetchWithTimeout(`/api/markets/${market.id}`, 15_000);
+          const res = await fetchWithTimeout(`/api/markets/${market.id}`, 5_000);
           if (!res || !res.ok) {
             return { id: market.id, predictions: [], weightedProbability: null, latestAgentTake: null };
           }
@@ -257,7 +259,10 @@ export default function Dashboard() {
     await loadData(false);
   }, [loadData]);
 
-  useEffect(() => { loadData(true); }, [loadData]);
+  // Fetch fresh data on mount; if we restored cache, refresh in background.
+  useEffect(() => {
+    loadData(!hasWarmCacheRef.current);
+  }, [loadData]);
 
   const triggerTick = useCallback(async () => {
     try {
