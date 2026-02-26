@@ -16,6 +16,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { config } from "./config";
 import { forecastMarket, extractProbability, type ForecastResult } from "./agent-forecaster";
 import {
+  getLlmConfigurationError,
+  resolveLlmModel,
+} from "./llm-provider";
+import {
   fetchTavilySearch,
   fetchPolymarketData,
   fetchCryptoPrices,
@@ -423,9 +427,42 @@ export async function* agenticForecastMarket(
     return result!;
   }
 
+  const systemPrompt = context.systemPrompt ?? AGENTIC_SYSTEM_PROMPT;
+  const model = resolveLlmModel("forecast", context.model);
+
+  // xAI path uses native provider tools directly in forecastMarket().
+  if (config.llmProvider === "xai") {
+    yield {
+      type: "tool_call",
+      toolName: "xai_native_tools",
+      toolUseId: `xai_${Date.now()}`,
+      input: {
+        web_search: config.xaiWebSearchEnabled,
+        x_search: config.xaiXSearchEnabled,
+        code_execution: config.xaiCodeExecutionEnabled,
+        collections_search: config.xaiCollectionsSearchEnabled,
+      },
+    };
+    const gen = forecastMarket(question, {
+      ...context,
+      systemPrompt,
+      model,
+    });
+    let result: ForecastResult | undefined;
+    while (true) {
+      const { value, done } = await gen.next();
+      if (done) {
+        result = value as ForecastResult;
+        break;
+      }
+      yield { type: "reasoning_chunk", content: value as string };
+    }
+    return result!;
+  }
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    throw new Error("Anthropic API key not configured");
+    throw new Error(getLlmConfigurationError());
   }
 
   const client = new Anthropic({ apiKey });
@@ -455,9 +492,6 @@ export async function* agenticForecastMarket(
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: userMessage },
   ];
-
-  const systemPrompt = context.systemPrompt ?? AGENTIC_SYSTEM_PROMPT;
-  const model = context.model ?? "claude-sonnet-4-6";
 
   let fullReasoning = "";
   let turnsUsed = 0;

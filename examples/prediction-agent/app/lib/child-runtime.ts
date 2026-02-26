@@ -390,8 +390,51 @@ export function buildChildServerEnv(args: {
   if (config.HUGINN_REGISTRY_ADDRESS && config.HUGINN_REGISTRY_ADDRESS !== "0x0") {
     envVars.HUGINN_REGISTRY_ADDRESS = config.HUGINN_REGISTRY_ADDRESS;
   }
+  if (process.env.AGENT_LLM_PROVIDER) {
+    envVars.AGENT_LLM_PROVIDER = process.env.AGENT_LLM_PROVIDER;
+  }
+  if (process.env.AGENT_LLM_MODEL) {
+    envVars.AGENT_LLM_MODEL = process.env.AGENT_LLM_MODEL;
+  }
+  if (process.env.AGENT_LLM_FORECAST_MODEL) {
+    envVars.AGENT_LLM_FORECAST_MODEL = process.env.AGENT_LLM_FORECAST_MODEL;
+  }
+  if (process.env.AGENT_LLM_DEBATE_MODEL) {
+    envVars.AGENT_LLM_DEBATE_MODEL = process.env.AGENT_LLM_DEBATE_MODEL;
+  }
+  if (process.env.AGENT_LLM_RESOLUTION_MODEL) {
+    envVars.AGENT_LLM_RESOLUTION_MODEL = process.env.AGENT_LLM_RESOLUTION_MODEL;
+  }
   if (process.env.ANTHROPIC_API_KEY) {
     envVars.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+  }
+  if (process.env.XAI_API_KEY) {
+    envVars.XAI_API_KEY = process.env.XAI_API_KEY;
+  }
+  if (process.env.XAI_BASE_URL) {
+    envVars.XAI_BASE_URL = process.env.XAI_BASE_URL;
+  }
+  if (process.env.XAI_ENABLE_NATIVE_TOOLS) {
+    envVars.XAI_ENABLE_NATIVE_TOOLS = process.env.XAI_ENABLE_NATIVE_TOOLS;
+  }
+  if (process.env.XAI_ENABLE_WEB_SEARCH) {
+    envVars.XAI_ENABLE_WEB_SEARCH = process.env.XAI_ENABLE_WEB_SEARCH;
+  }
+  if (process.env.XAI_ENABLE_X_SEARCH) {
+    envVars.XAI_ENABLE_X_SEARCH = process.env.XAI_ENABLE_X_SEARCH;
+  }
+  if (process.env.XAI_ENABLE_CODE_EXECUTION) {
+    envVars.XAI_ENABLE_CODE_EXECUTION = process.env.XAI_ENABLE_CODE_EXECUTION;
+  }
+  if (process.env.XAI_ENABLE_COLLECTIONS_SEARCH) {
+    envVars.XAI_ENABLE_COLLECTIONS_SEARCH =
+      process.env.XAI_ENABLE_COLLECTIONS_SEARCH;
+  }
+  if (process.env.XAI_COLLECTION_IDS) {
+    envVars.XAI_COLLECTION_IDS = process.env.XAI_COLLECTION_IDS;
+  }
+  if (process.env.XAI_CODE_TOOL_TYPE) {
+    envVars.XAI_CODE_TOOL_TYPE = process.env.XAI_CODE_TOOL_TYPE;
   }
   if (config.HEARTBEAT_SECRET) {
     envVars.HEARTBEAT_SECRET = config.HEARTBEAT_SECRET;

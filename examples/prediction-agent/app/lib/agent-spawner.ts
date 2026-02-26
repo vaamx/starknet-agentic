@@ -204,12 +204,29 @@ class AgentSpawnerRegistry {
     if (agent && agent.status === "paused") agent.status = "running";
   }
 
+  updateBudget(
+    agentId: string,
+    update: { totalBudget?: bigint; maxBetSize?: bigint }
+  ) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return;
+    if (update.totalBudget !== undefined) agent.budget.totalBudget = update.totalBudget;
+    if (update.maxBetSize !== undefined) agent.budget.maxBetSize = update.maxBetSize;
+  }
+
   remove(agentId: string) {
     this.agents.delete(agentId);
   }
 
   list(): SpawnedAgent[] {
     return Array.from(this.agents.values());
+  }
+
+  /** Returns built-in + spawned agents merged into a single list. */
+  getAll(): SpawnedAgent[] {
+    const builtIn = getBuiltInAgents();
+    const spawned = this.list();
+    return [...builtIn, ...spawned];
   }
 
   getAgent(id: string): SpawnedAgent | null {

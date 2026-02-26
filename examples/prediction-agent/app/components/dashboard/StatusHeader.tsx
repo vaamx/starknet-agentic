@@ -1,16 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import WalletConnect from "../WalletConnect";
-import Stat from "./Stat";
 import TamagotchiBadge from "./TamagotchiBadge";
+import UserStatsBar from "../UserStatsBar";
 import { formatVolume, timeAgo } from "./utils";
 import type { Market } from "./types";
-
-const SWARM_LOGO_VARIANTS: Record<string, string> = {
-  core: "/brand/starknet-agentic-tama-core.svg",
-  oracle: "/brand/starknet-agentic-tama-oracle.svg",
-  scout: "/brand/starknet-agentic-tama-scout.svg",
-};
 
 interface StatusHeaderProps {
   markets: Market[];
@@ -23,6 +18,8 @@ interface StatusHeaderProps {
   lastUpdatedAt: number | null;
   marketDataSource: "onchain" | "cache" | "unknown";
   marketDataStale: boolean;
+  searchQuery: string;
+  onSearchChange: (value: string) => void;
   onToggleAutonomousMode: () => void;
   onOpenSpawner: () => void;
   onOpenCreator: () => void;
@@ -39,16 +36,20 @@ export default function StatusHeader({
   lastUpdatedAt,
   marketDataSource,
   marketDataStale,
+  searchQuery,
+  onSearchChange,
   onToggleAutonomousMode,
   onOpenSpawner,
   onOpenCreator,
 }: StatusHeaderProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [showStats, setShowStats] = useState(true);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+
   const configuredLogoVariant =
     process.env.NEXT_PUBLIC_SWARM_LOGO_VARIANT?.toLowerCase() ?? "tamagotchi";
   const useTamagotchiLogo =
     configuredLogoVariant === "tamagotchi" || configuredLogoVariant === "auto";
-  const logoSrc =
-    SWARM_LOGO_VARIANTS[configuredLogoVariant] ?? SWARM_LOGO_VARIANTS.core;
 
   const sourceLabel =
     marketDataSource === "onchain"
@@ -59,216 +60,244 @@ export default function StatusHeader({
 
   return (
     <>
-      <header className="border-b border-white/10 bg-[#060d1f]/90 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3.5">
-          <div className="flex items-start sm:items-center justify-between gap-3 sm:gap-4">
-            <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-            <div className="w-10 h-10 bg-neo-green/15 border border-neo-green/30 flex items-center justify-center shrink-0 rounded-xl shadow-[0_0_24px_rgba(0,229,204,0.18)]">
-              {useTamagotchiLogo ? (
-                <TamagotchiBadge
-                  autonomousMode={autonomousMode}
-                  marketDataSource={marketDataSource}
-                  marketDataStale={marketDataStale}
-                  activeAgents={activeAgents}
-                  nextTickIn={nextTickIn}
-                />
-              ) : (
-                <img
-                  src={logoSrc}
-                  alt="Starknet Agentic Swarm mascot logo"
-                  width={30}
-                  height={30}
-                  loading="eager"
-                  className="w-[30px] h-[30px] select-none"
-                  style={{ imageRendering: "pixelated" }}
-                />
-              )}
-            </div>
-            <div className="min-w-0">
-              <h1 className="font-heading font-bold text-base sm:text-xl tracking-tight leading-none text-white truncate">
+      <header className="border-b border-white/[0.07] bg-[#0d111c]/90 backdrop-blur-md sticky top-0 z-50">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6">
+          {/* Main header row */}
+          <div className="flex items-center h-14 gap-3">
+            {/* Logo + brand */}
+            <div className="flex items-center gap-2.5 shrink-0">
+              <div className="w-8 h-8 bg-neo-brand/15 border border-neo-brand/30 flex items-center justify-center rounded-lg">
+                {useTamagotchiLogo ? (
+                  <TamagotchiBadge
+                    autonomousMode={autonomousMode}
+                    marketDataSource={marketDataSource}
+                    marketDataStale={marketDataStale}
+                    activeAgents={activeAgents}
+                    nextTickIn={nextTickIn}
+                  />
+                ) : (
+                  <span className="text-neo-brand text-sm font-bold">SA</span>
+                )}
+              </div>
+              <span className="font-heading font-bold text-sm sm:text-base text-white hidden sm:block">
                 Starknet Agentic Swarm
-              </h1>
-              <p className="text-[10px] font-mono text-white/45 tracking-wider uppercase mt-1 hidden sm:block">
-                Agentic Superforecasting Market Network
-              </p>
+              </span>
             </div>
-          </div>
 
-            <div className="flex items-center flex-wrap gap-2 justify-end max-w-[62%] sm:max-w-none">
-            <nav className="hidden lg:flex items-center gap-4 mr-1">
-              <a href="#markets-heading" className="text-[11px] font-mono text-white/55 hover:text-white">
-                Markets
-              </a>
-              <a href="#operations-heading" className="text-[11px] font-mono text-white/55 hover:text-white">
-                Agents
-              </a>
-              <a href="#trade-log-heading" className="text-[11px] font-mono text-white/55 hover:text-white">
-                Activity
-              </a>
-            </nav>
+            {/* Search bar — centered (desktop) */}
+            <div className="hidden sm:flex flex-1 max-w-md mx-auto">
+              <div className="relative w-full">
+                <svg
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                  placeholder="Search markets..."
+                  className="w-full bg-white/[0.05] border border-white/[0.07] rounded-lg pl-9 pr-3 py-2 text-sm text-white/90 placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-neo-brand/40 focus:border-neo-brand/30 transition-colors"
+                  aria-label="Search markets"
+                />
+              </div>
+            </div>
 
-            <div className="relative group flex items-center gap-2">
+            {/* Mobile search icon */}
+            <div className="flex-1 sm:hidden" />
+            <button
+              type="button"
+              onClick={() => setMobileSearchOpen(!mobileSearchOpen)}
+              className="sm:hidden w-8 h-8 flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-white/60 hover:bg-white/[0.08] transition-colors"
+              aria-label="Search"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+            </button>
+
+            {/* Right controls */}
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Autonomous mode pill */}
               <button
                 type="button"
                 onClick={onToggleAutonomousMode}
                 disabled={loopToggling}
                 aria-pressed={autonomousMode}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-mono transition-colors ${
+                className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium transition-colors ${
                   autonomousMode
-                  ? "border-neo-green/50 bg-neo-green/10 text-neo-green"
-                  : "border-white/20 text-white/50 hover:border-white/40"
-                } ${loopToggling ? "opacity-50 cursor-not-allowed" : ""}`}
+                    ? "border-neo-green/40 bg-neo-green/10 text-neo-green"
+                    : "border-white/15 text-white/50 hover:border-white/30"
+                } ${loopToggling ? "opacity-50" : ""}`}
               >
                 <span
-                  className={`w-2 h-2 rounded-full ${
+                  className={`w-1.5 h-1.5 rounded-full ${
                     autonomousMode ? "bg-neo-green animate-pulse" : "bg-white/30"
                   }`}
                 />
-                {loopToggling
-                  ? "..."
-                  : autonomousMode
-                  ? "Autonomous ON"
-                  : "Autonomous OFF"}
+                {autonomousMode ? "Auto" : "Manual"}
               </button>
-              <span
-                className="hidden sm:flex w-5 h-5 items-center justify-center border border-white/20 text-[10px] font-mono text-white/50 bg-white/5 rounded-full"
-                aria-hidden="true"
-              >
-                ?
-              </span>
-              <div
-                className="hidden sm:block absolute right-0 top-full mt-2 w-64 text-[10px] text-white/70 bg-neo-dark/90 border border-white/10 p-2 shadow-neo opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity rounded-lg"
-                role="tooltip"
-              >
-                Runs the agent loop every 60s to research markets, record predictions,
-                place bets, and auto-create new markets when configured.
+
+              {autonomousMode && nextTickIn !== null && (
+                <span className="text-xs font-mono text-white/40 hidden lg:block">
+                  {nextTickIn}s
+                </span>
+              )}
+
+              <WalletConnect />
+
+              {/* Overflow menu */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen(!menuOpen)}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-white/60 hover:bg-white/[0.08] transition-colors"
+                  aria-label="More actions"
+                >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                  </svg>
+                </button>
+
+                {menuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                    <div className="absolute right-0 top-full mt-1 w-48 bg-neo-surface border border-white/10 rounded-xl shadow-neo-lg z-50 overflow-hidden animate-modal-in">
+                      <button
+                        type="button"
+                        onClick={() => { onOpenCreator(); setMenuOpen(false); }}
+                        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-white/80 hover:bg-white/[0.06] transition-colors"
+                      >
+                        <span className="text-neo-brand">+</span> New Market
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { onOpenSpawner(); setMenuOpen(false); }}
+                        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-white/80 hover:bg-white/[0.06] transition-colors"
+                      >
+                        <span className="text-neo-purple">+</span> Spawn Agent
+                      </button>
+                      <div className="border-t border-white/[0.07]" />
+                      <div className="px-4 py-2.5 flex items-center justify-between">
+                        <span className="text-xs text-white/40">Network</span>
+                        <span className="flex items-center gap-1.5 text-xs font-mono text-white/60">
+                          <span className="relative w-1.5 h-1.5 rounded-full bg-neo-green pulse-ring" />
+                          Sepolia
+                        </span>
+                      </div>
+                      <div className="px-4 py-2.5 flex items-center justify-between">
+                        <span className="text-xs text-white/40">Feed</span>
+                        <span
+                          className={`text-xs font-mono ${
+                            marketDataStale ? "text-neo-yellow" : "text-white/60"
+                          }`}
+                        >
+                          {sourceLabel}
+                        </span>
+                      </div>
+                      {/* Mobile autonomous toggle */}
+                      <div className="sm:hidden border-t border-white/[0.07]">
+                        <button
+                          type="button"
+                          onClick={() => { onToggleAutonomousMode(); setMenuOpen(false); }}
+                          className="w-full flex items-center justify-between px-4 py-2.5"
+                        >
+                          <span className="text-xs text-white/80">Autonomous</span>
+                          <span
+                            className={`text-xs font-mono ${
+                              autonomousMode ? "text-neo-green" : "text-white/40"
+                            }`}
+                          >
+                            {autonomousMode ? "ON" : "OFF"}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
-            {autonomousMode && nextTickIn !== null && (
-              <span className="text-[10px] font-mono text-white/50">
-                Next tick in {nextTickIn}s
-              </span>
-            )}
-
-            <button
-              type="button"
-              onClick={onOpenSpawner}
-              className="neo-btn-secondary text-xs py-2 px-4 border-neo-purple/30 text-neo-purple hidden sm:flex"
-            >
-              + Spawn Agent
-            </button>
-
-            <div>
-              <WalletConnect />
-            </div>
-
-            <div className="neo-badge bg-white/5 text-[10px] py-0.5 gap-1.5 hidden sm:flex">
-              <span className="relative w-2 h-2 rounded-full bg-neo-green pulse-ring" />
-              <span className="font-mono">Sepolia</span>
-            </div>
-
-            <div
-              className={`neo-badge text-[10px] py-0.5 gap-1.5 ${
-                marketDataStale
-                  ? "border-neo-yellow/40 text-neo-yellow bg-neo-yellow/10"
-                  : "bg-white/5 text-white/70"
-              }`}
-              title="Live market feed source"
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  marketDataSource === "onchain"
-                    ? "bg-neo-green"
-                    : marketDataSource === "cache"
-                      ? "bg-neo-yellow"
-                      : "bg-white/40"
-                }`}
-              />
-              <span className="font-mono">{sourceLabel}</span>
-            </div>
-
-            <button
-              type="button"
-              onClick={onOpenCreator}
-              className="neo-btn-primary text-xs py-2 px-4 hidden sm:flex"
-            >
-              + New Market
-            </button>
           </div>
-        </div>
 
-          <div className="mt-3 flex sm:hidden items-center gap-2 overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <a
-              href="#markets-heading"
-              className="neo-btn-secondary text-[10px] py-1.5 px-3 border-white/20"
-            >
-              Markets
-            </a>
-            <a
-              href="#operations-heading"
-              className="neo-btn-secondary text-[10px] py-1.5 px-3 border-white/20"
-            >
-              Agents
-            </a>
-            <a
-              href="#trade-log-heading"
-              className="neo-btn-secondary text-[10px] py-1.5 px-3 border-white/20"
-            >
-              Activity
-            </a>
-            <button
-              type="button"
-              onClick={onOpenSpawner}
-              className="neo-btn-secondary text-[10px] py-1.5 px-3 border-neo-purple/30 text-neo-purple"
-            >
-              + Spawn
-            </button>
-            <button
-              type="button"
-              onClick={onOpenCreator}
-              className="neo-btn-primary text-[10px] py-1.5 px-3"
-            >
-              + Market
-            </button>
-          </div>
+          {/* Mobile search expansion */}
+          {mobileSearchOpen && (
+            <div className="sm:hidden pb-2 -mt-0.5">
+              <div className="relative">
+                <svg
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                  placeholder="Search markets..."
+                  autoFocus
+                  className="w-full bg-white/[0.05] border border-white/[0.07] rounded-lg pl-9 pr-3 py-2 text-sm text-white/90 placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-neo-brand/40 focus:border-neo-brand/30 transition-colors"
+                  aria-label="Search markets"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Collapsible stats row */}
+          {showStats && (
+            <>
+              {/* Mobile: condensed stats strip */}
+              <div className="flex sm:hidden items-center justify-center gap-3 pb-1.5 -mt-0.5 text-[10px] text-white/40">
+                <span>
+                  <span className="text-white/60 font-medium">{markets.length}</span> Mkts
+                </span>
+                <span className="text-white/[0.15]">|</span>
+                <span>
+                  <span className="text-white/60 font-medium">{formatVolume(markets)}</span>
+                </span>
+                <span className="text-white/[0.15]">|</span>
+                <span>
+                  <span className="text-white/60 font-medium">{activeAgents}</span> Agents
+                </span>
+              </div>
+
+              {/* Desktop: full stats row */}
+              <div className="hidden sm:flex items-center justify-between pb-2 -mt-0.5">
+                <div className="flex items-center gap-4 text-xs text-white/40">
+                  <span>
+                    <span className="text-white/60 font-medium">{markets.length}</span> Markets
+                  </span>
+                  <span>
+                    <span className="text-white/60 font-medium">{formatVolume(markets)}</span> Volume
+                  </span>
+                  <span>
+                    <span className="text-white/60 font-medium">{activeAgents}</span> Agents
+                  </span>
+                  {autonomousMode && nextTickIn !== null && (
+                    <span className="hidden lg:inline">
+                      Next tick <span className="font-mono text-white/50">{nextTickIn}s</span>
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <UserStatsBar />
+                  {lastUpdatedAt && (
+                    <span className="text-xs font-mono text-white/25">
+                      {timeAgo(lastUpdatedAt)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </header>
-
-      <div className="border-b border-white/10 bg-[#081327]/70 text-white">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between gap-4">
-          <div
-            className="flex items-center gap-4 sm:gap-6 overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-            role="status"
-            aria-live="polite"
-          >
-            <Stat label="Live Markets" value={markets.length.toString()} />
-            {filteredCount !== markets.length && (
-              <Stat label="Shown" value={filteredCount.toString()} />
-            )}
-            <Stat label="Total Volume" value={formatVolume(markets)} accent />
-            <Stat label="Agents" value={activeAgents.toString()} />
-            {customAgentCount > 0 && (
-              <Stat label="Custom Agents" value={customAgentCount.toString()} />
-            )}
-            {autonomousMode && (
-              <div className="hidden sm:flex">
-                <Stat label="Mode" value="AUTONOMOUS" accent />
-              </div>
-            )}
-          </div>
-          <div className="hidden md:flex items-center gap-4 text-[10px] font-mono text-white/30">
-            {lastUpdatedAt ? (
-              <span>Updated {timeAgo(lastUpdatedAt)}</span>
-            ) : (
-              <span>Awaiting first data load</span>
-            )}
-            <span>|</span>
-            <span>ERC-8004</span>
-            <span>|</span>
-            <span>MCP</span>
-          </div>
-        </div>
-      </div>
     </>
   );
 }

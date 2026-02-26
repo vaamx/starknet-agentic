@@ -1,4 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { config } from "./config";
+import {
+  completeText,
+  getLlmConfigurationError,
+  resolveLlmModel,
+} from "./llm-provider";
 
 const SYSTEM_PROMPT = `You are a calibrated superforecaster AI agent operating on Starknet.
 
@@ -27,6 +33,12 @@ export interface ForecastResult {
   probability: number;
 }
 
+function* chunkText(text: string, size = 120): Generator<string> {
+  for (let i = 0; i < text.length; i += size) {
+    yield text.slice(i, i + size);
+  }
+}
+
 /** Stream a forecast analysis from Claude. Yields reasoning text chunks. */
 export async function* forecastMarket(
   question: string,
@@ -40,12 +52,9 @@ export async function* forecastMarket(
     model?: string;
   }
 ): AsyncGenerator<string, ForecastResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error("Anthropic API key not configured");
+  if (!config.llmConfigured) {
+    throw new Error(getLlmConfigurationError());
   }
-
-  const client = new Anthropic({ apiKey });
 
   let contextStr = "";
   if (context.currentMarketProb !== undefined) {
@@ -70,23 +79,42 @@ export async function* forecastMarket(
   }
 
   const userMessage = `Analyze this prediction market question and provide your probability estimate:\n\n"${question}"${contextStr}${researchStr}`;
-
+  const model = resolveLlmModel("forecast", context.model);
   let fullText = "";
 
-  const stream = client.messages.stream({
-    model: context.model ?? "claude-sonnet-4-5-20250929",
-    max_tokens: 1024,
-    system: context.systemPrompt ?? SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userMessage }],
-  });
+  if (config.llmProvider === "anthropic") {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error(getLlmConfigurationError());
+    }
+    const client = new Anthropic({ apiKey });
+    const stream = client.messages.stream({
+      model,
+      max_tokens: 1024,
+      system: context.systemPrompt ?? SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userMessage }],
+    });
 
-  for await (const event of stream) {
-    if (
-      event.type === "content_block_delta" &&
-      event.delta.type === "text_delta"
-    ) {
-      fullText += event.delta.text;
-      yield event.delta.text;
+    for await (const event of stream) {
+      if (
+        event.type === "content_block_delta" &&
+        event.delta.type === "text_delta"
+      ) {
+        fullText += event.delta.text;
+        yield event.delta.text;
+      }
+    }
+  } else {
+    fullText = await completeText({
+      task: "forecast",
+      model,
+      systemPrompt: context.systemPrompt ?? SYSTEM_PROMPT,
+      userMessage,
+      maxTokens: 1024,
+      enableXaiResearchTools: true,
+    });
+    for (const chunk of chunkText(fullText)) {
+      yield chunk;
     }
   }
 

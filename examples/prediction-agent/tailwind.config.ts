@@ -5,15 +5,18 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        cream: "#050810",
+        cream: "#0d111c",
         "neo-yellow": "#F5B942",
         "neo-pink": "#E63946",
+        "neo-red": "#EF4444",
         "neo-purple": "#7C5CFF",
         "neo-blue": "#4C8DFF",
-        "neo-green": "#00E5CC",
+        "neo-green": "#22C55E",
+        "neo-brand": "#00E5CC",
         "neo-orange": "#F97316",
         "neo-cyan": "#14B8A6",
         "neo-dark": "#0B1020",
+        "neo-surface": "#131a2a",
       },
       fontFamily: {
         heading: ["var(--font-space-grotesk)", "system-ui", "sans-serif"],
@@ -21,10 +24,10 @@ const config: Config = {
         mono: ["var(--font-jetbrains-mono)", "monospace"],
       },
       boxShadow: {
-        "neo-sm": "0 0 0 1px rgba(255,255,255,0.06), 0 6px 16px rgba(0,0,0,0.35)",
-        neo: "0 0 0 1px rgba(255,255,255,0.08), 0 16px 32px rgba(0,0,0,0.45)",
-        "neo-lg": "0 0 0 1px rgba(255,255,255,0.1), 0 24px 48px rgba(0,0,0,0.55)",
-        "neo-xl": "0 0 0 1px rgba(255,255,255,0.12), 0 32px 64px rgba(0,0,0,0.6)",
+        "neo-sm": "0 0 0 1px rgba(255,255,255,0.05), 0 2px 8px rgba(0,0,0,0.3)",
+        neo: "0 0 0 1px rgba(255,255,255,0.07), 0 8px 24px rgba(0,0,0,0.4)",
+        "neo-lg": "0 0 0 1px rgba(255,255,255,0.09), 0 16px 40px rgba(0,0,0,0.45)",
+        "neo-xl": "0 0 0 1px rgba(255,255,255,0.1), 0 24px 56px rgba(0,0,0,0.5)",
       },
     },
   },

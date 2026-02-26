@@ -1,6 +1,11 @@
-import Anthropic from "@anthropic-ai/sdk";
 import type { AgentPersona } from "./agent-personas";
 import { AGENT_PERSONAS } from "./agent-personas";
+import { config } from "./config";
+import {
+  completeText,
+  getLlmConfigurationError,
+  resolveLlmModel,
+} from "./llm-provider";
 
 export interface Round1Result {
   agentId: string;
@@ -57,12 +62,9 @@ export async function runDebateRound(
   question: string,
   systemPrompts: Record<string, string>
 ): Promise<DebateResult[]> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error("Anthropic API key not configured");
+  if (!config.llmConfigured) {
+    throw new Error(getLlmConfigurationError());
   }
-
-  const client = new Anthropic({ apiKey });
   const results: DebateResult[] = [];
 
   for (const agent of round1Results) {
@@ -94,17 +96,13 @@ ${otherForecasts}
 Should you revise your estimate? Why or why not?`;
 
     try {
-      const response = await client.messages.create({
-        model: persona?.model || "claude-sonnet-4-5-20250929",
-        max_tokens: 300,
-        system,
-        messages: [{ role: "user", content: userMessage }],
+      const content = await completeText({
+        task: "debate",
+        model: resolveLlmModel("debate", persona?.model),
+        maxTokens: 300,
+        systemPrompt: system,
+        userMessage,
       });
-
-      const content = response.content
-        .map((c: any) => (c.type === "text" ? c.text : ""))
-        .join("")
-        .trim();
 
       // Extract revised probability from response
       const match = content.match(/\*?\*?Revised estimate:\s*(\d+(?:\.\d+)?)\s*%\*?\*?/i);
@@ -148,15 +146,12 @@ export async function generateDebateExchange(params: {
     });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  if (!config.llmConfigured) {
     return buildFallbackDebateMessage({
       leadProbability: params.leadProbability,
-      reason: "Anthropic API key not configured",
+      reason: getLlmConfigurationError(),
     });
   }
-
-  const client = new Anthropic({ apiKey });
 
   const system = `${params.challenger.systemPrompt}
 
@@ -171,17 +166,13 @@ Their reasoning (excerpt): ${params.leadReasoning}
 Your response:`;
 
   try {
-    const response = await client.messages.create({
-      model: params.challenger.model || "claude-sonnet-4-5-20250929",
-      max_tokens: 220,
-      system,
-      messages: [{ role: "user", content: userMessage }],
+    const content = await completeText({
+      task: "debate",
+      model: resolveLlmModel("debate", params.challenger.model),
+      maxTokens: 220,
+      systemPrompt: system,
+      userMessage,
     });
-
-    const content = response.content
-      .map((c: any) => (c.type === "text" ? c.text : ""))
-      .join("")
-      .trim();
 
     return content || "Stance: UNCERTAIN";
   } catch (err) {
@@ -189,7 +180,7 @@ Your response:`;
     if (shouldEnterCooldown(message)) {
       providerCooldownUntil = Date.now() + DEBATE_PROVIDER_COOLDOWN_MS;
       providerCooldownReason = LOW_CREDIT_REGEX.test(message)
-        ? "Anthropic credits exhausted"
+        ? "LLM credits exhausted"
         : "provider rate limited";
       return buildFallbackDebateMessage({
         leadProbability: params.leadProbability,
