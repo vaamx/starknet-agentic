@@ -143,6 +143,18 @@ export interface PersistedNetworkAgentProfile {
   createdAt: number;
   updatedAt: number;
   lastSeenAt: number;
+  lastHeartbeatAt?: number;
+  heartbeatCount?: number;
+  runtime?: {
+    nodeId?: string;
+    provider?: string;
+    region?: string;
+    scheduler?: string;
+    intervalMs?: number;
+    version?: string;
+    endpointUrl?: string;
+    metadata?: Record<string, string>;
+  };
 }
 
 export type PersistedNetworkContributionKind =
@@ -177,7 +189,8 @@ export interface PersistedNetworkContribution {
 export type PersistedNetworkAuthAction =
   | "register_agent"
   | "update_agent"
-  | "post_contribution";
+  | "post_contribution"
+  | "heartbeat_agent";
 
 export interface PersistedNetworkAuthChallenge {
   id: string;
@@ -741,9 +754,55 @@ export async function upsertPersistedNetworkAgent(
       createdAt: existing?.createdAt ?? profile.createdAt,
       updatedAt: profile.updatedAt,
       lastSeenAt: profile.lastSeenAt,
+      lastHeartbeatAt: profile.lastHeartbeatAt ?? existing?.lastHeartbeatAt,
+      heartbeatCount: profile.heartbeatCount ?? existing?.heartbeatCount ?? 0,
+      runtime: profile.runtime ?? existing?.runtime,
     };
     if (!state.networkAgents) state.networkAgents = {};
     state.networkAgents[profile.id] = next;
+    await writeState(state);
+    return next;
+  });
+}
+
+export async function touchPersistedNetworkAgentHeartbeat(args: {
+  id: string;
+  walletAddress: string;
+  active?: boolean;
+  endpointUrl?: string;
+  runtime?: PersistedNetworkAgentProfile["runtime"];
+  at?: number;
+}): Promise<PersistedNetworkAgentProfile | null> {
+  return await queueWrite(async (state) => {
+    const existing = state.networkAgents?.[args.id];
+    if (!existing) return null;
+    if (
+      existing.walletAddress.trim().toLowerCase() !==
+      args.walletAddress.trim().toLowerCase()
+    ) {
+      return null;
+    }
+
+    const now = Number.isFinite(args.at) ? Number(args.at) : Date.now();
+    const next: PersistedNetworkAgentProfile = {
+      ...existing,
+      active: args.active ?? existing.active,
+      endpointUrl: args.endpointUrl ?? existing.endpointUrl,
+      runtime: args.runtime
+        ? {
+            ...(existing.runtime ?? {}),
+            ...args.runtime,
+            metadata: args.runtime.metadata ?? existing.runtime?.metadata,
+          }
+        : existing.runtime,
+      updatedAt: now,
+      lastSeenAt: now,
+      lastHeartbeatAt: now,
+      heartbeatCount: (existing.heartbeatCount ?? 0) + 1,
+    };
+
+    if (!state.networkAgents) state.networkAgents = {};
+    state.networkAgents[args.id] = next;
     await writeState(state);
     return next;
   });

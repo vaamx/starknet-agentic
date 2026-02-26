@@ -11,7 +11,9 @@ import {
 export const runtime = "nodejs";
 
 const challengeSchema = z.object({
-  action: z.enum(["register_agent", "update_agent", "post_contribution"] as const),
+  action: z.enum(
+    ["register_agent", "update_agent", "post_contribution", "heartbeat_agent"] as const
+  ),
   walletAddress: z.string().trim().min(4).max(120),
   payload: z.unknown(),
   ttlSecs: z.number().int().min(30).max(600).optional(),

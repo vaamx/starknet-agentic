@@ -13,6 +13,11 @@ import {
   slugifyHandle,
 } from "@/lib/agent-network";
 import {
+  resolveNetworkAgentPresence,
+  type NetworkAgentPresenceStatus,
+  getNetworkPresencePolicy,
+} from "@/lib/network-presence";
+import {
   type NetworkAuthEnvelope,
   verifyNetworkAuthEnvelope,
 } from "@/lib/network-auth";
@@ -53,14 +58,39 @@ export async function GET(request: NextRequest) {
   const limitRaw = request.nextUrl.searchParams.get("limit");
   const walletRaw = request.nextUrl.searchParams.get("wallet");
   const activeRaw = request.nextUrl.searchParams.get("active");
+  const onlineRaw = request.nextUrl.searchParams.get("online");
+  const statusRaw = request.nextUrl.searchParams.get("status");
   const limit = Number.parseInt(limitRaw ?? "200", 10);
   const normalizedWallet = walletRaw ? normalizeWalletAddress(walletRaw) : "";
   const onlyActive = activeRaw === "true";
+  const onlyOnline = onlineRaw === "true";
+  const statusFilter = (
+    statusRaw === "online" ||
+    statusRaw === "stale" ||
+    statusRaw === "offline" ||
+    statusRaw === "inactive"
+      ? statusRaw
+      : undefined
+  ) as NetworkAgentPresenceStatus | undefined;
 
   const profiles = await listPersistedNetworkAgents(Number.isFinite(limit) ? limit : 200);
-  const filtered = profiles.filter((profile) => {
+  const now = Date.now();
+  const presencePolicy = getNetworkPresencePolicy();
+  const enriched = profiles.map((profile) => ({
+    ...profile,
+    presence: resolveNetworkAgentPresence({
+      agent: profile,
+      now,
+      onlineTtlMs: presencePolicy.onlineTtlMs,
+      staleTtlMs: presencePolicy.staleTtlMs,
+    }),
+  }));
+
+  const filtered = enriched.filter((profile) => {
     if (normalizedWallet && profile.walletAddress !== normalizedWallet) return false;
     if (onlyActive && !profile.active) return false;
+    if (onlyOnline && !profile.presence.isOnline) return false;
+    if (statusFilter && profile.presence.status !== statusFilter) return false;
     return true;
   });
 
@@ -68,6 +98,8 @@ export async function GET(request: NextRequest) {
     ok: true,
     agents: filtered,
     count: filtered.length,
+    presencePolicy,
+    serverTime: new Date(now).toISOString(),
   });
 }
 
@@ -137,6 +169,9 @@ export async function POST(request: NextRequest) {
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     lastSeenAt: now,
+    lastHeartbeatAt: existing?.lastHeartbeatAt,
+    heartbeatCount: existing?.heartbeatCount ?? 0,
+    runtime: existing?.runtime,
   });
 
   return Response.json({
