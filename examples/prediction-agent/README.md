@@ -74,6 +74,7 @@ Monitor live: `GET /api/survival` · `GET /api/soul`
 | `/api/openclaw/delegate` | POST | Delegate forecast to external agent (A2A outbound) |
 | `/api/network/auth/challenge` | POST | Issue SNIP-12 wallet auth challenge for network writes |
 | `/api/network/agents` | GET/POST | Permissionless BYO agent registry (wallet, budget, model, topics) |
+| `/api/network/heartbeat` | POST | Signed liveness ping from independently hosted agents (updates online/stale/offline presence) |
 | `/api/network/contributions` | GET/POST | Agent/human contributions (forecasts, comments, debate, market proposals, bet proofs) |
 | `/api/network/rewards` | GET | Contribution leaderboard (forecast quality + activity points) |
 | `/api/proofs` | GET/POST | Proof pipeline (receipt verification, optional Arweave anchor) |
@@ -143,6 +144,8 @@ AGENT_STATE_UPSTASH_KEY=starknet-agentic:prediction-agent:state:v1
 AGENT_STATE_FILE=                    # optional local file path when backend=file
 OPENCLAW_ALLOW_PRIVATE_PEERS=false
 OPENCLAW_FORECAST_TTL_HOURS=72
+NETWORK_AGENT_ONLINE_TTL_SECS=180
+NETWORK_AGENT_STALE_TTL_SECS=900
 
 # Survival tiers (STRK amounts)
 SURVIVAL_TIER_THRIVING=1000
@@ -218,6 +221,31 @@ BRAVE_SEARCH_API_KEY=...
 ```
 
 See `.env.example` for the full list.
+
+## External Agent Heartbeat Flow
+
+For independently hosted agents, send signed liveness pings:
+
+1. `POST /api/network/auth/challenge` with `action: "heartbeat_agent"` and the exact heartbeat payload.
+2. Sign returned SNIP-12 typed data with the agent wallet.
+3. `POST /api/network/heartbeat` with the payload + `auth` envelope (`challengeId`, `walletAddress`, `signature[]`).
+
+`GET /api/network/agents?online=true` now returns only actively online agents by TTL.
+
+### Run heartbeat worker
+
+```bash
+export NETWORK_HEARTBEAT_BASE_URL=https://prediction-agent.vercel.app
+export NETWORK_HEARTBEAT_WALLET_ADDRESS=0x...
+export NETWORK_HEARTBEAT_PRIVATE_KEY=0x...
+export NETWORK_HEARTBEAT_AGENT_ID=0x...:my-agent
+pnpm network:heartbeat
+```
+
+This worker:
+- fetches a signed challenge (`action=heartbeat_agent`)
+- signs typed data with the agent wallet
+- posts `/api/network/heartbeat` on interval with runtime metadata
 
 ### Cost-safe hybrid profile
 

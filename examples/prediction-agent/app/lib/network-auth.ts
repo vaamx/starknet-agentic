@@ -44,6 +44,7 @@ const ACTION_LABELS: Record<PersistedNetworkAuthAction, string> = {
   register_agent: "register",
   update_agent: "update",
   post_contribution: "contrib",
+  heartbeat_agent: "heartbeat",
 };
 
 export interface NetworkAuthEnvelope {

@@ -8,6 +8,7 @@
     "start": "next start",
     "test": "vitest run app/lib/*.test.ts --exclude '.next/**' --exclude '**/.next/**'",
     "chaos:sim": "tsx scripts/chaos-sim.ts",
+    "network:heartbeat": "tsx scripts/network-heartbeat.ts",
     "preflight": "bash scripts/preflight.sh",
     "secrets:audit": "node scripts/secrets-audit.mjs",
     "launch:closure": "node scripts/launch-closure.mjs",
