@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useAccount, useConnect, useDisconnect } from "@starknet-react/core";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useAccount,
+  useConnect,
+  useDisconnect,
+  useSignTypedData,
+} from "@starknet-react/core";
 
 function getConnectorIcon(connector: any): string | null {
   const icon = connector?.icon;
@@ -16,14 +21,25 @@ export default function WalletConnect() {
   const { address, isConnected } = useAccount();
   const { connect, connectors, isPending, error } = useConnect();
   const { disconnect } = useDisconnect();
+  const { signTypedDataAsync, isPending: isSigningTypedData } = useSignTypedData({});
   const [showDropdown, setShowDropdown] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [copied, setCopied] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authPending, setAuthPending] = useState(false);
+  const [authWalletAddress, setAuthWalletAddress] = useState<string | null>(null);
+  const [authConfigured, setAuthConfigured] = useState(true);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const autoAuthAttemptedRef = useRef<string | null>(null);
 
   const shortAddress = address
     ? `${address.slice(0, 6)}...${address.slice(-4)}`
     : null;
+  const normalizedAddress = address ? address.trim().toLowerCase() : null;
+  const isSessionAuthed = Boolean(
+    normalizedAddress && authWalletAddress === normalizedAddress
+  );
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 767px)");
@@ -55,6 +71,7 @@ export default function WalletConnect() {
 
   const connectWith = async (connector: any) => {
     setConnectError(null);
+    setAuthError(null);
     try {
       await Promise.resolve(connect({ connector }));
       setShowDropdown(false);
@@ -62,6 +79,144 @@ export default function WalletConnect() {
       setConnectError(err?.message ?? "Failed to connect wallet");
     }
   };
+
+  const refreshSession = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/session", {
+        method: "GET",
+        cache: "no-store",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        setAuthConfigured(true);
+        setAuthWalletAddress(null);
+        setSessionChecked(true);
+        return;
+      }
+      const payload = await res.json();
+      const walletAddress =
+        typeof payload?.walletAddress === "string"
+          ? payload.walletAddress.trim().toLowerCase()
+          : null;
+      setAuthConfigured(payload?.configured !== false);
+      setAuthWalletAddress(payload?.authenticated ? walletAddress : null);
+      setSessionChecked(true);
+    } catch {
+      setAuthConfigured(true);
+      setAuthWalletAddress(null);
+      setSessionChecked(true);
+    }
+  }, []);
+
+  function normalizeSignature(signature: unknown): string[] {
+    if (Array.isArray(signature)) {
+      return signature.map((item) => String(item));
+    }
+    if (signature && typeof signature === "object") {
+      const obj = signature as Record<string, unknown>;
+      const r = obj.r ?? obj.R;
+      const s = obj.s ?? obj.S;
+      if (r !== undefined && s !== undefined) {
+        return [String(r), String(s)];
+      }
+    }
+    if (typeof signature === "string" && signature.trim()) {
+      return [signature.trim()];
+    }
+    return [];
+  }
+
+  const ensureWalletSession = useCallback(async (): Promise<boolean> => {
+    if (!isConnected || !address) return false;
+    setAuthPending(true);
+    setAuthError(null);
+    try {
+      const challengeRes = await fetch("/api/auth/challenge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          walletAddress: address,
+        }),
+      });
+      const challengePayload = await challengeRes.json().catch(() => null);
+      if (!challengeRes.ok) {
+        throw new Error(challengePayload?.error || "Failed to request signature challenge");
+      }
+
+      const challengeId = challengePayload?.challenge?.id;
+      const typedData = challengePayload?.challenge?.typedData;
+      if (!challengeId || !typedData) {
+        throw new Error("Challenge response is missing typedData");
+      }
+
+      const signatureRaw = await signTypedDataAsync(typedData);
+      const signature = normalizeSignature(signatureRaw);
+      if (signature.length === 0) {
+        throw new Error("Wallet returned an empty signature");
+      }
+
+      const verifyRes = await fetch("/api/auth/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          walletAddress: address,
+          auth: {
+            challengeId,
+            walletAddress: address,
+            signature,
+          },
+        }),
+      });
+      const verifyPayload = await verifyRes.json().catch(() => null);
+      if (!verifyRes.ok) {
+        throw new Error(verifyPayload?.error || "Wallet signature verification failed");
+      }
+
+      const walletAddress =
+        typeof verifyPayload?.walletAddress === "string"
+          ? verifyPayload.walletAddress.trim().toLowerCase()
+          : address.trim().toLowerCase();
+      setAuthWalletAddress(walletAddress);
+      return true;
+    } catch (err: any) {
+      const message = err?.message ?? "Signature verification failed";
+      setAuthError(message);
+      return false;
+    } finally {
+      setAuthPending(false);
+    }
+  }, [address, isConnected, signTypedDataAsync]);
+
+  useEffect(() => {
+    refreshSession();
+  }, [refreshSession]);
+
+  useEffect(() => {
+    if (!isConnected || !normalizedAddress) {
+      setAuthWalletAddress(null);
+      autoAuthAttemptedRef.current = null;
+      return;
+    }
+
+    if (!sessionChecked) return;
+    if (!authConfigured) return;
+    if (authWalletAddress === normalizedAddress) {
+      autoAuthAttemptedRef.current = normalizedAddress;
+      return;
+    }
+    if (autoAuthAttemptedRef.current === normalizedAddress) return;
+    autoAuthAttemptedRef.current = normalizedAddress;
+    void ensureWalletSession();
+  }, [
+    isConnected,
+    normalizedAddress,
+    sessionChecked,
+    authConfigured,
+    authWalletAddress,
+    ensureWalletSession,
+  ]);
 
   const copyValue = async (value: string) => {
     try {
@@ -77,7 +232,37 @@ export default function WalletConnect() {
     <>
       <p className="text-[10px] font-mono text-white/40 uppercase">Connected</p>
       <p className="font-mono text-xs mt-1 break-all text-white/85">{address}</p>
+      <div className="mt-2">
+        <p className="text-[10px] font-mono text-white/40 uppercase">Auth</p>
+        <p
+          className={`text-[11px] mt-1 ${
+            isSessionAuthed
+              ? "text-neo-green"
+              : authConfigured
+                ? "text-neo-yellow"
+                : "text-neo-pink"
+          }`}
+        >
+          {!authConfigured
+            ? "Manual signature auth is not configured on server"
+            : isSessionAuthed
+              ? "Signature verified for manual actions"
+              : "Signature required for manual actions"}
+        </p>
+      </div>
       <div className="mt-3 flex items-center gap-2">
+        {!isSessionAuthed && (
+          <button
+            type="button"
+            onClick={() => {
+              void ensureWalletSession();
+            }}
+            disabled={authPending || isSigningTypedData}
+            className="neo-btn-secondary text-[11px] px-3 py-1.5 border-neo-yellow/40 text-neo-yellow disabled:opacity-60"
+          >
+            {authPending || isSigningTypedData ? "Signing..." : "Verify Signature"}
+          </button>
+        )}
         {address && (
           <button
             type="button"
@@ -89,8 +274,18 @@ export default function WalletConnect() {
         )}
         <button
           type="button"
-          onClick={() => {
+          onClick={async () => {
+            try {
+              await fetch("/api/auth/logout", {
+                method: "POST",
+                credentials: "include",
+              });
+            } catch {
+              // Ignore logout network errors.
+            }
             disconnect();
+            setAuthWalletAddress(null);
+            setAuthError(null);
             setShowDropdown(false);
           }}
           className="neo-btn-secondary text-[11px] px-3 py-1.5 border-neo-pink/40 text-neo-pink"
@@ -177,23 +372,29 @@ export default function WalletConnect() {
           </div>
         )}
 
-        {(connectError || error?.message) && (
+        {(connectError || authError || error?.message) && (
           <p className="mt-2 text-[11px] text-neo-pink break-words">
-            {connectError ?? error?.message}
+            {connectError ?? authError ?? error?.message}
           </p>
         )}
       </>
     );
   };
 
-  const triggerLabel = isConnected && shortAddress
-    ? shortAddress
-    : isPending
-      ? "Connecting..."
+  const triggerLabel = isPending
+    ? "Connecting..."
+    : isConnected
+      ? isSessionAuthed
+        ? shortAddress || "Connected"
+        : authPending || isSigningTypedData
+          ? "Signing..."
+          : "Verify Signature"
       : "Connect User Wallet";
 
   const triggerClass = isConnected
-    ? "border-neo-green/40 bg-neo-green/10 text-neo-green hover:bg-neo-green/20"
+    ? isSessionAuthed
+      ? "border-neo-green/40 bg-neo-green/10 text-neo-green hover:bg-neo-green/20"
+      : "border-neo-yellow/40 bg-neo-yellow/10 text-neo-yellow hover:bg-neo-yellow/20"
     : "border-white/10 bg-white/5 text-white hover:bg-white/10";
 
   return (
@@ -209,12 +410,16 @@ export default function WalletConnect() {
         }}
         disabled={isPending}
         className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-mono transition-colors ${triggerClass} ${
-          isPending ? "opacity-50 cursor-not-allowed" : ""
+          isPending || authPending || isSigningTypedData ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >
         <span
           className={`w-2 h-2 rounded-full ${
-            isConnected ? "bg-neo-green" : "bg-white/35"
+            isConnected
+              ? isSessionAuthed
+                ? "bg-neo-green"
+                : "bg-neo-yellow"
+              : "bg-white/35"
           }`}
         />
         {triggerLabel}

@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 
 const challengeSchema = z.object({
   action: z.enum(
-    ["register_agent", "update_agent", "post_contribution", "heartbeat_agent"] as const
+    ["register_agent", "update_agent", "post_contribution", "heartbeat_agent", "manual_session"] as const
   ),
   walletAddress: z.string().trim().min(4).max(120),
   payload: z.unknown(),

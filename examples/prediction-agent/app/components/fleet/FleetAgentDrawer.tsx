@@ -101,6 +101,7 @@ export default function FleetAgentDrawer({
       const res = await fetch(`/api/fleet/${agentId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ action }),
       });
       const data = await res.json();

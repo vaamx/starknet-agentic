@@ -105,12 +105,17 @@ export default function AgentSpawnerForm({
       const res = await fetch("/api/agents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(body),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
+        if (res.status === 401) {
+          setError("Wallet signature required. Use Connect User Wallet -> Verify Signature.");
+          return;
+        }
         setError(data.error ?? "Failed to spawn agent");
         return;
       }

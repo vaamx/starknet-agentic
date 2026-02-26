@@ -18,6 +18,7 @@ import {
   ensureAgentSpawnerHydrated,
   persistAgentSpawner,
 } from "@/lib/agent-persistence";
+import { requireWalletSession } from "@/lib/wallet-session";
 
 export const runtime = "nodejs";
 
@@ -50,6 +51,8 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   await ensureAgentSpawnerHydrated();
+  const auth = requireWalletSession(request);
+  if (!auth.ok) return auth.response;
   let payload: z.infer<typeof spawnSchema>;
   try {
     payload = spawnSchema.parse(await request.json());

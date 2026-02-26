@@ -158,6 +158,7 @@ export default function DeployWizard({
       const res = await fetch("/api/agents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           name: name.trim() || "Custom Agent",
           personaId: selectedPersona ?? undefined,
@@ -171,6 +172,11 @@ export default function DeployWizard({
       const data = await res.json();
 
       if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error(
+            "Wallet signature required. Use Connect User Wallet -> Verify Signature."
+          );
+        }
         throw new Error(data.error ?? "Deploy failed");
       }
 
