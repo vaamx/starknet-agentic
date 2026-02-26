@@ -60,6 +60,14 @@ interface DebateThreadView {
   probabilities: number[];
 }
 
+type SignalWindow = "1h" | "24h" | "7d";
+
+const SIGNAL_WINDOW_MS: Record<SignalWindow, number> = {
+  "1h": 60 * 60 * 1000,
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+};
+
 function brierGrade(score: number): { label: string; colorClass: string } {
   if (score < 0.1) return { label: "S", colorClass: "bg-neo-green text-neo-dark" };
   if (score < 0.15) return { label: "A", colorClass: "bg-neo-blue text-white" };
@@ -126,6 +134,7 @@ export default function AgentPage() {
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [allActivities, setAllActivities] = useState<ActivityItem[]>([]);
   const [agentAliases, setAgentAliases] = useState<string[]>([normalizedTarget]);
+  const [signalWindow, setSignalWindow] = useState<SignalWindow>("24h");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [resolvedName, setResolvedName] = useState(target);
@@ -261,14 +270,19 @@ export default function AgentPage() {
     () => new Set(agentAliases.map((alias) => alias.toLowerCase())),
     [agentAliases]
   );
-  const signalSeries = useMemo(
+  const signalSeriesAll = useMemo(
     () =>
       activities
         .filter((a) => typeof a.probability === "number")
-        .sort((a, b) => a.timestamp - b.timestamp)
-        .slice(-20),
+        .sort((a, b) => a.timestamp - b.timestamp),
     [activities]
   );
+  const signalSeries = useMemo(() => {
+    const cutoff = Date.now() - SIGNAL_WINDOW_MS[signalWindow];
+    return signalSeriesAll
+      .filter((a) => a.timestamp >= cutoff)
+      .slice(-120);
+  }, [signalSeriesAll, signalWindow]);
   const domainMix = useMemo(() => {
     const totals: Record<"Crypto" | "Politics" | "Sports" | "Tech" | "World", number> = {
       Crypto: 0,
@@ -403,6 +417,20 @@ export default function AgentPage() {
   const debateActions = activities.filter((a) => String(a.type).toLowerCase().includes("debate")).length;
   const signalProbabilities = signalSeries.map((item) => Math.max(0, Math.min(1, item.probability ?? 0.5)));
   const signalChartPoints = probabilityPolyline(signalProbabilities, 320, 84);
+  const signalMean =
+    signalProbabilities.length > 0
+      ? signalProbabilities.reduce((sum, value) => sum + value, 0) / signalProbabilities.length
+      : 0;
+  const signalVariance =
+    signalProbabilities.length > 1
+      ? signalProbabilities.reduce((sum, value) => sum + (value - signalMean) ** 2, 0) / signalProbabilities.length
+      : 0;
+  const signalStdDev = Math.sqrt(signalVariance);
+  const confidenceLow = Math.max(0, signalMean - signalStdDev);
+  const confidenceHigh = Math.min(1, signalMean + signalStdDev);
+  const confidenceBandY = 84 - confidenceHigh * 84;
+  const confidenceBandHeight = Math.max(1.5, (confidenceHigh - confidenceLow) * 84);
+  const confidenceBandPp = Math.round((confidenceHigh - confidenceLow) * 100);
   const avgSignalPct =
     signalProbabilities.length > 0
       ? Math.round(
@@ -413,6 +441,8 @@ export default function AgentPage() {
     signalProbabilities.length > 1
       ? Math.round((Math.max(...signalProbabilities) - Math.min(...signalProbabilities)) * 100)
       : 0;
+  const signalWindowLabel =
+    signalWindow === "1h" ? "Last 1h" : signalWindow === "24h" ? "Last 24h" : "Last 7d";
 
   return (
     <div className="min-h-screen bg-cream">
@@ -537,9 +567,30 @@ export default function AgentPage() {
         {/* Charts + Debate Thread Visualization */}
         <div className="grid grid-cols-1 xl:grid-cols-[1.1fr,1.9fr] gap-4">
           <section className="neo-card overflow-hidden">
-            <div className="px-4 sm:px-5 py-2.5 sm:py-3 border-b border-white/[0.07] bg-white/[0.03] flex items-center justify-between">
-              <h2 className="font-heading font-bold text-sm text-white">Forecast Signal Chart</h2>
-              <span className="text-[10px] font-mono text-white/40">{signalSeries.length} points</span>
+            <div className="px-4 sm:px-5 py-2.5 sm:py-3 border-b border-white/[0.07] bg-white/[0.03] flex items-center justify-between gap-2">
+              <div>
+                <h2 className="font-heading font-bold text-sm text-white">Forecast Signal Chart</h2>
+                <p className="text-[10px] font-mono text-white/40 mt-0.5">
+                  {signalWindowLabel} | {signalSeries.length} points
+                </p>
+              </div>
+              <div className="flex items-center gap-1">
+                {(["1h", "24h", "7d"] as SignalWindow[]).map((windowKey) => (
+                  <button
+                    key={windowKey}
+                    type="button"
+                    onClick={() => setSignalWindow(windowKey)}
+                    className={`rounded-md border px-2 py-1 text-[10px] font-mono transition-colors ${
+                      signalWindow === windowKey
+                        ? "border-neo-brand/40 bg-neo-brand/15 text-neo-brand"
+                        : "border-white/10 text-white/45 hover:border-white/25 hover:text-white/70"
+                    }`}
+                    aria-pressed={signalWindow === windowKey}
+                  >
+                    {windowKey}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="p-3 sm:p-4 space-y-3">
               {signalProbabilities.length >= 2 ? (
@@ -548,6 +599,13 @@ export default function AgentPage() {
                     <line x1="0" y1="21" x2="320" y2="21" stroke="rgba(255,255,255,0.12)" strokeDasharray="3 3" />
                     <line x1="0" y1="42" x2="320" y2="42" stroke="rgba(255,255,255,0.12)" strokeDasharray="3 3" />
                     <line x1="0" y1="63" x2="320" y2="63" stroke="rgba(255,255,255,0.12)" strokeDasharray="3 3" />
+                    <rect
+                      x="0"
+                      y={confidenceBandY}
+                      width="320"
+                      height={confidenceBandHeight}
+                      fill="rgba(93,245,213,0.12)"
+                    />
                     <polyline points={signalChartPoints} fill="none" stroke="rgba(93,245,213,0.95)" strokeWidth="2" />
                     {signalProbabilities.map((value, idx) => {
                       const x = (idx / Math.max(1, signalProbabilities.length - 1)) * 320;
@@ -564,13 +622,18 @@ export default function AgentPage() {
                     })}
                   </svg>
                   <div className="mt-2 flex items-center justify-between text-[10px] text-white/45 font-mono">
-                    <span>{timeAgo(signalSeries[0]?.timestamp ?? Date.now())}</span>
+                    <span>{signalWindowLabel.toUpperCase()}</span>
                     <span>NOW</span>
                   </div>
+                  <p className="mt-1 text-[10px] text-white/45 font-mono">
+                    confidence band +/- {Math.round(confidenceBandPp / 2)}pp
+                  </p>
                 </div>
               ) : (
                 <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-5 text-center">
-                  <p className="text-xs text-white/45">Need at least 2 probability points for charting.</p>
+                  <p className="text-xs text-white/45">
+                    Need at least 2 probability points in {signalWindowLabel.toLowerCase()} for charting.
+                  </p>
                 </div>
               )}
 
