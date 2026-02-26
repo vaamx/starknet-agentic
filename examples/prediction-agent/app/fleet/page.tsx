@@ -144,6 +144,7 @@ export default function FleetPage() {
       await fetch(`/api/fleet/${agentId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ action: "pause" }),
       });
       loadData(false);
@@ -157,6 +158,7 @@ export default function FleetPage() {
       await fetch(`/api/fleet/${agentId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ action: "resume" }),
       });
       loadData(false);

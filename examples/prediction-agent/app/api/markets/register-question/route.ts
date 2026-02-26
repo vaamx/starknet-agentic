@@ -1,12 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { registerQuestion } from "@/lib/market-reader";
 import { RpcProvider } from "starknet";
 import { config } from "@/lib/config";
+import { requireWalletSession } from "@/lib/wallet-session";
 
 const provider = new RpcProvider({ nodeUrl: config.STARKNET_RPC_URL });
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
+    const auth = requireWalletSession(req);
+    if (!auth.ok) return auth.response;
     const body = await req.json();
     const { txHash, question } = body;
 

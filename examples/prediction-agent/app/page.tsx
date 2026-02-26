@@ -285,9 +285,19 @@ export default function Dashboard() {
       const response = await fetch("/api/agent-loop", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ action: "tick" }),
       });
-      if (response.ok) await loadData(false);
+      if (response.ok) {
+        await loadData(false);
+        return;
+      }
+
+      if (response.status === 401) {
+        setMetricsError(
+          "Manual action blocked: wallet signature required. Use Connect User Wallet -> Verify Signature."
+        );
+      }
     } catch {}
   }, [loadData]);
 

@@ -190,7 +190,8 @@ export type PersistedNetworkAuthAction =
   | "register_agent"
   | "update_agent"
   | "post_contribution"
-  | "heartbeat_agent";
+  | "heartbeat_agent"
+  | "manual_session";
 
 export interface PersistedNetworkAuthChallenge {
   id: string;

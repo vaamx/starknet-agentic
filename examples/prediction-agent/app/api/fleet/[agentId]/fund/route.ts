@@ -4,7 +4,7 @@
  * Transfers STRK from parent wallet to agent wallet.
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { CallData } from "starknet";
 import {
   agentSpawner,
@@ -15,12 +15,15 @@ import {
 } from "@/lib/agent-persistence";
 import { config } from "@/lib/config";
 import { getOwnerAccount } from "@/lib/starknet-executor";
+import { requireWalletSession } from "@/lib/wallet-session";
 
 export async function POST(
-  request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ agentId: string }> }
 ) {
   try {
+    const auth = requireWalletSession(request);
+    if (!auth.ok) return auth.response;
     const { agentId } = await params;
     await ensureAgentSpawnerHydrated();
 

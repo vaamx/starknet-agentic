@@ -36,10 +36,16 @@ export default function FleetFundForm({
       const res = await fetch(`/api/fleet/${agentId}/fund`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ amountStrk: numAmount }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
+        if (res.status === 401) {
+          throw new Error(
+            "Wallet signature required. Use Connect User Wallet -> Verify Signature."
+          );
+        }
         throw new Error(data.error ?? "Fund transfer failed");
       }
       setTxHash(data.txHash);

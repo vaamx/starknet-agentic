@@ -184,6 +184,8 @@ const envSchema = z.object({
   AGENT_SINGLE_AGENT_MODE: z.string().default("false"),
   // Phase A — Heartbeat authentication
   HEARTBEAT_SECRET: z.string().optional(),
+  MANUAL_AUTH_SECRET: z.string().optional(),
+  MANUAL_AUTH_SESSION_TTL_SECS: z.string().default("43200"),
   // Phase B — Survival tier thresholds (STRK amounts)
   SURVIVAL_TIER_THRIVING:  z.string().default("1000"),
   SURVIVAL_TIER_HEALTHY:   z.string().default("100"),
@@ -579,6 +581,12 @@ export const config = {
   x402Enabled:           rawConfig.X402_ENABLED === "true",
   x402PricePredict:      parseFloat(rawConfig.X402_PRICE_PREDICT)        || 0.1,
   x402PriceMultiPredict: parseFloat(rawConfig.X402_PRICE_MULTI_PREDICT)  || 0.5,
+  manualAuthSecret:
+    rawConfig.MANUAL_AUTH_SECRET ?? rawConfig.HEARTBEAT_SECRET ?? "",
+  manualAuthSessionTtlSecs: Math.max(
+    300,
+    parseInt(rawConfig.MANUAL_AUTH_SESSION_TTL_SECS, 10) || 43_200
+  ),
 
   // ── Phase D: Child agent derived helpers ─────────────────────────────────
   childAgentEnabled:        rawConfig.CHILD_AGENT_ENABLED === "true",

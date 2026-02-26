@@ -6,6 +6,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import {
   agentSpawner,
   getBuiltInAgents,
@@ -21,6 +22,7 @@ import {
   balanceToRawTier,
 } from "@/lib/survival-engine";
 import { agentLoop, type AgentAction } from "@/lib/agent-loop";
+import { requireWalletSession } from "@/lib/wallet-session";
 
 function findAgent(agentId: string): SpawnedAgent | null {
   // Check spawned first
@@ -128,10 +130,12 @@ export async function GET(
 }
 
 export async function PATCH(
-  request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ agentId: string }> }
 ) {
   try {
+    const auth = requireWalletSession(request);
+    if (!auth.ok) return auth.response;
     const { agentId } = await params;
     await ensureAgentSpawnerHydrated();
 
