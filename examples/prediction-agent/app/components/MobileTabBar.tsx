@@ -39,7 +39,7 @@ export default function MobileTabBar({
       id: "agents",
       label: "Agents",
       icon: (
-        <div className="w-5 h-5 flex items-center justify-center scale-[0.65]">
+        <div className="w-5 h-5 flex items-center justify-center scale-[0.8]">
           <TamagotchiBadge
             autonomousMode={autonomousMode}
             marketDataSource={marketDataSource}
