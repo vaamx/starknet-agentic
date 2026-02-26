@@ -23,14 +23,41 @@ export interface SuggestedMarket {
   reasoning?: string;
 }
 
+const LEGACY_SUFFIX_REGEX = /\s+\d+d\s+[0-9a-f]{4}$/i;
+const GARBLED_SUFFIX_REGEX = /\s+[a-z]?\d[a-z0-9]{2,}$/i;
+
+function isValidMarketQuestion(question: string): boolean {
+  const normalized = question.trim();
+  if (normalized.length < 18 || normalized.length > 180) return false;
+  if (!/[a-z]/i.test(normalized)) return false;
+  if (normalized.startsWith("Market #")) return false;
+  if (/^spread:/i.test(normalized)) return false;
+  if (/\(-?\d+(?:\.\d+)?\)/.test(normalized)) return false;
+  if (LEGACY_SUFFIX_REGEX.test(normalized)) return false;
+  if (/\bwin t\b/i.test(normalized)) return false;
+  if (GARBLED_SUFFIX_REGEX.test(normalized) && !/\d{4}/.test(normalized)) {
+    return false;
+  }
+  const words = normalized.split(/\s+/);
+  return words.length >= 4;
+}
+
 function normalizeQuestion(text: string): string {
-  const trimmed = text.trim().replace(/\s+/g, " ");
-  return trimmed.endsWith("?") ? trimmed : `${trimmed}?`;
+  const cleaned = text
+    .replace(LEGACY_SUFFIX_REGEX, "")
+    .replace(/\bwin t\b/gi, "win")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
+  return cleaned.endsWith("?") ? cleaned : `${cleaned}?`;
 }
 
 function headlineToQuestion(title: string): string {
   const cleaned = title.replace(/[.!]+$/, "").trim();
-  if (/^will\\b/i.test(cleaned)) return normalizeQuestion(cleaned);
+  if (/^will\b/i.test(cleaned)) return normalizeQuestion(cleaned);
+  if (/^(who|which|what|when|how)\b/i.test(cleaned)) {
+    return normalizeQuestion(cleaned);
+  }
   return normalizeQuestion(`Will ${cleaned}`);
 }
 
@@ -64,6 +91,32 @@ function buildSportsQuestionFromEspn(result: {
   return normalizeQuestion(`Will ${teamA} beat ${teamB} in their next NFL matchup`);
 }
 
+function getPolymarketQueries(
+  requestedCategory: string
+): string[] {
+  if (requestedCategory === "politics") {
+    return ["us election politics regulation"];
+  }
+  if (requestedCategory === "sports") {
+    return ["sports championship odds"];
+  }
+  if (requestedCategory === "tech") {
+    return ["ai technology earnings policy"];
+  }
+  if (requestedCategory === "crypto") {
+    return ["crypto bitcoin ethereum"];
+  }
+  if (requestedCategory === "other") {
+    return ["world economy geopolitics"];
+  }
+  return [
+    "us politics election",
+    "sports championship",
+    "technology ai",
+    "world economy geopolitics",
+  ];
+}
+
 /**
  * Discover suggested markets. Returns a real-data-only set.
  */
@@ -77,6 +130,7 @@ export async function discoverMarkets(
 
   const pushSuggestion = (suggestion: SuggestedMarket) => {
     const question = normalizeQuestion(suggestion.question);
+    if (!question || !isValidMarketQuestion(question)) return;
     const key = question.toLowerCase();
     if (seen.has(key)) return;
     if (
@@ -94,22 +148,26 @@ export async function discoverMarkets(
   };
 
   // Polymarket-driven suggestions (real external markets)
-  try {
-    const poly = await fetchPolymarketData(category ?? "trending");
+  const polymarketQueries = getPolymarketQueries(requestedCategory);
+  const polymarketResults = await Promise.allSettled(
+    polymarketQueries.map((query) => fetchPolymarketData(query))
+  );
+  for (const settled of polymarketResults) {
+    if (settled.status !== "fulfilled") continue;
+    const poly = settled.value;
     for (const item of poly.data) {
       const question = normalizeQuestion(String(item.label));
       const cat = categorizeMarket(question);
       pushSuggestion({
         question,
         category: cat,
-        suggestedResolutionDays: 30,
+        suggestedResolutionDays:
+          cat === "sports" ? 10 : cat === "politics" ? 21 : 30,
         sourceUrl: item.url,
         estimatedProbability: item.confidence,
         reasoning: poly.summary,
       });
     }
-  } catch {
-    // Ignore if Polymarket is unavailable
   }
 
   // Crypto price-based suggestions (real prices → new questions)
@@ -145,6 +203,7 @@ export async function discoverMarkets(
         const title = String(item.label || item.value || "").trim();
         if (!title) continue;
         const question = headlineToQuestion(title);
+        if (!question) continue;
         const cat = categorizeMarket(question);
         pushSuggestion({
           question,
@@ -185,6 +244,7 @@ export async function discoverMarkets(
         const title = String(item.value || item.label || "").trim();
         if (!title) continue;
         const question = headlineToQuestion(title);
+        if (!question) continue;
         pushSuggestion({
           question,
           category: categorizeMarket(question),

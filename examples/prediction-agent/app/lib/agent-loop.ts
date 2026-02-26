@@ -77,6 +77,8 @@ import { deriveConsensusAutotuneProfile } from "./consensus-autotune";
 import { tryResolveMarket } from "./resolution-oracle";
 import {
   appendPersistedLoopAction,
+  getPersistedLoopActions,
+  getPersistedMarketSnapshots,
   setPersistedLoopRuntime,
   type PersistedLoopAction,
   type PersistedLoopRuntimeState,
@@ -192,7 +194,7 @@ function normalizeAgentErrorMessage(raw: unknown): string {
       : (raw as any)?.message ?? String(raw ?? "unknown error");
   const compact = message.replace(/\s+/g, " ").trim();
   if (/credit balance is too low|insufficient credit|plans\s*&\s*billing/i.test(compact)) {
-    return "Anthropic credits exhausted";
+    return "LLM credits exhausted";
   }
   return compact.slice(0, 260) || "unknown error";
 }
@@ -287,16 +289,7 @@ function pickResearchSources(
     if (selected.length >= 5) break;
   }
 
-  return selected.slice(0, 8);
-}
-
-function stableQuestionHash(input: string): string {
-  let hash = 2166136261;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16).slice(0, 4);
+  return selected.slice(0, 6);
 }
 
 function questionFingerprint(question: string): string {
@@ -318,11 +311,7 @@ function toOnChainQuestion(question: string, durationDays: number): string {
   if (!clean) {
     return `Market ${Math.max(1, durationDays)}d`;
   }
-
-  const suffix = ` ${Math.max(1, durationDays)}d ${stableQuestionHash(clean)}`;
-  const maxBaseLen = Math.max(8, 31 - suffix.length);
-  const base = clean.slice(0, maxBaseLen).trim();
-  return `${base}${suffix}`.slice(0, 31);
+  return clean.slice(0, 31).trim();
 }
 
 async function withTimeout<T>(
@@ -458,7 +447,7 @@ class AgentLoop {
       activeAgentCount: AGENT_PERSONAS.length + spawned.length,
       intervalMs: this.intervalMs,
       onChainEnabled: isAgentConfigured(),
-      aiEnabled: !!process.env.ANTHROPIC_API_KEY,
+      aiEnabled: config.llmConfigured,
       signerMode: getSignerMode(),
       sessionKeyConfigured: hasSessionKeyConfigured(),
       autoResolveEnabled: config.agentAutoResolveEnabled,
@@ -642,9 +631,49 @@ class AgentLoop {
       await this.runPendingResolutions(captureEmit, markets, nowSec);
     }
 
-    const openMarkets = markets.filter(
+    let openMarkets = markets.filter(
       (m) => m.status === 0 && m.resolutionTime > nowSec
     );
+
+    // Guard against transient RPC/indexer empty reads that would otherwise
+    // trigger duplicate auto-creation loops on serverless cold starts.
+    if (openMarkets.length === 0 && markets.length === 0) {
+      try {
+        const snapshotOpen = (await getPersistedMarketSnapshots(300)).filter(
+          (snapshot) =>
+            snapshot.status === 0 && snapshot.resolutionTime > nowSec
+        );
+        if (snapshotOpen.length > 0) {
+          openMarkets = snapshotOpen.map((snapshot) => ({
+            id: snapshot.id,
+            address: snapshot.address,
+            questionHash: snapshot.questionHash,
+            resolutionTime: snapshot.resolutionTime,
+            oracle: snapshot.oracle,
+            collateralToken: snapshot.collateralToken,
+            feeBps: snapshot.feeBps,
+            status: snapshot.status,
+            totalPool: BigInt(snapshot.totalPool),
+            yesPool: BigInt(snapshot.yesPool),
+            noPool: BigInt(snapshot.noPool),
+            impliedProbYes: snapshot.impliedProbYes,
+            impliedProbNo: snapshot.impliedProbNo,
+            winningOutcome: snapshot.winningOutcome,
+          }));
+          captureEmit(
+            this.createAction({
+              agentId: "system",
+              agentName: "System",
+              type: "error",
+              detail:
+                `On-chain market read returned empty; using ${snapshotOpen.length} cached open markets this tick.`,
+            })
+          );
+        }
+      } catch {
+        // Ignore state-store failures and continue with on-chain results only.
+      }
+    }
 
     const openCategoryCounts = {
       sports: 0,
@@ -754,12 +783,14 @@ class AgentLoop {
         return runtime.schedulerMode === "parent";
       });
     const tickActors = buildTickAgentActors(AGENT_PERSONAS, parentEligibleSpawned);
+    const configuredActorsPerTick =
+      Number.isFinite(config.agentActorsPerTick) && config.agentActorsPerTick > 0
+        ? Math.floor(config.agentActorsPerTick)
+        : 1;
+    const minimumActorsPerTick = tickActors.length > 1 ? 2 : 1;
     const actorsPerTick = Math.max(
-      1,
-      Math.min(
-        tickActors.length,
-        Number.isFinite(config.agentActorsPerTick) ? config.agentActorsPerTick : 1
-      )
+      minimumActorsPerTick,
+      Math.min(tickActors.length, configuredActorsPerTick, 2)
     );
     const selected = selectTickAgentActors(
       tickActors,
@@ -978,7 +1009,7 @@ class AgentLoop {
     let marketPeerPredictions = [] as Awaited<ReturnType<typeof getAgentPredictions>>;
     const toolEvidence: ToolEvidence[] = [];
     try {
-      if (!process.env.ANTHROPIC_API_KEY) {
+      if (!config.llmConfigured) {
         emit(
           this.createAction({
             agentId,
@@ -986,7 +1017,8 @@ class AgentLoop {
             type: "error",
             marketId: target.id,
             question,
-            detail: "Anthropic API key not configured — forecasting disabled",
+            detail:
+              `LLM provider ${config.llmProvider} not configured — forecasting disabled`,
           })
         );
         return;
@@ -1017,19 +1049,28 @@ class AgentLoop {
 
       const gen = researchAndForecast(persona, question, context, sources);
       const forecastStartedAt = Date.now();
+      // Keep each actor bounded so one tick can complete within Vercel's runtime cap.
+      const researchTotalTimeoutMs = Math.max(
+        8_000,
+        Math.min(config.agentResearchTotalTimeoutMs, 18_000)
+      );
+      const researchStepTimeoutCeilingMs = Math.max(
+        2_000,
+        Math.min(config.agentResearchStepTimeoutMs, 8_000)
+      );
       let result: any;
       while (true) {
         const elapsedMs = Date.now() - forecastStartedAt;
-        const remainingMs = config.agentResearchTotalTimeoutMs - elapsedMs;
+        const remainingMs = researchTotalTimeoutMs - elapsedMs;
         if (remainingMs <= 0) {
           throw new Error(
-            `Research timed out after ${config.agentResearchTotalTimeoutMs}ms`
+            `Research timed out after ${researchTotalTimeoutMs}ms`
           );
         }
 
         const stepTimeoutMs = Math.max(
           1_000,
-          Math.min(config.agentResearchStepTimeoutMs, remainingMs)
+          Math.min(researchStepTimeoutCeilingMs, remainingMs)
         );
 
         const { value, done } = await withTimeout(
@@ -1235,7 +1276,7 @@ class AgentLoop {
         Math.max(2, Math.floor(config.agentMinEvidencePoints / 2))
       );
       const modelQuotaOrBillingIssue =
-        errMessage === "Anthropic credits exhausted";
+        errMessage === "LLM credits exhausted";
       const canFallback =
         modelQuotaOrBillingIssue ||
         fallbackEvidenceGate.ok &&
@@ -1648,6 +1689,32 @@ class AgentLoop {
     const existingQuestionFingerprints = new Set(
       Object.values(MARKET_QUESTIONS).map((q) => questionFingerprint(q))
     );
+    try {
+      const [snapshotMarkets, loopActions] = await Promise.all([
+        getPersistedMarketSnapshots(500),
+        getPersistedLoopActions(500),
+      ]);
+      for (const snapshot of snapshotMarkets) {
+        if (snapshot.question) {
+          existingQuestionFingerprints.add(
+            questionFingerprint(snapshot.question)
+          );
+        }
+      }
+      for (const action of loopActions) {
+        if (
+          action.type === "market_creation" &&
+          typeof action.question === "string" &&
+          action.question.trim().length > 0
+        ) {
+          existingQuestionFingerprints.add(
+            questionFingerprint(action.question)
+          );
+        }
+      }
+    } catch {
+      // Best-effort dedupe only.
+    }
     if (existingMarkets) {
       for (const market of existingMarkets) {
         const resolved = resolveMarketQuestion(market.id, market.questionHash);
@@ -1971,38 +2038,45 @@ class AgentLoop {
 
     const challengers = AGENT_PERSONAS.filter((p) => p.id !== params.lead.id);
     if (challengers.length === 0) return;
-    const challenger =
-      challengers[Math.floor(Math.random() * challengers.length)];
+    const shuffled = challengers
+      .slice()
+      .sort(() => Math.random() - 0.5);
+    const challengerCount = Math.min(2, shuffled.length);
+    const selectedChallengers = shuffled.slice(0, challengerCount);
 
-    try {
-      const debateText = await generateDebateExchange({
-        question: params.question,
-        leadAgent: params.lead.name,
-        leadProbability: params.probability,
-        leadReasoning: params.reasoning,
-        challenger,
-      });
-
-      emit(
-        this.createAction({
-          agentId: challenger.id,
-          agentName: challenger.name,
-          type: "debate",
-          marketId: params.marketId,
+    for (const challenger of selectedChallengers) {
+      try {
+        const debateText = await generateDebateExchange({
           question: params.question,
-          detail: debateText,
-          debateTarget: params.lead.name,
-        })
-      );
-    } catch (err: any) {
-      emit(
-        this.createAction({
-          agentId: "debate-engine",
-          agentName: "Debate Engine",
-          type: "error",
-          detail: `Debate generation failed: ${err?.message ?? "unknown error"}`,
-        })
-      );
+          leadAgent: params.lead.name,
+          leadProbability: params.probability,
+          leadReasoning: params.reasoning,
+          challenger,
+        });
+
+        emit(
+          this.createAction({
+            agentId: challenger.id,
+            agentName: challenger.name,
+            type: "debate",
+            marketId: params.marketId,
+            question: params.question,
+            detail: debateText,
+            debateTarget: params.lead.name,
+          })
+        );
+      } catch (err: any) {
+        emit(
+          this.createAction({
+            agentId: "debate-engine",
+            agentName: "Debate Engine",
+            type: "error",
+            detail:
+              `Debate generation failed (${challenger.name}): ` +
+              `${err?.message ?? "unknown error"}`,
+          })
+        );
+      }
     }
   }
 

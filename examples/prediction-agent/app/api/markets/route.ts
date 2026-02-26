@@ -3,6 +3,7 @@ import {
   getMarkets,
   registerQuestion,
   resolveMarketQuestion,
+  seedKnownQuestions,
 } from "@/lib/market-reader";
 import { config } from "@/lib/config";
 import { getOnChainActivityCounts } from "@/lib/event-indexer";
@@ -13,6 +14,9 @@ import {
 } from "@/lib/state-store";
 
 export const runtime = "nodejs";
+
+// Seed known question texts before any API calls
+seedKnownQuestions();
 
 async function withTimeout<T>(
   promise: Promise<T>,
@@ -61,9 +65,133 @@ function applyMarketWindow<T extends { id: number; status: number; resolutionTim
   return filtered.sort((a, b) => b.id - a.id).slice(0, limit);
 }
 
+function normalizeQuestionKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parsePool(value: string): bigint {
+  try {
+    return BigInt(value);
+  } catch {
+    return 0n;
+  }
+}
+
+function dedupeQuestionClones<
+  T extends { id: number; question: string; totalPool: string; tradeCount: number }
+>(markets: T[]): T[] {
+  const bestByQuestion = new Map<string, T>();
+
+  for (const market of markets) {
+    const key = normalizeQuestionKey(market.question);
+    if (!key) {
+      bestByQuestion.set(`__id__${market.id}`, market);
+      continue;
+    }
+
+    const existing = bestByQuestion.get(key);
+    if (!existing) {
+      bestByQuestion.set(key, market);
+      continue;
+    }
+
+    const existingScore = [
+      existing.tradeCount,
+      parsePool(existing.totalPool),
+      existing.id,
+    ] as const;
+    const incomingScore = [
+      market.tradeCount,
+      parsePool(market.totalPool),
+      market.id,
+    ] as const;
+
+    const incomingBetter =
+      incomingScore[0] > existingScore[0] ||
+      (incomingScore[0] === existingScore[0] &&
+        incomingScore[1] > existingScore[1]) ||
+      (incomingScore[0] === existingScore[0] &&
+        incomingScore[1] === existingScore[1] &&
+        incomingScore[2] > existingScore[2]);
+
+    if (incomingBetter) {
+      bestByQuestion.set(key, market);
+    }
+  }
+
+  return Array.from(bestByQuestion.values()).sort((a, b) => b.id - a.id);
+}
+
+/**
+ * Filter out junk/empty markets:
+ * - Open markets with zero pool + zero trades
+ * - Resolved markets with zero pool + zero trades
+ * - Garbled short labels / unresolved "Market #id" placeholders
+ */
+function filterEmptyMarkets<
+  T extends {
+    id: number;
+    totalPool: string;
+    status: number;
+    question: string;
+    tradeCount: number;
+    resolutionTime: number;
+  }
+>(
+  markets: T[],
+  options?: { keepRecentMarketIds?: Set<number> }
+): T[] {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const keepRecentMarketIds = options?.keepRecentMarketIds ?? new Set<number>();
+
+  return markets.filter((m) => {
+    const hasPool = m.totalPool !== "0";
+    const hasTrades = m.tradeCount > 0;
+    const isOpen = m.status === 0 && m.resolutionTime > nowSec;
+    const keepRecent = keepRecentMarketIds.has(m.id);
+
+    // Drop unresolved placeholders / garbled short labels.
+    if (m.question.length < 15) return false;
+    if (m.question.startsWith("Market #")) return false;
+
+    // Filter legacy truncated labels that end mid-phrase and have no activity.
+    const truncatedLegacy =
+      !hasTrades &&
+      m.question.length >= 24 &&
+      m.question.length <= 31 &&
+      !/[?)]$/.test(m.question) &&
+      /( in| i| win| t)$/i.test(m.question);
+    if (truncatedLegacy) return false;
+
+    // Keep freshly created open markets even before first bet lands.
+    if (!hasPool && !hasTrades) {
+      if (keepRecent) return true;
+      if (isOpen && m.question.length >= 20 && /[?)]$/.test(m.question)) {
+        return true;
+      }
+      return false;
+    }
+
+    // Drop only clearly synthetic/truncated seeded markets with no trades.
+    if (hasPool && !hasTrades && /^will\s+/i.test(m.question) && !/[?)]$/.test(m.question)) {
+      const likelySynthetic =
+        m.question.length <= 24 ||
+        /( in| i| win| t| clo| 30d| [0-9a-f]{4})$/i.test(m.question);
+      if (likelySynthetic && !keepRecent) return false;
+    }
+
+    return true;
+  });
+}
+
 export async function GET(request: NextRequest) {
   const statusFilter = parseStatusFilter(request.nextUrl.searchParams.get("status"));
   const limit = parseLimit(request.nextUrl.searchParams.get("limit"));
+  const hideEmpty = request.nextUrl.searchParams.get("hideEmpty") !== "false";
   const factoryAddress = config.MARKET_FACTORY_ADDRESS ?? "0x0";
   const factoryConfigured = factoryAddress !== "0x0" && factoryAddress !== "";
   const [cachedSnapshots, cachedActions] = await Promise.all([
@@ -85,9 +213,20 @@ export async function GET(request: NextRequest) {
       registerQuestion(action.marketId, action.question);
     }
   }
+  const keepRecentMarketIds = new Set<number>(
+    cachedActions
+      .filter(
+        (action) =>
+          action.type === "market_creation" &&
+          typeof action.marketId === "number" &&
+          Number.isFinite(action.marketId) &&
+          Date.now() - action.timestamp <= 7 * 24 * 60 * 60 * 1000
+      )
+      .map((action) => action.marketId as number)
+  );
 
   try {
-    const markets = await withTimeout(getMarkets(), 10_000, []);
+    const markets = await withTimeout(getMarkets(), 20_000, []);
     if (factoryConfigured && cachedSnapshots.length > 0 && markets.length === 0) {
       throw new Error("On-chain market fetch returned empty set");
     }
@@ -100,18 +239,19 @@ export async function GET(request: NextRequest) {
         ? await withTimeout(getOnChainActivityCounts(addresses), 1_500, {})
         : {};
 
-    const enriched = applyMarketWindow(
-      markets.map((m) => ({
-        ...m,
-        question: resolveMarketQuestion(m.id, m.questionHash),
-        totalPool: m.totalPool.toString(),
-        yesPool: m.yesPool.toString(),
-        noPool: m.noPool.toString(),
-        tradeCount: tradeCounts[m.address] ?? 0,
-      })),
-      statusFilter,
-      limit
-    );
+    const allEnriched = markets.map((m) => ({
+      ...m,
+      question: resolveMarketQuestion(m.id, m.questionHash),
+      totalPool: m.totalPool.toString(),
+      yesPool: m.yesPool.toString(),
+      noPool: m.noPool.toString(),
+      tradeCount: tradeCounts[m.address] ?? 0,
+    }));
+    const filtered = hideEmpty
+      ? filterEmptyMarkets(allEnriched, { keepRecentMarketIds })
+      : allEnriched;
+    const deduped = dedupeQuestionClones(filtered);
+    const enriched = applyMarketWindow(deduped, statusFilter, limit);
 
     const fullSnapshot = markets.map((m) => ({
       ...m,
@@ -152,28 +292,29 @@ export async function GET(request: NextRequest) {
     });
   } catch (err: any) {
     if (cachedSnapshots.length > 0) {
-          const markets = applyMarketWindow(
-        cachedSnapshots.map((snapshot) => ({
-          id: snapshot.id,
-          address: snapshot.address,
-          questionHash: snapshot.questionHash,
-          question: resolveMarketQuestion(snapshot.id, snapshot.questionHash),
-          resolutionTime: snapshot.resolutionTime,
-          oracle: snapshot.oracle,
-          collateralToken: snapshot.collateralToken,
-          feeBps: snapshot.feeBps,
-          status: snapshot.status,
-          totalPool: snapshot.totalPool,
-          yesPool: snapshot.yesPool,
-          noPool: snapshot.noPool,
-          impliedProbYes: snapshot.impliedProbYes,
-          impliedProbNo: snapshot.impliedProbNo,
-          winningOutcome: snapshot.winningOutcome,
-          tradeCount: snapshot.tradeCount ?? 0,
-        })),
-        statusFilter,
-        limit
-      );
+      const cachedEnriched = cachedSnapshots.map((snapshot) => ({
+        id: snapshot.id,
+        address: snapshot.address,
+        questionHash: snapshot.questionHash,
+        question: resolveMarketQuestion(snapshot.id, snapshot.questionHash),
+        resolutionTime: snapshot.resolutionTime,
+        oracle: snapshot.oracle,
+        collateralToken: snapshot.collateralToken,
+        feeBps: snapshot.feeBps,
+        status: snapshot.status,
+        totalPool: snapshot.totalPool,
+        yesPool: snapshot.yesPool,
+        noPool: snapshot.noPool,
+        impliedProbYes: snapshot.impliedProbYes,
+        impliedProbNo: snapshot.impliedProbNo,
+        winningOutcome: snapshot.winningOutcome,
+        tradeCount: snapshot.tradeCount ?? 0,
+      }));
+      const cachedFiltered = hideEmpty
+        ? filterEmptyMarkets(cachedEnriched, { keepRecentMarketIds })
+        : cachedEnriched;
+      const cachedDeduped = dedupeQuestionClones(cachedFiltered);
+      const markets = applyMarketWindow(cachedDeduped, statusFilter, limit);
       return NextResponse.json({
         markets,
         factoryConfigured,

@@ -41,7 +41,21 @@ const envSchema = z.object({
   COLLATERAL_TOKEN_ADDRESS: starknetAddressOrZero("COLLATERAL_TOKEN_ADDRESS").default(
     "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"
   ),
+  AGENT_LLM_PROVIDER: z.enum(["auto", "anthropic", "xai"]).default("auto"),
+  AGENT_LLM_MODEL: z.string().optional(),
+  AGENT_LLM_FORECAST_MODEL: z.string().optional(),
+  AGENT_LLM_DEBATE_MODEL: z.string().optional(),
+  AGENT_LLM_RESOLUTION_MODEL: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
+  XAI_API_KEY: z.string().optional(),
+  XAI_BASE_URL: z.string().url().default("https://api.x.ai/v1"),
+  XAI_ENABLE_NATIVE_TOOLS: z.string().default("true"),
+  XAI_ENABLE_WEB_SEARCH: z.string().default("true"),
+  XAI_ENABLE_X_SEARCH: z.string().default("true"),
+  XAI_ENABLE_CODE_EXECUTION: z.string().default("true"),
+  XAI_ENABLE_COLLECTIONS_SEARCH: z.string().default("true"),
+  XAI_COLLECTION_IDS: z.string().default(""),
+  XAI_CODE_TOOL_TYPE: z.enum(["code_execution", "code_interpreter"]).default("code_execution"),
   IDENTITY_REGISTRY_ADDRESS: z.string().optional(),
   REPUTATION_REGISTRY_ADDRESS: z.string().optional(),
   VALIDATION_REGISTRY_ADDRESS: z.string().optional(),
@@ -143,7 +157,7 @@ const envSchema = z.object({
       },
       { message: "AGENT_TOOL_MAX_TURNS must be an integer between 1 and 20" }
     ),
-  AGENT_LOOP_TICK_TIMEOUT_MS: z.string().default("55000"),
+  AGENT_LOOP_TICK_TIMEOUT_MS: z.string().default("59000"),
   AGENT_RESEARCH_STEP_TIMEOUT_MS: z.string().default("15000"),
   AGENT_RESEARCH_TOTAL_TIMEOUT_MS: z.string().default("30000"),
   // Phase A — Heartbeat authentication
@@ -213,6 +227,21 @@ const envSchema = z.object({
 
 const rawConfig = envSchema.parse(process.env);
 
+type LlmProvider = "anthropic" | "xai";
+
+function resolveLlmProvider(): LlmProvider {
+  if (rawConfig.AGENT_LLM_PROVIDER === "anthropic") return "anthropic";
+  if (rawConfig.AGENT_LLM_PROVIDER === "xai") return "xai";
+  return rawConfig.XAI_API_KEY ? "xai" : "anthropic";
+}
+
+function parseCsv(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+}
+
 function parseRpcFallbackUrls(raw: string): string[] {
   return raw
     .split(",")
@@ -260,6 +289,12 @@ const agentResearchTotalTimeoutMs = Math.max(
   agentResearchStepTimeoutMs,
   parseInt(rawConfig.AGENT_RESEARCH_TOTAL_TIMEOUT_MS, 10) || 30_000
 );
+const resolvedLlmProvider = resolveLlmProvider();
+const llmConfigured =
+  resolvedLlmProvider === "xai"
+    ? !!rawConfig.XAI_API_KEY
+    : !!rawConfig.ANTHROPIC_API_KEY;
+const xaiCollectionIds = parseCsv(rawConfig.XAI_COLLECTION_IDS);
 
 /**
  * Application configuration — extends rawConfig with:
@@ -268,6 +303,21 @@ const agentResearchTotalTimeoutMs = Math.max(
  */
 export const config = {
   ...rawConfig,
+  llmProvider: resolvedLlmProvider,
+  llmConfigured,
+  llmModel: rawConfig.AGENT_LLM_MODEL,
+  llmForecastModel: rawConfig.AGENT_LLM_FORECAST_MODEL,
+  llmDebateModel: rawConfig.AGENT_LLM_DEBATE_MODEL,
+  llmResolutionModel: rawConfig.AGENT_LLM_RESOLUTION_MODEL,
+  xaiBaseUrl: rawConfig.XAI_BASE_URL.replace(/\/+$/, ""),
+  xaiNativeToolsEnabled: rawConfig.XAI_ENABLE_NATIVE_TOOLS !== "false",
+  xaiWebSearchEnabled: rawConfig.XAI_ENABLE_WEB_SEARCH !== "false",
+  xaiXSearchEnabled: rawConfig.XAI_ENABLE_X_SEARCH !== "false",
+  xaiCodeExecutionEnabled: rawConfig.XAI_ENABLE_CODE_EXECUTION !== "false",
+  xaiCollectionsSearchEnabled:
+    rawConfig.XAI_ENABLE_COLLECTIONS_SEARCH !== "false",
+  xaiCollectionIds,
+  xaiCodeToolType: rawConfig.XAI_CODE_TOOL_TYPE,
   rpcFailoverEnabled:
     rawConfig.STARKNET_RPC_FAILOVER_ENABLED !== "false" && rpcUrls.length > 1,
   rpcFallbackUrls,

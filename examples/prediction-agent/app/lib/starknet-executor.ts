@@ -3,6 +3,7 @@ import {
   RpcProvider,
   CallData,
   shortString,
+  Contract,
 } from "starknet";
 import { config } from "./config";
 import { toScaled } from "./accuracy";
@@ -12,6 +13,23 @@ import { hasSessionKeyConfigured } from "./session-policy";
 const provider = new RpcProvider({
   nodeUrl: config.STARKNET_RPC_URL,
 });
+
+const FACTORY_READ_ABI = [
+  {
+    name: "get_market_count",
+    type: "function",
+    inputs: [],
+    outputs: [{ type: "core::integer::u256" }],
+    state_mutability: "view",
+  },
+  {
+    name: "get_market",
+    type: "function",
+    inputs: [{ name: "id", type: "core::integer::u256" }],
+    outputs: [{ type: "core::starknet::contract_address::ContractAddress" }],
+    state_mutability: "view",
+  },
+] as const;
 
 const providerCache = new Map<string, RpcProvider>();
 let preferredRpcUrl = config.STARKNET_RPC_URL;
@@ -261,6 +279,72 @@ function normalizeAddress(value: string): string {
   return value.toLowerCase();
 }
 
+function parseBigNumberish(value: unknown): bigint {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return 0n;
+    return BigInt(Math.trunc(value));
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return 0n;
+    try {
+      return BigInt(trimmed);
+    } catch {
+      return 0n;
+    }
+  }
+  if (Array.isArray(value) && value.length > 0) {
+    return parseBigNumberish(value[0]);
+  }
+  if (value && typeof value === "object") {
+    const low =
+      (value as any).low ??
+      (value as any).lo ??
+      (value as any).l ??
+      (value as any).value?.low;
+    const high =
+      (value as any).high ??
+      (value as any).hi ??
+      (value as any).h ??
+      (value as any).value?.high;
+    if (low !== undefined || high !== undefined) {
+      const lo = parseBigNumberish(low ?? 0);
+      const hi = parseBigNumberish(high ?? 0);
+      return lo + (hi << 128n);
+    }
+    const nested =
+      (value as any).value ??
+      (value as any).result ??
+      (value as any).res;
+    if (nested !== undefined && nested !== value) {
+      return parseBigNumberish(nested);
+    }
+  }
+  if (value && typeof (value as any).toString === "function") {
+    const raw = String((value as any).toString());
+    if (raw && raw !== "[object Object]") {
+      try {
+        return BigInt(raw);
+      } catch {
+        return 0n;
+      }
+    }
+  }
+  return 0n;
+}
+
+function toSafeNumber(value: unknown): number {
+  const parsed = parseBigNumberish(value);
+  if (parsed > BigInt(Number.MAX_SAFE_INTEGER)) return Number.MAX_SAFE_INTEGER;
+  if (parsed < BigInt(Number.MIN_SAFE_INTEGER)) return Number.MIN_SAFE_INTEGER;
+  return Number(parsed);
+}
+
+function toAddressHex(value: unknown): string {
+  return `0x${parseBigNumberish(value).toString(16)}`;
+}
+
 function parseAllowlistedContracts(): string[] {
   if (!config.AGENT_ALLOWED_CONTRACTS) return [];
   return config.AGENT_ALLOWED_CONTRACTS.split(",")
@@ -506,9 +590,33 @@ export async function createMarket(
         evt.keys?.length >= 2 &&
         evt.data?.length >= 1
       ) {
-        marketId = Number(BigInt(evt.keys[1]));
-        marketAddress = evt.data?.[0];
-        break;
+        try {
+          marketId = toSafeNumber(evt.keys[1]);
+          marketAddress = toAddressHex(evt.data?.[0]);
+          break;
+        } catch {
+          // Continue scanning for a parsable market-created event.
+        }
+      }
+    }
+
+    if (marketId === undefined || !marketAddress || marketAddress === "0x0") {
+      try {
+        const factory = new Contract({
+          abi: FACTORY_READ_ABI as any,
+          address: config.MARKET_FACTORY_ADDRESS,
+          providerOrAccount: executed.provider,
+        });
+        const countRaw = await factory.get_market_count();
+        const count = toSafeNumber(countRaw);
+        if (Number.isFinite(count) && count > 0) {
+          const latestId = count - 1;
+          const latestAddressRaw = await factory.get_market(BigInt(latestId));
+          marketId = latestId;
+          marketAddress = toAddressHex(latestAddressRaw);
+        }
+      } catch {
+        // Keep undefined market metadata when fallback lookup fails.
       }
     }
 
