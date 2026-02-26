@@ -17,6 +17,7 @@ import { config } from "./config";
 import { forecastMarket, extractProbability, type ForecastResult } from "./agent-forecaster";
 import {
   getLlmConfigurationError,
+  getLlmProviderForTask,
   resolveLlmModel,
 } from "./llm-provider";
 import {
@@ -429,9 +430,13 @@ export async function* agenticForecastMarket(
 
   const systemPrompt = context.systemPrompt ?? AGENTIC_SYSTEM_PROMPT;
   const model = resolveLlmModel("forecast", context.model);
+  const forecastProvider = getLlmProviderForTask("forecast");
+  if (!config.llmForecastConfigured) {
+    throw new Error(getLlmConfigurationError("forecast"));
+  }
 
   // xAI path uses native provider tools directly in forecastMarket().
-  if (config.llmProvider === "xai") {
+  if (forecastProvider === "xai") {
     yield {
       type: "tool_call",
       toolName: "xai_native_tools",
@@ -460,9 +465,38 @@ export async function* agenticForecastMarket(
     return result!;
   }
 
+  // Local-model path currently runs deterministic source gathering + final local synthesis
+  // via forecastMarket() without Anthropic function-calling turns.
+  if (forecastProvider === "local") {
+    yield {
+      type: "tool_call",
+      toolName: "local_model_forecast",
+      toolUseId: `local_${Date.now()}`,
+      input: {
+        provider: "ollama",
+        model,
+      },
+    };
+    const gen = forecastMarket(question, {
+      ...context,
+      systemPrompt,
+      model,
+    });
+    let result: ForecastResult | undefined;
+    while (true) {
+      const { value, done } = await gen.next();
+      if (done) {
+        result = value as ForecastResult;
+        break;
+      }
+      yield { type: "reasoning_chunk", content: value as string };
+    }
+    return result!;
+  }
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    throw new Error(getLlmConfigurationError());
+    throw new Error(getLlmConfigurationError("forecast"));
   }
 
   const client = new Anthropic({ apiKey });

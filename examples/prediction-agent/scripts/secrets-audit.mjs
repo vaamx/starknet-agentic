@@ -146,7 +146,39 @@ function main() {
   requireKey("AGENT_PRIVATE_KEY");
   requireKey("MARKET_FACTORY_ADDRESS");
   requireKey("ACCURACY_TRACKER_ADDRESS");
-  requireKey("ANTHROPIC_API_KEY");
+  const forecastProvider =
+    process.env.AGENT_LLM_PROVIDER_FORECAST &&
+    process.env.AGENT_LLM_PROVIDER_FORECAST !== "default"
+      ? process.env.AGENT_LLM_PROVIDER_FORECAST
+      : process.env.AGENT_LLM_PROVIDER || "auto";
+
+  if (forecastProvider === "anthropic") {
+    requireKey("ANTHROPIC_API_KEY");
+  } else if (forecastProvider === "xai") {
+    requireKey("XAI_API_KEY");
+  } else if (forecastProvider === "local") {
+    requireKey("OLLAMA_BASE_URL");
+    requireKey("OLLAMA_MODEL");
+  } else if (forecastProvider === "auto") {
+    const hasXai = !!process.env.XAI_API_KEY && !isPlaceholder(process.env.XAI_API_KEY);
+    const hasAnthropic =
+      !!process.env.ANTHROPIC_API_KEY &&
+      !isPlaceholder(process.env.ANTHROPIC_API_KEY);
+    const hasLocal =
+      !!process.env.OLLAMA_BASE_URL &&
+      !isPlaceholder(process.env.OLLAMA_BASE_URL) &&
+      !!process.env.OLLAMA_MODEL &&
+      !isPlaceholder(process.env.OLLAMA_MODEL);
+    if (!hasXai && !hasAnthropic && !hasLocal) {
+      errors.push(
+        "No LLM provider configured (set XAI_API_KEY, ANTHROPIC_API_KEY, or OLLAMA_BASE_URL + OLLAMA_MODEL)"
+      );
+    }
+  } else {
+    errors.push(
+      "AGENT_LLM_PROVIDER/AGENT_LLM_PROVIDER_FORECAST must be auto|anthropic|xai|local"
+    );
+  }
   requireKey("HEARTBEAT_SECRET");
 
   const rateLimitBackend = process.env.RATE_LIMIT_BACKEND;

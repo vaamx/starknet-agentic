@@ -41,11 +41,31 @@ const envSchema = z.object({
   COLLATERAL_TOKEN_ADDRESS: starknetAddressOrZero("COLLATERAL_TOKEN_ADDRESS").default(
     "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"
   ),
-  AGENT_LLM_PROVIDER: z.enum(["auto", "anthropic", "xai"]).default("auto"),
+  AGENT_LLM_PROVIDER: z.enum(["auto", "anthropic", "xai", "local"]).default("auto"),
+  AGENT_LLM_PROVIDER_FORECAST: z
+    .enum(["default", "anthropic", "xai", "local"])
+    .default("default"),
+  AGENT_LLM_PROVIDER_DEBATE: z
+    .enum(["default", "anthropic", "xai", "local"])
+    .default("default"),
+  AGENT_LLM_PROVIDER_RESOLUTION: z
+    .enum(["default", "anthropic", "xai", "local"])
+    .default("default"),
+  AGENT_LLM_PROVIDER_TRIAGE: z
+    .enum(["default", "anthropic", "xai", "local"])
+    .default("default"),
   AGENT_LLM_MODEL: z.string().optional(),
   AGENT_LLM_FORECAST_MODEL: z.string().optional(),
   AGENT_LLM_DEBATE_MODEL: z.string().optional(),
   AGENT_LLM_RESOLUTION_MODEL: z.string().optional(),
+  AGENT_LLM_TRIAGE_MODEL: z.string().optional(),
+  OLLAMA_BASE_URL: z.string().url().default("http://127.0.0.1:11434"),
+  OLLAMA_MODEL: z.string().default("qwen2.5:7b-instruct"),
+  OLLAMA_FORECAST_MODEL: z.string().optional(),
+  OLLAMA_DEBATE_MODEL: z.string().optional(),
+  OLLAMA_RESOLUTION_MODEL: z.string().optional(),
+  OLLAMA_TRIAGE_MODEL: z.string().optional(),
+  OLLAMA_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   XAI_API_KEY: z.string().optional(),
   XAI_BASE_URL: z.string().url().default("https://api.x.ai/v1"),
@@ -160,6 +180,8 @@ const envSchema = z.object({
   AGENT_LOOP_TICK_TIMEOUT_MS: z.string().default("59000"),
   AGENT_RESEARCH_STEP_TIMEOUT_MS: z.string().default("15000"),
   AGENT_RESEARCH_TOTAL_TIMEOUT_MS: z.string().default("30000"),
+  AGENT_RESEARCH_TRIAGE_ENABLED: z.string().default("true"),
+  AGENT_SINGLE_AGENT_MODE: z.string().default("false"),
   // Phase A — Heartbeat authentication
   HEARTBEAT_SECRET: z.string().optional(),
   // Phase B — Survival tier thresholds (STRK amounts)
@@ -227,12 +249,29 @@ const envSchema = z.object({
 
 const rawConfig = envSchema.parse(process.env);
 
-type LlmProvider = "anthropic" | "xai";
+type LlmProvider = "anthropic" | "xai" | "local";
+type LlmTaskProvider = "default" | LlmProvider;
 
 function resolveLlmProvider(): LlmProvider {
   if (rawConfig.AGENT_LLM_PROVIDER === "anthropic") return "anthropic";
   if (rawConfig.AGENT_LLM_PROVIDER === "xai") return "xai";
-  return rawConfig.XAI_API_KEY ? "xai" : "anthropic";
+  if (rawConfig.AGENT_LLM_PROVIDER === "local") return "local";
+  if (rawConfig.XAI_API_KEY) return "xai";
+  if (rawConfig.ANTHROPIC_API_KEY) return "anthropic";
+  return "local";
+}
+
+function resolveTaskProvider(
+  requested: LlmTaskProvider,
+  baseProvider: LlmProvider
+): LlmProvider {
+  return requested === "default" ? baseProvider : requested;
+}
+
+function isProviderConfigured(provider: LlmProvider): boolean {
+  if (provider === "xai") return !!rawConfig.XAI_API_KEY;
+  if (provider === "anthropic") return !!rawConfig.ANTHROPIC_API_KEY;
+  return !!rawConfig.OLLAMA_BASE_URL && !!rawConfig.OLLAMA_MODEL;
 }
 
 function parseCsv(raw: string): string[] {
@@ -290,10 +329,23 @@ const agentResearchTotalTimeoutMs = Math.max(
   parseInt(rawConfig.AGENT_RESEARCH_TOTAL_TIMEOUT_MS, 10) || 30_000
 );
 const resolvedLlmProvider = resolveLlmProvider();
-const llmConfigured =
-  resolvedLlmProvider === "xai"
-    ? !!rawConfig.XAI_API_KEY
-    : !!rawConfig.ANTHROPIC_API_KEY;
+const llmForecastProvider = resolveTaskProvider(
+  rawConfig.AGENT_LLM_PROVIDER_FORECAST as LlmTaskProvider,
+  resolvedLlmProvider
+);
+const llmDebateProvider = resolveTaskProvider(
+  rawConfig.AGENT_LLM_PROVIDER_DEBATE as LlmTaskProvider,
+  resolvedLlmProvider
+);
+const llmResolutionProvider = resolveTaskProvider(
+  rawConfig.AGENT_LLM_PROVIDER_RESOLUTION as LlmTaskProvider,
+  resolvedLlmProvider
+);
+const llmTriageProvider = resolveTaskProvider(
+  rawConfig.AGENT_LLM_PROVIDER_TRIAGE as LlmTaskProvider,
+  resolvedLlmProvider
+);
+const llmConfigured = isProviderConfigured(llmForecastProvider);
 const xaiCollectionIds = parseCsv(rawConfig.XAI_COLLECTION_IDS);
 
 /**
@@ -305,10 +357,26 @@ export const config = {
   ...rawConfig,
   llmProvider: resolvedLlmProvider,
   llmConfigured,
+  llmForecastProvider,
+  llmDebateProvider,
+  llmResolutionProvider,
+  llmTriageProvider,
+  llmForecastConfigured: isProviderConfigured(llmForecastProvider),
+  llmDebateConfigured: isProviderConfigured(llmDebateProvider),
+  llmResolutionConfigured: isProviderConfigured(llmResolutionProvider),
+  llmTriageConfigured: isProviderConfigured(llmTriageProvider),
   llmModel: rawConfig.AGENT_LLM_MODEL,
   llmForecastModel: rawConfig.AGENT_LLM_FORECAST_MODEL,
   llmDebateModel: rawConfig.AGENT_LLM_DEBATE_MODEL,
   llmResolutionModel: rawConfig.AGENT_LLM_RESOLUTION_MODEL,
+  llmTriageModel: rawConfig.AGENT_LLM_TRIAGE_MODEL,
+  ollamaBaseUrl: rawConfig.OLLAMA_BASE_URL.replace(/\/+$/, ""),
+  ollamaModel: rawConfig.OLLAMA_MODEL,
+  ollamaForecastModel: rawConfig.OLLAMA_FORECAST_MODEL,
+  ollamaDebateModel: rawConfig.OLLAMA_DEBATE_MODEL,
+  ollamaResolutionModel: rawConfig.OLLAMA_RESOLUTION_MODEL,
+  ollamaTriageModel: rawConfig.OLLAMA_TRIAGE_MODEL,
+  ollamaApiKey: rawConfig.OLLAMA_API_KEY,
   xaiBaseUrl: rawConfig.XAI_BASE_URL.replace(/\/+$/, ""),
   xaiNativeToolsEnabled: rawConfig.XAI_ENABLE_NATIVE_TOOLS !== "false",
   xaiWebSearchEnabled: rawConfig.XAI_ENABLE_WEB_SEARCH !== "false",
@@ -352,6 +420,9 @@ export const config = {
   ),
   agentResearchStepTimeoutMs,
   agentResearchTotalTimeoutMs,
+  agentResearchTriageEnabled:
+    rawConfig.AGENT_RESEARCH_TRIAGE_ENABLED !== "false",
+  agentSingleAgentMode: rawConfig.AGENT_SINGLE_AGENT_MODE === "true",
   agentAutoResolveEnabled: rawConfig.AGENT_AUTO_RESOLVE_ENABLED !== "false",
   agentAutoResolveEvery: Math.max(
     1,

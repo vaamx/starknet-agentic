@@ -141,7 +141,38 @@ validate_env() {
   require_hex_var MARKET_FACTORY_ADDRESS
   require_hex_var ACCURACY_TRACKER_ADDRESS
 
-  require_var ANTHROPIC_API_KEY
+  local llm_provider="${AGENT_LLM_PROVIDER_FORECAST:-default}"
+  if [[ "${llm_provider}" == "default" ]]; then
+    llm_provider="${AGENT_LLM_PROVIDER:-auto}"
+  fi
+
+  case "${llm_provider}" in
+    anthropic)
+      require_var ANTHROPIC_API_KEY
+      ;;
+    xai)
+      require_var XAI_API_KEY
+      ;;
+    local)
+      require_var OLLAMA_BASE_URL
+      require_var OLLAMA_MODEL
+      ;;
+    auto)
+      if [[ -n "${XAI_API_KEY:-}" ]]; then
+        :
+      elif [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+        :
+      elif [[ -n "${OLLAMA_BASE_URL:-}" && -n "${OLLAMA_MODEL:-}" ]]; then
+        :
+      else
+        add_error "No LLM provider credentials configured (set XAI_API_KEY, ANTHROPIC_API_KEY, or OLLAMA_BASE_URL + OLLAMA_MODEL)"
+      fi
+      ;;
+    *)
+      add_error "AGENT_LLM_PROVIDER/AGENT_LLM_PROVIDER_FORECAST must be one of: auto, anthropic, xai, local"
+      ;;
+  esac
+
   require_var HEARTBEAT_SECRET
 
   local needs_upstash_credentials=0

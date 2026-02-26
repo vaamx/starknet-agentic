@@ -331,8 +331,8 @@ export async function tryResolveMarket(
   marketAddress: string,
   question: string
 ): Promise<ResolutionResult> {
-  if (!config.llmConfigured) {
-    return { status: "error", error: getLlmConfigurationError() };
+  if (!config.llmResolutionConfigured) {
+    return { status: "error", error: getLlmConfigurationError("resolution") };
   }
 
   // 1. Select and run strategy
