@@ -8,6 +8,22 @@ import TamagotchiLoader from "@/components/TamagotchiLoader";
 import TamagotchiEmptyState from "@/components/TamagotchiEmptyState";
 import type { LeaderboardEntry } from "@/components/dashboard/types";
 
+interface ApiAgentSummary {
+  id?: string;
+  agentId?: string;
+  name?: string;
+  agentType?: string;
+  model?: string;
+  walletAddress?: string;
+  stats?: { predictions?: number };
+}
+
+interface NetworkAgentSummary {
+  name?: string;
+  model?: string;
+  walletAddress?: string;
+}
+
 interface ActivityItem {
   id?: string;
   type: string;
@@ -36,19 +52,86 @@ function timeAgo(ts: number): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+function isWalletLike(value: string): boolean {
+  return /^0x[0-9a-fA-F]{1,64}$/.test(value.trim());
+}
+
 export default function AgentPage() {
   const params = useParams();
-  const agentName = decodeURIComponent(params.id as string);
+  const target = decodeURIComponent(params.id as string).trim();
+  const normalizedTarget = target.toLowerCase();
+  const walletTarget = isWalletLike(target);
 
   const [entry, setEntry] = useState<LeaderboardEntry | null>(null);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [resolvedName, setResolvedName] = useState(target);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      let inferredName = target;
+      let inferredModel = "";
+      let inferredType = "";
+      let inferredPredictions = 0;
+      const aliases = new Set<string>([normalizedTarget]);
+
+      if (walletTarget) {
+        const [agentsRes, networkAgentsRes] = await Promise.all([
+          fetch("/api/agents", { cache: "no-store" }).catch(() => null),
+          fetch(`/api/network/agents?wallet=${encodeURIComponent(target)}&limit=20`, {
+            cache: "no-store",
+          }).catch(() => null),
+        ]);
+
+        if (agentsRes?.ok) {
+          const agentsData = await agentsRes.json().catch(() => null);
+          const allAgents: ApiAgentSummary[] = Array.isArray(agentsData?.agents)
+            ? (agentsData.agents as ApiAgentSummary[])
+            : [];
+
+          const walletMatches = allAgents.filter(
+            (a) => String(a.walletAddress ?? "").toLowerCase() === normalizedTarget
+          );
+          const primaryMatch =
+            walletMatches[0] ??
+            allAgents.find(
+              (a) =>
+                String(a.id ?? "").toLowerCase() === normalizedTarget ||
+                String(a.agentId ?? "").toLowerCase() === normalizedTarget
+            );
+
+          for (const match of walletMatches) {
+            if (match.name) aliases.add(match.name.toLowerCase());
+          }
+
+          if (primaryMatch?.name) inferredName = primaryMatch.name;
+          if (primaryMatch?.model) inferredModel = primaryMatch.model;
+          if (primaryMatch?.agentType) inferredType = primaryMatch.agentType;
+          inferredPredictions = Number(primaryMatch?.stats?.predictions ?? 0);
+        }
+
+        if (networkAgentsRes?.ok) {
+          const networkData = await networkAgentsRes.json().catch(() => null);
+          const networkAgents: NetworkAgentSummary[] = Array.isArray(networkData?.agents)
+            ? (networkData.agents as NetworkAgentSummary[])
+            : [];
+
+          for (const agent of networkAgents) {
+            if (agent.name) aliases.add(agent.name.toLowerCase());
+          }
+
+          const firstNetwork = networkAgents[0];
+          if (firstNetwork?.name && inferredName === target) inferredName = firstNetwork.name;
+          if (firstNetwork?.model && !inferredModel) inferredModel = firstNetwork.model;
+        }
+      }
+
+      aliases.add(inferredName.toLowerCase());
+      setResolvedName(inferredName);
+
       const [leaderboardRes, activityRes] = await Promise.all([
         fetch("/api/leaderboard", { cache: "no-store" }),
         fetch("/api/activity?limit=500", { cache: "no-store" }),
@@ -58,10 +141,26 @@ export default function AgentPage() {
         const lbData = await leaderboardRes.json();
         const entries: LeaderboardEntry[] = Array.isArray(lbData.leaderboard) ? lbData.leaderboard : [];
         const found = entries.find(
-          (e) => e.agent.toLowerCase() === agentName.toLowerCase()
+          (e) =>
+            aliases.has(e.agent.toLowerCase()) ||
+            (e.identity?.name ? aliases.has(e.identity.name.toLowerCase()) : false)
         );
         if (found) {
           setEntry(found);
+        } else if (walletTarget) {
+          setEntry({
+            agent: inferredName,
+            avgBrier: 0.25,
+            predictionCount: inferredPredictions,
+            rank: Math.max(entries.length + 1, 1),
+            identity: {
+              name: inferredName,
+              agentType: inferredType || "wallet-profile",
+              model: inferredModel || "unknown",
+              reputationScore: 0,
+              feedbackCount: 0,
+            },
+          });
         } else {
           setError("Agent not found");
         }
@@ -77,7 +176,7 @@ export default function AgentPage() {
             ? actData
             : [];
         const agentActivities = allActivities.filter(
-          (a) => a.actor?.toLowerCase() === agentName.toLowerCase()
+          (a) => aliases.has(a.actor?.toLowerCase() ?? "")
         );
         setActivities(agentActivities);
       }
@@ -86,18 +185,19 @@ export default function AgentPage() {
     } finally {
       setLoading(false);
     }
-  }, [agentName]);
+  }, [target, normalizedTarget, walletTarget]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const voice = getAgentVoiceByName(agentName);
+  const displayName = entry?.identity?.name ?? entry?.agent ?? resolvedName;
+  const voice = getAgentVoiceByName(displayName);
   const accentColor = voice?.colorClass ?? "text-neo-blue";
   const accentBg = accentColor.replace("text-", "bg-");
 
   if (loading) return (
     <div className="min-h-screen bg-cream">
       <div className="max-w-3xl mx-auto px-4 pt-8">
-        <TamagotchiLoader text={`Loading ${agentName}...`} />
+        <TamagotchiLoader text={`Loading ${displayName}...`} />
       </div>
     </div>
   );
