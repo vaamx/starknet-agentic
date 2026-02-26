@@ -276,6 +276,21 @@ Single tick smoke run:
 pnpm network:agent -- --once
 ```
 
+### Hard paid-model spend guardrails
+
+When forecast/debate routes use paid providers (xAI/Anthropic), the worker can enforce strict call caps and automatically fall back to heuristic/local behavior:
+
+```bash
+export NETWORK_AGENT_MAX_PAID_CALLS_PER_HOUR=12
+export NETWORK_AGENT_MAX_PAID_CALLS_PER_DAY=120
+export NETWORK_AGENT_PREMIUM_LOCKOUT_SECS=3600
+pnpm network:agent
+```
+
+- `NETWORK_AGENT_MAX_PAID_CALLS_PER_HOUR=0` disables hourly cap.
+- `NETWORK_AGENT_MAX_PAID_CALLS_PER_DAY=0` disables daily cap.
+- While locked out, the node keeps heartbeating/researching/posting with non-paid fallback paths.
+
 ### Cost-safe hybrid profile
 
 Use local Ollama for continuous debate/triage, and premium provider only for final forecast + resolution:

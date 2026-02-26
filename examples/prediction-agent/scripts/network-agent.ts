@@ -14,7 +14,13 @@ import {
   estimateEngagementScore,
   type MarketCategory,
 } from "../app/lib/categories";
-import { completeText } from "../app/lib/llm-provider";
+import {
+  completeText,
+  getLlmProviderForTask,
+  resolveLlmModel,
+  type LlmProvider,
+  type LlmTask,
+} from "../app/lib/llm-provider";
 
 type NetworkAuthAction =
   | "register_agent"
@@ -123,6 +129,9 @@ interface Options {
   debateModel?: string;
   llmEnabled: boolean;
   enableXaiNativeTools: boolean;
+  maxPaidCallsPerHour: number;
+  maxPaidCallsPerDay: number;
+  premiumLockoutSecs: number;
   executeBets: boolean;
   betAmountStrk: number;
   betMinEdge: number;
@@ -143,6 +152,13 @@ interface WorkerState {
   tickCount: number;
   lastForecastByMarket: Map<number, number>;
   lastDebateByMarket: Map<number, number>;
+  budget: {
+    paidCallTimestamps: number[];
+    lockoutUntilMs: number;
+    lockReason: string;
+    lastWarningAtMs: number;
+    lastWarningKey: string;
+  };
 }
 
 function usage(): void {
@@ -169,6 +185,9 @@ Core env:
   NETWORK_AGENT_TOPICS=politics,tech,sports,world
   NETWORK_AGENT_INTERVAL_MS=90000
   NETWORK_AGENT_MAX_FORECASTS_PER_TICK=2
+  NETWORK_AGENT_MAX_PAID_CALLS_PER_HOUR=12
+  NETWORK_AGENT_MAX_PAID_CALLS_PER_DAY=120
+  NETWORK_AGENT_PREMIUM_LOCKOUT_SECS=3600
   NETWORK_AGENT_EXECUTE_BETS=false
 
 Options:
@@ -186,6 +205,9 @@ Options:
   --max-debates-per-tick <n>       Debate posts per tick (default 1)
   --market-limit <n>               Markets fetched each tick (default 40)
   --research-sources <csv>         Sources for /api/data-sources
+  --max-paid-calls-per-hour <n>    Paid LLM call cap/hour (0=unlimited)
+  --max-paid-calls-per-day <n>     Paid LLM call cap/day (0=unlimited)
+  --premium-lockout-secs <n>       Lockout when cap hit (default 3600)
   --execute-bets                   Enable direct on-chain bets
   --bet-amount-strk <n>            Per-bet amount when enabled (default 1)
   --bet-min-edge <n>               Min abs(prob - implied) edge (default 0.15)
@@ -448,6 +470,21 @@ function parseArgs(argv: string[]): Options {
     debateModel: process.env.NETWORK_AGENT_DEBATE_MODEL?.trim() || undefined,
     llmEnabled: parseBool(process.env.NETWORK_AGENT_LLM_ENABLED, true),
     enableXaiNativeTools: parseBool(process.env.NETWORK_AGENT_ENABLE_XAI_TOOLS, false),
+    maxPaidCallsPerHour: parseIntOrDefault(
+      process.env.NETWORK_AGENT_MAX_PAID_CALLS_PER_HOUR,
+      12,
+      0
+    ),
+    maxPaidCallsPerDay: parseIntOrDefault(
+      process.env.NETWORK_AGENT_MAX_PAID_CALLS_PER_DAY,
+      120,
+      0
+    ),
+    premiumLockoutSecs: parseIntOrDefault(
+      process.env.NETWORK_AGENT_PREMIUM_LOCKOUT_SECS,
+      3600,
+      0
+    ),
     executeBets: parseBool(process.env.NETWORK_AGENT_EXECUTE_BETS, false),
     betAmountStrk: parseFloatOrDefault(process.env.NETWORK_AGENT_BET_AMOUNT_STRK, 1, 0.01),
     betMinEdge: parseFloatOrDefault(process.env.NETWORK_AGENT_BET_MIN_EDGE, 0.15, 0, 1),
@@ -528,6 +565,18 @@ function parseArgs(argv: string[]): Options {
     }
     if (arg === "--research-sources") {
       options.researchSources = parseCsv(requireNonEmpty(argv[++i], "--research-sources"));
+      continue;
+    }
+    if (arg === "--max-paid-calls-per-hour") {
+      options.maxPaidCallsPerHour = parseIntOrDefault(argv[++i], options.maxPaidCallsPerHour, 0);
+      continue;
+    }
+    if (arg === "--max-paid-calls-per-day") {
+      options.maxPaidCallsPerDay = parseIntOrDefault(argv[++i], options.maxPaidCallsPerDay, 0);
+      continue;
+    }
+    if (arg === "--premium-lockout-secs") {
+      options.premiumLockoutSecs = parseIntOrDefault(argv[++i], options.premiumLockoutSecs, 0);
       continue;
     }
     if (arg === "--execute-bets") {
@@ -994,6 +1043,147 @@ function extractJsonObject(raw: string): any | null {
   return null;
 }
 
+const ONE_HOUR_MS = 60 * 60 * 1000;
+const ONE_DAY_MS = 24 * ONE_HOUR_MS;
+
+interface PaidLlmDecision {
+  allow: boolean;
+  provider: LlmProvider;
+  model: string;
+  reason?: string;
+}
+
+function isPaidProvider(provider: LlmProvider): boolean {
+  return provider === "xai" || provider === "anthropic";
+}
+
+function prunePaidCallHistory(state: WorkerState["budget"], nowMs: number): void {
+  const cutoff = nowMs - ONE_DAY_MS;
+  state.paidCallTimestamps = state.paidCallTimestamps.filter((ts) => ts >= cutoff);
+  if (state.lockoutUntilMs > 0 && state.lockoutUntilMs <= nowMs) {
+    state.lockoutUntilMs = 0;
+    state.lockReason = "";
+  }
+}
+
+function countPaidCallsSince(
+  timestamps: number[],
+  nowMs: number,
+  windowMs: number
+): number {
+  const cutoff = nowMs - windowMs;
+  let count = 0;
+  for (const ts of timestamps) {
+    if (ts >= cutoff) count += 1;
+  }
+  return count;
+}
+
+function nextWindowResetMs(
+  timestamps: number[],
+  nowMs: number,
+  windowMs: number
+): number {
+  const cutoff = nowMs - windowMs;
+  let earliest: number | null = null;
+  for (const ts of timestamps) {
+    if (ts < cutoff) continue;
+    if (earliest === null || ts < earliest) earliest = ts;
+  }
+  return earliest === null ? nowMs : earliest + windowMs;
+}
+
+function maybeLogBudgetWarning(args: {
+  options: Options;
+  state: WorkerState;
+  task: LlmTask;
+  decision: PaidLlmDecision;
+}): void {
+  if (args.decision.allow) return;
+  const nowMs = Date.now();
+  const key = `${args.task}:${args.decision.reason ?? "blocked"}`;
+  const shouldLog =
+    args.state.budget.lastWarningKey !== key ||
+    nowMs - args.state.budget.lastWarningAtMs >= 60_000;
+  if (!shouldLog) return;
+  args.state.budget.lastWarningKey = key;
+  args.state.budget.lastWarningAtMs = nowMs;
+  log(
+    args.options,
+    "warn",
+    `paid LLM blocked task=${args.task} provider=${args.decision.provider} model=${args.decision.model}: ${
+      args.decision.reason || "budget lockout"
+    }`
+  );
+}
+
+function decidePaidLlmUsage(args: {
+  options: Options;
+  state: WorkerState;
+  task: LlmTask;
+  modelOverride?: string;
+}): PaidLlmDecision {
+  const provider = getLlmProviderForTask(args.task);
+  const model = resolveLlmModel(args.task, args.modelOverride);
+  if (!isPaidProvider(provider)) {
+    return { allow: true, provider, model };
+  }
+
+  const nowMs = Date.now();
+  prunePaidCallHistory(args.state.budget, nowMs);
+
+  if (args.state.budget.lockoutUntilMs > nowMs) {
+    return {
+      allow: false,
+      provider,
+      model,
+      reason: `locked until ${new Date(args.state.budget.lockoutUntilMs).toISOString()} (${
+        args.state.budget.lockReason || "budget cap reached"
+      })`,
+    };
+  }
+
+  const hourCap = args.options.maxPaidCallsPerHour;
+  const dayCap = args.options.maxPaidCallsPerDay;
+  const hourCount = countPaidCallsSince(args.state.budget.paidCallTimestamps, nowMs, ONE_HOUR_MS);
+  const dayCount = countPaidCallsSince(args.state.budget.paidCallTimestamps, nowMs, ONE_DAY_MS);
+
+  if (hourCap > 0 && hourCount >= hourCap) {
+    const until = Math.max(
+      nowMs + args.options.premiumLockoutSecs * 1000,
+      nextWindowResetMs(args.state.budget.paidCallTimestamps, nowMs, ONE_HOUR_MS)
+    );
+    args.state.budget.lockoutUntilMs = until;
+    args.state.budget.lockReason = `hour cap ${hourCount}/${hourCap}`;
+    return {
+      allow: false,
+      provider,
+      model,
+      reason: `hourly cap reached (${hourCount}/${hourCap}), retry after ${new Date(until).toISOString()}`,
+    };
+  }
+
+  if (dayCap > 0 && dayCount >= dayCap) {
+    const until = Math.max(
+      nowMs + args.options.premiumLockoutSecs * 1000,
+      nextWindowResetMs(args.state.budget.paidCallTimestamps, nowMs, ONE_DAY_MS)
+    );
+    args.state.budget.lockoutUntilMs = until;
+    args.state.budget.lockReason = `day cap ${dayCount}/${dayCap}`;
+    return {
+      allow: false,
+      provider,
+      model,
+      reason: `daily cap reached (${dayCount}/${dayCap}), retry after ${new Date(until).toISOString()}`,
+    };
+  }
+
+  if (hourCap > 0 || dayCap > 0) {
+    args.state.budget.paidCallTimestamps.push(nowMs);
+  }
+  return { allow: true, provider, model };
+}
+
 function heuristicForecast(market: MarketRow, research: ResearchPayload): ForecastDecision {
   const implied = clampProbability(market.impliedProbYes, 0.5);
   const evidenceBoost = Math.min(0.08, research.sourceCount * 0.01);
@@ -1013,6 +1203,7 @@ function heuristicForecast(market: MarketRow, research: ResearchPayload): Foreca
 
 async function generateForecast(args: {
   options: Options;
+  state: WorkerState;
   market: MarketRow;
   research: ResearchPayload;
   peerForecasts: ForecastContribution[];
@@ -1021,6 +1212,30 @@ async function generateForecast(args: {
   const implied = clampProbability(args.market.impliedProbYes, 0.5);
   if (!args.options.llmEnabled) {
     return heuristicForecast(args.market, args.research);
+  }
+
+  const paidDecision = decidePaidLlmUsage({
+    options: args.options,
+    state: args.state,
+    task: "forecast",
+    modelOverride: args.options.forecastModel,
+  });
+  if (!paidDecision.allow) {
+    maybeLogBudgetWarning({
+      options: args.options,
+      state: args.state,
+      task: "forecast",
+      decision: paidDecision,
+    });
+    const fallback = heuristicForecast(args.market, args.research);
+    return {
+      ...fallback,
+      model: "heuristic-budget-fallback",
+      reasoning: short(
+        `Paid model skipped (${paidDecision.reason}). ${fallback.reasoning}`,
+        900
+      ),
+    };
   }
 
   const prompt = [
@@ -1139,24 +1354,39 @@ async function maybePostDebate(args: {
   const peerName = target.peer.actorName || target.peer.agentId || "peer";
   let content = "";
   if (args.options.llmEnabled) {
-    try {
-      content = await completeText({
+    const paidDecision = decidePaidLlmUsage({
+      options: args.options,
+      state: args.state,
+      task: "debate",
+      modelOverride: args.options.debateModel,
+    });
+    if (!paidDecision.allow) {
+      maybeLogBudgetWarning({
+        options: args.options,
+        state: args.state,
         task: "debate",
-        userMessage:
-          `Market: ${args.market.question}\n` +
-          `Peer (${peerName}) forecast: ${Math.round((target.peer.probability as number) * 100)}% YES\n` +
-          `Our forecast: ${Math.round(args.forecast.probability * 100)}% YES\n` +
-          `Our rationale: ${args.forecast.reasoning}\n\n` +
-          "Write a concise challenge/comment (<= 650 chars) with stance and one key evidence point.",
-        systemPrompt:
-          "You are a forecasting debate agent. Be specific, respectful, evidence-based, and actionable.",
-        model: args.options.debateModel,
-        maxTokens: 280,
-        temperature: 0.2,
-        enableXaiResearchTools: false,
+        decision: paidDecision,
       });
-    } catch {
-      content = "";
+    } else {
+      try {
+        content = await completeText({
+          task: "debate",
+          userMessage:
+            `Market: ${args.market.question}\n` +
+            `Peer (${peerName}) forecast: ${Math.round((target.peer.probability as number) * 100)}% YES\n` +
+            `Our forecast: ${Math.round(args.forecast.probability * 100)}% YES\n` +
+            `Our rationale: ${args.forecast.reasoning}\n\n` +
+            "Write a concise challenge/comment (<= 650 chars) with stance and one key evidence point.",
+          systemPrompt:
+            "You are a forecasting debate agent. Be specific, respectful, evidence-based, and actionable.",
+          model: args.options.debateModel,
+          maxTokens: 280,
+          temperature: 0.2,
+          enableXaiResearchTools: false,
+        });
+      } catch {
+        content = "";
+      }
     }
   }
 
@@ -1424,6 +1654,7 @@ async function processMarket(args: {
   const research = await fetchResearch(args.options, args.market.question);
   const forecast = await generateForecast({
     options: args.options,
+    state: args.state,
     market: args.market,
     research,
     peerForecasts,
@@ -1591,6 +1822,13 @@ async function main(): Promise<void> {
     tickCount: 0,
     lastForecastByMarket: new Map(),
     lastDebateByMarket: new Map(),
+    budget: {
+      paidCallTimestamps: [],
+      lockoutUntilMs: 0,
+      lockReason: "",
+      lastWarningAtMs: 0,
+      lastWarningKey: "",
+    },
   };
 
   let stopping = false;
@@ -1606,7 +1844,9 @@ async function main(): Promise<void> {
     "info",
     `starting full external worker base=${options.baseUrl} wallet=${options.walletAddress} topics=${options.topics.join(
       ","
-    )} executeBets=${options.executeBets}`
+    )} executeBets=${options.executeBets} paidCaps=${options.maxPaidCallsPerHour}/h,${
+      options.maxPaidCallsPerDay
+    }/day lockout=${options.premiumLockoutSecs}s`
   );
 
   do {
