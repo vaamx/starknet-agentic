@@ -10,6 +10,11 @@ import {
 
 const MANUAL_AUTH_SCOPES = ["spawn", "fund", "tick"] as const;
 type ManualAuthScope = (typeof MANUAL_AUTH_SCOPES)[number];
+const SCOPE_LABELS: Record<ManualAuthScope, string> = {
+  spawn: "Sign spawn",
+  fund: "Sign fund",
+  tick: "Sign tick",
+};
 
 function formatRemaining(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return "expired";
@@ -47,7 +52,6 @@ export default function WalletConnect() {
   const [authScopes, setAuthScopes] = useState<ManualAuthScope[]>([]);
   const [authConfigured, setAuthConfigured] = useState(true);
   const [sessionChecked, setSessionChecked] = useState(false);
-  const autoAuthAttemptedRef = useRef<string | null>(null);
   const previousConnectedAddressRef = useRef<string | null>(null);
   const [nowMs, setNowMs] = useState(Date.now());
 
@@ -61,6 +65,7 @@ export default function WalletConnect() {
   const remainingMs = authExpiresAt ? authExpiresAt - nowMs : 0;
   const authExpiringSoon = isSessionAuthed && remainingMs > 0 && remainingMs <= 5 * 60_000;
   const authScopeLabel = authScopes.length > 0 ? authScopes.join("/") : "none";
+  const hasScope = (scope: ManualAuthScope) => isSessionAuthed && authScopes.includes(scope);
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 767px)");
@@ -173,13 +178,26 @@ export default function WalletConnect() {
     options?: { scopes?: ManualAuthScope[]; force?: boolean }
   ): Promise<boolean> => {
     if (!isConnected || !address) return false;
-    const requestedScopes = options?.scopes ?? [...MANUAL_AUTH_SCOPES];
+    const requestedScopes = (options?.scopes ?? [...MANUAL_AUTH_SCOPES])
+      .filter((scope, index, all) => all.indexOf(scope) === index)
+      .filter((scope): scope is ManualAuthScope =>
+        (MANUAL_AUTH_SCOPES as readonly string[]).includes(scope)
+      );
+    const currentScopes =
+      isSessionAuthed && authExpiresAt && authExpiresAt > Date.now() ? authScopes : [];
+    const targetScopeSet = new Set<ManualAuthScope>([
+      ...(options?.force ? [] : currentScopes),
+      ...requestedScopes,
+    ]);
+    const targetScopes = MANUAL_AUTH_SCOPES.filter((scope) =>
+      targetScopeSet.has(scope)
+    );
     if (
       !options?.force &&
       isSessionAuthed &&
       authExpiresAt &&
       authExpiresAt > Date.now() &&
-      requestedScopes.every((scope) => authScopes.includes(scope))
+      targetScopes.every((scope) => authScopes.includes(scope))
     ) {
       return true;
     }
@@ -192,7 +210,7 @@ export default function WalletConnect() {
         credentials: "include",
         body: JSON.stringify({
           walletAddress: address,
-          scopes: requestedScopes,
+          scopes: targetScopes,
         }),
       });
       const challengePayload = await challengeRes.json().catch(() => null);
@@ -208,7 +226,7 @@ export default function WalletConnect() {
             .filter((scope): scope is ManualAuthScope =>
               (MANUAL_AUTH_SCOPES as readonly string[]).includes(scope)
             )
-        : requestedScopes;
+        : targetScopes;
       if (!challengeId || !typedData) {
         throw new Error("Challenge response is missing typedData");
       }
@@ -264,14 +282,7 @@ export default function WalletConnect() {
     } finally {
       setAuthPending(false);
     }
-  }, [
-    address,
-    isConnected,
-    isSessionAuthed,
-    authExpiresAt,
-    authScopes,
-    signTypedDataAsync,
-  ]);
+  }, [address, isConnected, isSessionAuthed, authExpiresAt, authScopes, signTypedDataAsync]);
 
   useEffect(() => {
     refreshSession();
@@ -292,7 +303,6 @@ export default function WalletConnect() {
     setAuthExpiresAt(null);
     setAuthScopes([]);
     setSessionChecked(false);
-    autoAuthAttemptedRef.current = null;
     void fetch("/api/auth/logout", {
       method: "POST",
       credentials: "include",
@@ -309,7 +319,6 @@ export default function WalletConnect() {
     setAuthWalletAddress(null);
     setAuthExpiresAt(null);
     setAuthScopes([]);
-    autoAuthAttemptedRef.current = null;
     void fetch("/api/auth/logout", {
       method: "POST",
       credentials: "include",
@@ -323,27 +332,9 @@ export default function WalletConnect() {
       setAuthWalletAddress(null);
       setAuthExpiresAt(null);
       setAuthScopes([]);
-      autoAuthAttemptedRef.current = null;
       return;
     }
-
-    if (!sessionChecked) return;
-    if (!authConfigured) return;
-    if (authWalletAddress === normalizedAddress) {
-      autoAuthAttemptedRef.current = normalizedAddress;
-      return;
-    }
-    if (autoAuthAttemptedRef.current === normalizedAddress) return;
-    autoAuthAttemptedRef.current = normalizedAddress;
-    void ensureWalletSession();
-  }, [
-    isConnected,
-    normalizedAddress,
-    sessionChecked,
-    authConfigured,
-    authWalletAddress,
-    ensureWalletSession,
-  ]);
+  }, [isConnected, normalizedAddress]);
 
   useEffect(() => {
     if (!isSessionAuthed || !authExpiresAt) return;
@@ -351,7 +342,6 @@ export default function WalletConnect() {
     setAuthWalletAddress(null);
     setAuthExpiresAt(null);
     setAuthScopes([]);
-    autoAuthAttemptedRef.current = null;
   }, [isSessionAuthed, authExpiresAt, nowMs]);
 
   const copyValue = async (value: string) => {
@@ -362,6 +352,17 @@ export default function WalletConnect() {
     } catch {
       setCopied(false);
     }
+  };
+
+  const signScope = (scope: ManualAuthScope) => {
+    void ensureWalletSession({ scopes: [scope] });
+  };
+
+  const signAllScopes = (force = false) => {
+    void ensureWalletSession({
+      scopes: [...MANUAL_AUTH_SCOPES],
+      force,
+    });
   };
 
   const renderConnectedPanel = () => (
@@ -383,22 +384,34 @@ export default function WalletConnect() {
             ? "Manual signature auth is not configured on server"
             : isSessionAuthed
               ? `Verified (${formatRemaining(remainingMs)} left)`
-              : "Signature required for manual actions"}
+              : "Sign required scopes for manual actions"}
         </p>
-        {isSessionAuthed && (
-          <p className="text-[10px] mt-1 text-white/45">
-            Scopes: <span className="font-mono text-white/65">{authScopeLabel}</span>
-          </p>
-        )}
+        <p className="text-[10px] mt-1 text-white/45">
+          Scopes: <span className="font-mono text-white/65">{authScopeLabel}</span>
+        </p>
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-1.5">
+        {MANUAL_AUTH_SCOPES.map((scope) => (
+          <button
+            key={scope}
+            type="button"
+            onClick={() => signScope(scope)}
+            disabled={authPending || isSigningTypedData || !authConfigured}
+            className={`rounded border px-2 py-1 text-[10px] font-mono transition-colors disabled:opacity-60 ${
+              hasScope(scope)
+                ? "border-neo-green/40 bg-neo-green/10 text-neo-green"
+                : "border-neo-yellow/35 bg-neo-yellow/10 text-neo-yellow hover:bg-neo-yellow/20"
+            }`}
+          >
+            {SCOPE_LABELS[scope]}
+          </button>
+        ))}
       </div>
       <div className="mt-3 flex items-center gap-2">
         <button
           type="button"
           onClick={() => {
-            void ensureWalletSession({
-              scopes: [...MANUAL_AUTH_SCOPES],
-              force: isSessionAuthed,
-            });
+            signAllScopes(isSessionAuthed);
           }}
           disabled={authPending || isSigningTypedData || !authConfigured}
           className={`neo-btn-secondary text-[11px] px-3 py-1.5 disabled:opacity-60 ${
@@ -410,8 +423,8 @@ export default function WalletConnect() {
           {authPending || isSigningTypedData
             ? "Signing..."
             : isSessionAuthed
-              ? "Re-sign"
-              : "Verify Signature"}
+              ? "Re-sign All"
+              : "Sign All"}
         </button>
         {address && (
           <button
@@ -540,7 +553,7 @@ export default function WalletConnect() {
         ? shortAddress || "Connected"
         : authPending || isSigningTypedData
           ? "Signing..."
-          : "Verify Signature"
+          : "Sign Scope"
       : "Connect User Wallet";
 
   const triggerClass = isConnected
@@ -580,19 +593,23 @@ export default function WalletConnect() {
           <span className="text-[10px] font-mono text-white/35">{authScopeLabel}</span>
         )}
         {isConnected && authConfigured && (
-          <button
-            type="button"
-            onClick={() => {
-              void ensureWalletSession({
-                scopes: [...MANUAL_AUTH_SCOPES],
-                force: true,
-              });
-            }}
-            disabled={authPending || isSigningTypedData}
-            className="rounded border border-neo-brand/30 px-2 py-0.5 text-[10px] font-mono text-neo-brand hover:bg-neo-brand/10 disabled:opacity-60"
-          >
-            {authPending || isSigningTypedData ? "Signing" : "Re-sign"}
-          </button>
+          <div className="hidden lg:flex items-center gap-1">
+            {MANUAL_AUTH_SCOPES.map((scope) => (
+              <button
+                key={`header-${scope}`}
+                type="button"
+                onClick={() => signScope(scope)}
+                disabled={authPending || isSigningTypedData}
+                className={`rounded border px-1.5 py-0.5 text-[10px] font-mono transition-colors disabled:opacity-60 ${
+                  hasScope(scope)
+                    ? "border-neo-green/35 text-neo-green"
+                    : "border-neo-yellow/30 text-neo-yellow hover:bg-neo-yellow/15"
+                }`}
+              >
+                {scope}
+              </button>
+            ))}
+          </div>
         )}
       </div>
       <button
