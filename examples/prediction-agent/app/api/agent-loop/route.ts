@@ -9,7 +9,7 @@ import {
   getPersistedLoopActions,
   getPersistedLoopRuntime,
 } from "@/lib/state-store";
-import { requireWalletSession } from "@/lib/wallet-session";
+import { requireWalletSessionScope } from "@/lib/wallet-session";
 
 export const runtime = "nodejs";
 
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
     !!config.HEARTBEAT_SECRET &&
     getRequestSecret(request) === config.HEARTBEAT_SECRET;
   if (!hasHeartbeatSecret) {
-    const auth = requireWalletSession(request);
+    const auth = requireWalletSessionScope(request, "tick");
     if (!auth.ok) return auth.response;
   }
 

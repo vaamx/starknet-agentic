@@ -41,7 +41,7 @@ export default function FleetFundForm({
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        if (res.status === 401) {
+        if (res.status === 401 || res.status === 403) {
           throw new Error(
             "Wallet signature required. Use Connect User Wallet -> Verify Signature."
           );

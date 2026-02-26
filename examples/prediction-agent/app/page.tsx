@@ -293,9 +293,14 @@ export default function Dashboard() {
         return;
       }
 
-      if (response.status === 401) {
+      if (response.status === 401 || response.status === 403) {
+        let detail = "Manual action blocked: wallet signature required.";
+        try {
+          const payload = await response.json();
+          if (payload?.error) detail = String(payload.error);
+        } catch {}
         setMetricsError(
-          "Manual action blocked: wallet signature required. Use Connect User Wallet -> Verify Signature."
+          `${detail} Use Connect User Wallet -> Verify Signature.`
         );
       }
     } catch {}

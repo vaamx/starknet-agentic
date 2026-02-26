@@ -6,6 +6,8 @@ import { isStarknetAddress, normalizeWalletAddress } from "@/lib/agent-network";
 import {
   issueWalletSessionToken,
   isManualAuthConfigured,
+  MANUAL_AUTH_SCOPES,
+  normalizeManualAuthScopes,
   setWalletSessionCookie,
 } from "@/lib/wallet-session";
 
@@ -13,6 +15,7 @@ export const runtime = "nodejs";
 
 const verifySchema = z.object({
   walletAddress: z.string().trim().min(4).max(120),
+  scopes: z.array(z.enum(MANUAL_AUTH_SCOPES)).min(1).max(3).optional(),
   auth: z.object({
     challengeId: z.string().trim().min(3).max(180),
     walletAddress: z.string().trim().min(4).max(120),
@@ -49,6 +52,7 @@ export async function POST(request: NextRequest) {
   const payload = {
     purpose: "manual_ui_session",
     walletAddress,
+    scopes: normalizeManualAuthScopes(body.scopes),
   };
 
   const authResult = await verifyNetworkAuthEnvelope({
@@ -67,11 +71,15 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { token, payload: session } = issueWalletSessionToken(walletAddress);
+    const { token, payload: session } = issueWalletSessionToken(
+      walletAddress,
+      payload.scopes
+    );
     const response = NextResponse.json({
       ok: true,
       walletAddress: session.walletAddress,
       expiresAt: session.expiresAt,
+      scopes: session.scopes,
     });
     setWalletSessionCookie(response, token);
     return response;
@@ -79,4 +87,3 @@ export async function POST(request: NextRequest) {
     return jsonError("Failed to create auth session", 500, err?.message ?? String(err));
   }
 }
-

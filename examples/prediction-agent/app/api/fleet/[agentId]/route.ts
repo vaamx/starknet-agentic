@@ -22,7 +22,7 @@ import {
   balanceToRawTier,
 } from "@/lib/survival-engine";
 import { agentLoop, type AgentAction } from "@/lib/agent-loop";
-import { requireWalletSession } from "@/lib/wallet-session";
+import { requireWalletSessionScope } from "@/lib/wallet-session";
 
 function findAgent(agentId: string): SpawnedAgent | null {
   // Check spawned first
@@ -134,7 +134,7 @@ export async function PATCH(
   { params }: { params: Promise<{ agentId: string }> }
 ) {
   try {
-    const auth = requireWalletSession(request);
+    const auth = requireWalletSessionScope(request, "spawn");
     if (!auth.ok) return auth.response;
     const { agentId } = await params;
     await ensureAgentSpawnerHydrated();

@@ -10,7 +10,7 @@ import {
   persistAgentSpawner,
 } from "@/lib/agent-persistence";
 import { hasAgentSigningMaterial } from "@/lib/agent-key-custody";
-import { requireWalletSession } from "@/lib/wallet-session";
+import { requireWalletSessionScope } from "@/lib/wallet-session";
 
 export const runtime = "nodejs";
 
@@ -44,7 +44,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   await ensureAgentSpawnerHydrated();
-  const auth = requireWalletSession(request);
+  const auth = requireWalletSessionScope(request, "spawn");
   if (!auth.ok) return auth.response;
   const { id } = await params;
   let payload: z.infer<typeof controlSchema>;
@@ -121,7 +121,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   await ensureAgentSpawnerHydrated();
-  const auth = requireWalletSession(request);
+  const auth = requireWalletSessionScope(request, "spawn");
   if (!auth.ok) return auth.response;
   const { id } = await params;
   const agent = agentSpawner.getAgent(id);
