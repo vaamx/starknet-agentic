@@ -35,11 +35,21 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Get market addresses for event indexing
+    // Get market addresses for event indexing (on-chain first, persisted fallback).
     const markets = await getMarkets();
-    const addresses = markets.map((m) => m.address).filter((a) => a !== "0x0" && !a.startsWith("0xpending"));
+    const fallbackMarkets =
+      markets.length > 0
+        ? markets
+        : persistedSnapshots.map((snapshot) => ({
+            id: snapshot.id,
+            address: snapshot.address,
+            questionHash: snapshot.questionHash,
+          }));
+    const addresses = fallbackMarkets
+      .map((m) => m.address)
+      .filter((a) => a !== "0x0" && !a.startsWith("0xpending"));
     const marketQuestions = new Map(
-      markets.map((m) => [m.id, resolveMarketQuestion(m.id, m.questionHash)] as const)
+      fallbackMarkets.map((m) => [m.id, resolveMarketQuestion(m.id, m.questionHash)] as const)
     );
 
     // Fetch on-chain events and in-memory agent actions in parallel

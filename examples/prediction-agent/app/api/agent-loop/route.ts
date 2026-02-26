@@ -113,16 +113,15 @@ export async function POST(request: NextRequest) {
       const message = err?.message ?? String(err);
       if (/timed out/i.test(message)) {
         const persistedActions = await getPersistedLoopActions(20);
-        return Response.json(
-          {
-            ok: false,
-            timeout: true,
-            message,
-            status: agentLoop.getStatus(),
-            actions: persistedActions,
-          },
-          { status: 202 }
-        );
+        return Response.json({
+          ok: true,
+          partial: true,
+          timeout: true,
+          message:
+            `${message}. Returning latest persisted actions while tick continues.`,
+          status: agentLoop.getStatus(),
+          actions: persistedActions,
+        });
       }
       return jsonError("Tick failed", 500, err?.message ?? String(err));
     }

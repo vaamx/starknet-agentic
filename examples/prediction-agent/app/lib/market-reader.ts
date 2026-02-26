@@ -164,20 +164,109 @@ export interface LeaderboardEntry {
   rank: number;
 }
 
+// ── Server-side market cache ──────────────────────────────────────────────────
+// Shared by /api/markets, /api/markets/[id], singleTick(), etc.
+// Prevents 76+ parallel RPC calls per consumer per page load.
+
+let marketsCache: { data: MarketState[]; fetchedAt: number } | null = null;
+const CACHE_TTL_MS = 30_000;
+
+/** Invalidate the market cache (e.g. after a bet or market creation). */
+export function invalidateMarketsCache(): void {
+  marketsCache = null;
+}
+
 const PRINTABLE_ASCII_REGEX = /^[\x20-\x7E]+$/;
 
 function normalizeQuestion(value: string): string {
   return value.replace(/\0/g, "").replace(/\s+/g, " ").trim();
 }
 
-function asBigInt(value: unknown): bigint {
+function stripLegacyDurationHashSuffix(value: string): string {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(.+?)\s+\d+d\s+[0-9a-f]{4}$/i);
+  return match ? match[1].trim() : trimmed;
+}
+
+function sanitizeDisplayQuestion(value: string): string {
+  let cleaned = normalizeQuestion(stripLegacyDurationHashSuffix(value));
+  cleaned = cleaned
+    .replace(/\bwin t$/i, "win")
+    .replace(/\s+[:([{-]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned;
+}
+
+function parseBigNumberish(value: unknown): bigint {
   if (typeof value === "bigint") return value;
-  if (typeof value === "number") return BigInt(value);
-  if (typeof value === "string") return BigInt(value);
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return 0n;
+    return BigInt(Math.trunc(value));
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return 0n;
+    try {
+      return BigInt(trimmed);
+    } catch {
+      return 0n;
+    }
+  }
+  if (Array.isArray(value) && value.length > 0) {
+    return parseBigNumberish(value[0]);
+  }
+  if (value && typeof value === "object") {
+    const low =
+      (value as any).low ??
+      (value as any).lo ??
+      (value as any).l ??
+      (value as any).value?.low;
+    const high =
+      (value as any).high ??
+      (value as any).hi ??
+      (value as any).h ??
+      (value as any).value?.high;
+    if (low !== undefined || high !== undefined) {
+      const lo = parseBigNumberish(low ?? 0);
+      const hi = parseBigNumberish(high ?? 0);
+      return lo + (hi << 128n);
+    }
+    const nested =
+      (value as any).value ??
+      (value as any).result ??
+      (value as any).res;
+    if (nested !== undefined && nested !== value) {
+      return parseBigNumberish(nested);
+    }
+  }
   if (value && typeof (value as any).toString === "function") {
-    return BigInt((value as any).toString());
+    const raw = String((value as any).toString());
+    if (raw && raw !== "[object Object]") {
+      try {
+        return BigInt(raw);
+      } catch {
+        return 0n;
+      }
+    }
   }
   return 0n;
+}
+
+function toAddressHex(value: unknown): string {
+  const parsed = parseBigNumberish(value);
+  return `0x${parsed.toString(16)}`;
+}
+
+function toSafeNumber(value: unknown): number {
+  const parsed = parseBigNumberish(value);
+  if (parsed > BigInt(Number.MAX_SAFE_INTEGER)) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  if (parsed < BigInt(Number.MIN_SAFE_INTEGER)) {
+    return Number.MIN_SAFE_INTEGER;
+  }
+  return Number(parsed);
 }
 
 function parseBrierScoreTuple(result: unknown): {
@@ -186,8 +275,8 @@ function parseBrierScoreTuple(result: unknown): {
 } {
   if (Array.isArray(result) && result.length >= 2) {
     return {
-      cumulative: asBigInt(result[0]),
-      predictionCount: asBigInt(result[1]),
+      cumulative: parseBigNumberish(result[0]),
+      predictionCount: parseBigNumberish(result[1]),
     };
   }
 
@@ -208,8 +297,8 @@ function parseBrierScoreTuple(result: unknown): {
 
     if (cumulativeRaw !== undefined && predictionCountRaw !== undefined) {
       return {
-        cumulative: asBigInt(cumulativeRaw),
-        predictionCount: asBigInt(predictionCountRaw),
+        cumulative: parseBigNumberish(cumulativeRaw),
+        predictionCount: parseBigNumberish(predictionCountRaw),
       };
     }
   }
@@ -220,38 +309,90 @@ function parseBrierScoreTuple(result: unknown): {
   };
 }
 
-/** Get all markets from the factory. */
+/**
+ * Fetch items with a concurrency limit to avoid RPC rate-limiting.
+ * Processes at most `concurrency` promises at a time.
+ */
+async function withConcurrencyLimit<T>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<any>
+): Promise<any[]> {
+  const results: any[] = new Array(items.length);
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      try {
+        results[idx] = await fn(items[idx]);
+      } catch {
+        results[idx] = null;
+      }
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    () => worker()
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+/** Get all markets from the factory (cached for 30s, concurrency-limited). */
 export async function getMarkets(): Promise<MarketState[]> {
   if (config.MARKET_FACTORY_ADDRESS === "0x0") return [];
+
+  // Return cached data if fresh
+  if (marketsCache && Date.now() - marketsCache.fetchedAt < CACHE_TTL_MS) {
+    return marketsCache.data;
+  }
 
   try {
     const factory = new Contract({ abi: FACTORY_ABI as any, address: config.MARKET_FACTORY_ADDRESS, providerOrAccount: provider });
     const countResult = await factory.get_market_count();
-    const count = Number(countResult);
+    const count = toSafeNumber(countResult);
+    if (!Number.isFinite(count) || count <= 0) {
+      marketsCache = { data: [], fetchedAt: Date.now() };
+      return [];
+    }
 
-    // Fetch all addresses in parallel
-    const addrPromises = Array.from({ length: count }, (_, i) =>
-      factory.get_market(i).then((addr: any) => "0x" + BigInt(addr.toString()).toString(16))
+    // Fetch addresses with concurrency limit (8 at a time)
+    const indices = Array.from({ length: count }, (_, i) => i);
+    const addresses: string[] = await withConcurrencyLimit(indices, 8, async (i) =>
+      factory.get_market(i).then((addr: any) => toAddressHex(addr))
     );
-    const addresses = await Promise.all(addrPromises);
 
-    // Fetch all market states in parallel
-    const statePromises = addresses.map((addr, i) => getMarketState(i, addr));
-    return await Promise.all(statePromises);
+    // Fetch market states with concurrency limit (8 at a time)
+    const pairs = addresses.map((addr, i) => ({ addr, i }));
+    const states: (MarketState | null)[] = await withConcurrencyLimit(pairs, 8, async ({ addr, i }) =>
+      addr ? getMarketState(i, addr) : null
+    );
+    const result = states.filter((s): s is MarketState => s !== null);
+
+    marketsCache = { data: result, fetchedAt: Date.now() };
+    return result;
   } catch (err) {
     console.error("Failed to fetch on-chain markets:", err);
     return [];
   }
 }
 
-/** Get a single market by ID from the factory. */
+/** Get a single market by ID — uses cache when available, falls back to RPC. */
 export async function getMarketById(id: number): Promise<MarketState | null> {
   if (config.MARKET_FACTORY_ADDRESS === "0x0") return null;
+
+  // Check cache first to avoid redundant RPC calls
+  if (marketsCache && Date.now() - marketsCache.fetchedAt < CACHE_TTL_MS) {
+    const cached = marketsCache.data.find((m) => m.id === id);
+    if (cached) return cached;
+  }
 
   try {
     const factory = new Contract({ abi: FACTORY_ABI as any, address: config.MARKET_FACTORY_ADDRESS, providerOrAccount: provider });
     const addr = await factory.get_market(id);
-    const addrHex = "0x" + BigInt(addr.toString()).toString(16);
+    const addrHex = toAddressHex(addr);
     return await getMarketState(id, addrHex);
   } catch {
     return null;
@@ -281,17 +422,21 @@ export async function getMarketState(id: number, address: string): Promise<Marke
   return {
     id,
     address,
-    questionHash: "0x" + BigInt(info[0].toString()).toString(16),
-    resolutionTime: Number(info[1]),
-    oracle: "0x" + BigInt(info[2].toString()).toString(16),
-    collateralToken: "0x" + BigInt(info[3].toString()).toString(16),
-    feeBps: Number(info[4]),
+    questionHash: toAddressHex(info[0]),
+    resolutionTime: toSafeNumber(info[1]),
+    oracle: toAddressHex(info[2]),
+    collateralToken: toAddressHex(info[3]),
+    feeBps: toSafeNumber(info[4]),
     status: statusNum,
-    totalPool: BigInt(totalPool.toString()),
-    yesPool: BigInt(probs[1]?.[1]?.toString() ?? "0"),
-    noPool: BigInt(probs[0]?.[1]?.toString() ?? "0"),
-    impliedProbYes: fromScaled(BigInt(probs[1]?.[1]?.toString() ?? "500000000000000000")),
-    impliedProbNo: fromScaled(BigInt(probs[0]?.[1]?.toString() ?? "500000000000000000")),
+    totalPool: parseBigNumberish(totalPool),
+    yesPool: parseBigNumberish(probs[1]?.[1] ?? 0),
+    noPool: parseBigNumberish(probs[0]?.[1] ?? 0),
+    impliedProbYes: fromScaled(
+      parseBigNumberish(probs[1]?.[1] ?? "500000000000000000")
+    ),
+    impliedProbNo: fromScaled(
+      parseBigNumberish(probs[0]?.[1] ?? "500000000000000000")
+    ),
     winningOutcome,
   };
 }
@@ -301,12 +446,12 @@ export async function getAgentPredictions(marketId: number): Promise<AgentPredic
   if (config.ACCURACY_TRACKER_ADDRESS === "0x0") return [];
 
   const tracker = new Contract({ abi: ACCURACY_ABI as any, address: config.ACCURACY_TRACKER_ADDRESS, providerOrAccount: provider });
-  const count = Number(await tracker.get_market_predictor_count(marketId));
+  const count = toSafeNumber(await tracker.get_market_predictor_count(marketId));
 
   const predictions: AgentPrediction[] = [];
   for (let i = 0; i < count; i++) {
     const agentRaw = await tracker.get_market_predictor(marketId, i);
-    const agent = "0x" + BigInt(agentRaw.toString()).toString(16);
+    const agent = toAddressHex(agentRaw);
     const prediction = await tracker.get_prediction(agent, marketId);
     const { cumulative, predictionCount } = parseBrierScoreTuple(
       await tracker.get_brier_score(agent)
@@ -315,7 +460,7 @@ export async function getAgentPredictions(marketId: number): Promise<AgentPredic
     predictions.push({
       agent,
       marketId,
-      predictedProb: fromScaled(BigInt(prediction.toString())),
+      predictedProb: fromScaled(parseBigNumberish(prediction)),
       brierScore: averageBrier(cumulative, predictionCount),
       predictionCount: Number(predictionCount),
     });
@@ -356,7 +501,7 @@ export async function getWeightedProbability(marketId: number): Promise<number |
 
   const tracker = new Contract({ abi: ACCURACY_ABI as any, address: config.ACCURACY_TRACKER_ADDRESS, providerOrAccount: provider });
   const result = await tracker.get_weighted_probability(marketId);
-  return fromScaled(BigInt(result.toString()));
+  return fromScaled(parseBigNumberish(result));
 }
 
 /** Build a leaderboard from on-chain AccuracyTracker data across all markets. */
@@ -370,17 +515,19 @@ export async function getOnChainLeaderboard(): Promise<LeaderboardEntry[]> {
     const tracker = new Contract({ abi: ACCURACY_ABI as any, address: config.ACCURACY_TRACKER_ADDRESS, providerOrAccount: provider });
 
     const countResult = await factory.get_market_count();
-    const marketCount = Number(countResult);
+    const marketCount = toSafeNumber(countResult);
 
     // Collect all unique agents and their scores across all markets
     const agentMap = new Map<string, { cumBrier: number; totalPreds: number }>();
 
     for (let mId = 0; mId < marketCount; mId++) {
       try {
-        const predCount = Number(await tracker.get_market_predictor_count(mId));
+        const predCount = toSafeNumber(
+          await tracker.get_market_predictor_count(mId)
+        );
         for (let i = 0; i < predCount; i++) {
           const agentRaw = await tracker.get_market_predictor(mId, i);
-          const agent = "0x" + BigInt(agentRaw.toString()).toString(16);
+          const agent = toAddressHex(agentRaw);
           const { cumulative, predictionCount } = parseBrierScoreTuple(
             await tracker.get_brier_score(agent)
           );
@@ -427,9 +574,54 @@ export async function getOnChainLeaderboard(): Promise<LeaderboardEntry[]> {
 // Question text mapping (off-chain metadata)
 export const MARKET_QUESTIONS: Record<number, string> = {};
 
+// ── Seed known market questions ───────────────────────────────────────────────
+// Hardcoded fallback for the 14 original hand-created markets (IDs 0-13).
+// These are the readable originals that produced the truncated 31-char on-chain hashes.
+
+const SEED_QUESTIONS: Record<number, string> = {
+  0: "Will the Seahawks win Super Bowl LX?",
+  1: "Will the total score be over 45.5 in Super Bowl LX?",
+  2: "Will any player rush for 100+ yards in Super Bowl LX?",
+  3: "Will halftime last over 15 minutes in Super Bowl LX?",
+  4: "Will the Super Bowl LX MVP be a quarterback?",
+  5: "Will there be a defensive/special teams touchdown in Super Bowl LX?",
+  6: "Will the Seahawks cover -4.5 in Super Bowl LX?",
+  7: "Will the first score be a touchdown in Super Bowl LX?",
+  8: "Will there be a score in the last 2 minutes of the first half in Super Bowl LX?",
+  9: "Will Super Bowl LX go to overtime?",
+  10: "Will ETH be above $5,000 in March 2026?",
+  11: "Will STRK be above $2 in Q3 2026?",
+  12: "Will Starknet reach 100 TPS in February 2026?",
+  13: "Will BTC be above $90k in February 2026?",
+};
+
+let seeded = false;
+
+/**
+ * Pre-populate readable questions for known markets.
+ * Sources: hardcoded seed map → persisted state file → decoded shortString.
+ * Safe to call multiple times (no-op after first).
+ */
+export function seedKnownQuestions(): void {
+  if (seeded) return;
+  seeded = true;
+
+  for (const [id, question] of Object.entries(SEED_QUESTIONS)) {
+    const numId = Number(id);
+    if (!MARKET_QUESTIONS[numId]) {
+      MARKET_QUESTIONS[numId] = question;
+    }
+  }
+}
+
+/**
+ * Strip the hash suffix appended by toOnChainQuestion() for auto-created markets.
+ * e.g. "Will Joel Embiid win t 30d 8ab6" → "Will Joel Embiid win t"
+ * Only applied when the decoded text looks like it has the suffix pattern.
+ */
 /** Register a custom question text for a new market ID. */
 export function registerQuestion(marketId: number, question: string) {
-  const normalized = normalizeQuestion(question);
+  const normalized = sanitizeDisplayQuestion(question);
   if (normalized) {
     MARKET_QUESTIONS[marketId] = normalized;
   }
@@ -445,7 +637,7 @@ export function decodeQuestionHash(questionHash: string): string {
       questionHash.startsWith("0x")
         ? (questionHash as `0x${string}`)
         : (`0x${questionHash}` as `0x${string}`);
-    const decoded = normalizeQuestion(shortString.decodeShortString(felt));
+    const decoded = sanitizeDisplayQuestion(shortString.decodeShortString(felt));
     if (decoded && PRINTABLE_ASCII_REGEX.test(decoded)) {
       return decoded;
     }
@@ -460,7 +652,9 @@ export function decodeQuestionHash(questionHash: string): string {
       : questionHash;
     if (!clean || !/^[0-9a-fA-F]+$/.test(clean)) return "";
     const padded = clean.length % 2 === 0 ? clean : `0${clean}`;
-    const decoded = normalizeQuestion(Buffer.from(padded, "hex").toString("utf8"));
+    const decoded = sanitizeDisplayQuestion(
+      Buffer.from(padded, "hex").toString("utf8")
+    );
     return decoded && PRINTABLE_ASCII_REGEX.test(decoded) ? decoded : "";
   } catch {
     return "";
@@ -472,14 +666,18 @@ export function resolveMarketQuestion(
   marketId: number,
   questionHash?: string | null
 ): string {
+  // Ensure seed data is loaded
+  seedKnownQuestions();
+
   const mapped = normalizeQuestion(MARKET_QUESTIONS[marketId] ?? "");
   if (mapped) return mapped;
 
   if (questionHash) {
     const decoded = decodeQuestionHash(questionHash);
     if (decoded) {
-      MARKET_QUESTIONS[marketId] = decoded;
-      return decoded;
+      const display = sanitizeDisplayQuestion(decoded);
+      MARKET_QUESTIONS[marketId] = display;
+      return display;
     }
   }
 

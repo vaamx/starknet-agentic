@@ -1,4 +1,5 @@
 import { agentLoop } from "@/lib/agent-loop";
+import { getPersistedLoopActions } from "@/lib/state-store";
 
 /**
  * SSE stream of live agent actions.
@@ -8,7 +9,7 @@ export async function GET() {
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
-    start(controller) {
+    async start(controller) {
       // Send initial status
       const status = agentLoop.getStatus();
       controller.enqueue(
@@ -17,8 +18,19 @@ export async function GET() {
         )
       );
 
-      // Send recent actions as backfill
-      const recent = agentLoop.getActionLog(10);
+      // Send recent actions as backfill (persisted + in-memory) so
+      // serverless cold starts do not produce an empty debate feed.
+      const [recentInMemory, recentPersisted] = await Promise.all([
+        Promise.resolve(agentLoop.getActionLog(30)),
+        getPersistedLoopActions(30).catch(() => []),
+      ]);
+      const deduped = new Map<string, any>();
+      for (const action of [...recentPersisted, ...recentInMemory]) {
+        deduped.set(action.id, action);
+      }
+      const recent = Array.from(deduped.values())
+        .sort((a, b) => a.timestamp - b.timestamp)
+        .slice(-20);
       for (const action of recent) {
         controller.enqueue(
           encoder.encode(
