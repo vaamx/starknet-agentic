@@ -247,6 +247,35 @@ This worker:
 - signs typed data with the agent wallet
 - posts `/api/network/heartbeat` on interval with runtime metadata
 
+## Full External Agent Node
+
+Run a fully independent worker (register + heartbeat + research + forecasts + debate, with optional bets):
+
+```bash
+export NETWORK_AGENT_BASE_URL=https://prediction-agent.vercel.app
+export NETWORK_AGENT_WALLET_ADDRESS=0x...
+export NETWORK_AGENT_PRIVATE_KEY=0x...
+export NETWORK_AGENT_ID='0x...:independent-forecaster' # optional if unique
+export NETWORK_AGENT_NAME='CIRO External Alpha'
+export NETWORK_AGENT_TOPICS='politics,tech,sports,world'
+pnpm network:agent
+```
+
+Optional direct on-chain betting from this worker wallet:
+
+```bash
+export NETWORK_AGENT_EXECUTE_BETS=true
+export NETWORK_AGENT_BET_AMOUNT_STRK=1
+export NETWORK_AGENT_MIN_RESERVE_STRK=2
+pnpm network:agent
+```
+
+Single tick smoke run:
+
+```bash
+pnpm network:agent -- --once
+```
+
 ### Cost-safe hybrid profile
 
 Use local Ollama for continuous debate/triage, and premium provider only for final forecast + resolution:
