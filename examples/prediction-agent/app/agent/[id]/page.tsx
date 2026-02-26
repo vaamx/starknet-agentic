@@ -251,11 +251,11 @@ export default function AgentPage() {
 
   return (
     <div className="min-h-screen bg-cream">
-      <div className="mx-auto max-w-6xl px-4 sm:px-6 py-6 pb-20 space-y-5">
+      <div className="mx-auto max-w-6xl px-3 sm:px-6 py-4 sm:py-6 pb-20 space-y-4 sm:space-y-5">
         {/* Back navigation */}
         <Link
           href="/"
-          className="inline-flex items-center gap-1.5 text-sm text-white/50 hover:text-white/80 transition-colors"
+          className="inline-flex items-center gap-1.5 text-xs sm:text-sm text-white/50 hover:text-white/80 transition-colors"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
@@ -267,9 +267,9 @@ export default function AgentPage() {
         <div className="neo-card overflow-hidden relative">
           <div className={`absolute top-0 left-0 right-0 h-1 ${accentBg}`} />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_78%_18%,rgba(100,255,232,0.08),transparent_42%)] pointer-events-none" />
-          <div className="relative p-5 sm:p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-              <div className="w-16 h-16 rounded-2xl border border-neo-brand/30 bg-neo-brand/12 flex items-center justify-center shadow-neo-sm shrink-0">
+          <div className="relative p-4 sm:p-6">
+            <div className="flex flex-col gap-3 sm:gap-4 sm:flex-row sm:items-start">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl border border-neo-brand/30 bg-neo-brand/12 flex items-center justify-center shadow-neo-sm shrink-0">
                 <TamagotchiBadge
                   autonomousMode={positiveActions > 0}
                   marketDataSource={entry.predictionCount > 0 ? "onchain" : "unknown"}
@@ -281,24 +281,24 @@ export default function AgentPage() {
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h1 className={`font-heading font-bold text-2xl ${accentColor}`}>
+                  <h1 className={`font-heading font-bold text-xl sm:text-2xl leading-tight break-words ${accentColor}`}>
                     {displayName}
                   </h1>
                   {entry.identity && (
-                    <span className="neo-badge border border-neo-brand/35 bg-neo-brand/18 text-neo-brand text-[10px]">
+                    <span className="neo-badge border border-neo-brand/35 bg-neo-brand/18 text-neo-brand text-[9px] sm:text-[10px]">
                       VERIFIED
                     </span>
                   )}
-                  <span className={`w-10 h-10 flex items-center justify-center text-sm font-bold rounded-lg shrink-0 ${rankBadge}`}>
+                  <span className={`w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center text-xs sm:text-sm font-bold rounded-lg shrink-0 ${rankBadge}`}>
                     #{entry.rank}
                   </span>
                 </div>
 
                 {voice && (
-                  <p className="text-sm text-white/45 mt-1">{voice.signature}</p>
+                  <p className="text-xs sm:text-sm text-white/45 mt-1 leading-snug">{voice.signature}</p>
                 )}
 
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-white/55">
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:gap-2 text-[10px] sm:text-[11px] text-white/55">
                   <span className="neo-badge border border-white/12 bg-white/[0.05] text-white/70">
                     {entry.identity?.agentType ?? "agent"}
                   </span>
@@ -313,9 +313,9 @@ export default function AgentPage() {
                 </div>
               </div>
 
-              <div className="sm:w-56 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+              <div className="w-full sm:w-56 rounded-xl border border-white/[0.08] bg-white/[0.03] p-2.5 sm:p-3">
                 <p className="text-[10px] uppercase tracking-widest text-white/35">Latest Signal</p>
-                <p className="mt-1 text-xs text-white/70 truncate">
+                <p className="mt-1 text-[11px] sm:text-xs text-white/70 truncate">
                   {latestSignal?.marketQuestion ?? latestSignal?.detail ?? "No live signal yet"}
                 </p>
                 <div className="mt-2 h-2 w-full rounded-full bg-white/[0.08] overflow-hidden">
@@ -334,38 +334,38 @@ export default function AgentPage() {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
-          <div className="neo-card p-4 text-center">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2.5 sm:gap-3">
+          <div className="neo-card p-3 sm:p-4 text-center">
             <p className="text-xs text-white/40 mb-1">Brier</p>
-            <p className="font-mono font-bold text-lg text-white">{entry.avgBrier.toFixed(3)}</p>
+            <p className="font-mono font-bold text-base sm:text-lg text-white">{entry.avgBrier.toFixed(3)}</p>
           </div>
-          <div className="neo-card p-4 text-center">
+          <div className="neo-card p-3 sm:p-4 text-center">
             <p className="text-xs text-white/40 mb-1">Predictions</p>
-            <p className="font-mono font-bold text-lg text-white">{entry.predictionCount}</p>
+            <p className="font-mono font-bold text-base sm:text-lg text-white">{entry.predictionCount}</p>
           </div>
-          <div className="neo-card p-4 text-center">
+          <div className="neo-card p-3 sm:p-4 text-center">
             <p className="text-xs text-white/40 mb-1">Grade</p>
             <div className="flex justify-center">
-              <span className={`w-8 h-8 flex items-center justify-center text-sm font-bold rounded ${
+              <span className={`w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center text-xs sm:text-sm font-bold rounded ${
                 entry.predictionCount > 0 ? grade.colorClass : "bg-white/10 text-white/40"
               }`}>
                 {entry.predictionCount > 0 ? grade.label : "-"}
               </span>
             </div>
           </div>
-          <div className="neo-card p-4 text-center">
+          <div className="neo-card p-3 sm:p-4 text-center">
             <p className="text-xs text-white/40 mb-1">Reputation</p>
-            <p className="font-mono font-bold text-lg text-white">
+            <p className="font-mono font-bold text-base sm:text-lg text-white">
               {entry.identity?.reputationScore?.toFixed(1) ?? "-"}
             </p>
           </div>
-          <div className="neo-card p-4 text-center">
+          <div className="neo-card p-3 sm:p-4 text-center">
             <p className="text-xs text-white/40 mb-1">Actions</p>
-            <p className="font-mono font-bold text-lg text-white">{activities.length}</p>
+            <p className="font-mono font-bold text-base sm:text-lg text-white">{activities.length}</p>
           </div>
-          <div className="neo-card p-4 text-center">
+          <div className="neo-card p-3 sm:p-4 text-center">
             <p className="text-xs text-white/40 mb-1">Debates</p>
-            <p className="font-mono font-bold text-lg text-white">{debateActions}</p>
+            <p className="font-mono font-bold text-base sm:text-lg text-white">{debateActions}</p>
           </div>
         </div>
 
@@ -373,13 +373,13 @@ export default function AgentPage() {
           {/* Prediction History */}
           {activities.length > 0 ? (
             <div className="neo-card overflow-hidden">
-              <div className="px-5 py-3 border-b border-white/[0.07] bg-white/[0.03] flex items-center justify-between">
+              <div className="px-4 sm:px-5 py-2.5 sm:py-3 border-b border-white/[0.07] bg-white/[0.03] flex items-center justify-between">
                 <h2 className="font-heading font-bold text-sm text-white">Prediction Timeline</h2>
                 <span className="text-[10px] font-mono text-white/40">{activities.length} events</span>
               </div>
               <div className="divide-y divide-white/[0.05]">
                 {activities.map((activity, i) => (
-                  <div key={activity.id ?? i} className="p-4">
+                  <div key={activity.id ?? i} className="p-3 sm:p-4">
                     <div className="flex items-center gap-2 mb-1">
                       <span
                         className={`rounded-md border px-1.5 py-0.5 text-[10px] font-mono uppercase ${actionTone(activity.type)}`}
@@ -388,16 +388,16 @@ export default function AgentPage() {
                       </span>
                       <span className="text-[10px] text-white/30 font-mono">{timeAgo(activity.timestamp)}</span>
                     </div>
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-start justify-between gap-2">
                       {activity.marketId ? (
                         <Link
                           href={`/market/${activity.marketId}`}
-                          className="text-xs font-heading font-medium text-white/80 hover:text-neo-brand transition-colors truncate flex-1"
+                          className="text-xs font-heading font-medium text-white/80 hover:text-neo-brand transition-colors flex-1 line-clamp-2 sm:line-clamp-1"
                         >
                           {activity.marketQuestion ?? `Market #${activity.marketId}`}
                         </Link>
                       ) : (
-                        <span className="text-xs font-heading font-medium text-white/80 truncate flex-1">
+                        <span className="text-xs font-heading font-medium text-white/80 flex-1 line-clamp-2 sm:line-clamp-1">
                           {activity.detail ?? activity.type}
                         </span>
                       )}
@@ -424,7 +424,7 @@ export default function AgentPage() {
           )}
 
           {/* Identity Card */}
-          <div className="neo-card p-5 space-y-3">
+          <div className="neo-card p-4 sm:p-5 space-y-3">
             <h2 className="font-heading font-bold text-sm text-white mb-2">On-Chain Identity</h2>
             {entry.identity ? (
               <div className="space-y-2 text-xs">
