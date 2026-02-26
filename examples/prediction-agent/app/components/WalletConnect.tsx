@@ -106,8 +106,11 @@ export default function WalletConnect() {
 
     return (
       <>
+        <p className="text-[10px] text-white/45 mb-1">
+          Optional for manual bets and market actions.
+        </p>
         <p className="text-[10px] font-mono text-white/40 uppercase">
-          {hasConnectors ? "Select wallet" : "Wallet required"}
+          {hasConnectors ? "Select wallet" : "No wallet detected"}
         </p>
 
         {hasConnectors ? (
@@ -187,7 +190,7 @@ export default function WalletConnect() {
     ? shortAddress
     : isPending
       ? "Connecting..."
-      : "Connect Wallet";
+      : "Connect User Wallet";
 
   const triggerClass = isConnected
     ? "border-neo-green/40 bg-neo-green/10 text-neo-green hover:bg-neo-green/20"

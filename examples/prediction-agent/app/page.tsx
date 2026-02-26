@@ -43,6 +43,7 @@ import {
 } from "@/lib/categories";
 
 const DASHBOARD_CACHE_KEY = "prediction-dashboard-cache-v1";
+const MARKET_DETAIL_FETCH_LIMIT = 10;
 
 type MobileTab = "markets" | "agents" | "activity";
 
@@ -87,7 +88,12 @@ export default function Dashboard() {
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasWarmCacheRef = useRef(false);
+  const currentMarketCountRef = useRef(0);
   const deferredQuery = useDeferredValue(searchQuery);
+
+  useEffect(() => {
+    currentMarketCountRef.current = markets.length;
+  }, [markets.length]);
 
   useEffect(() => {
     try {
@@ -190,7 +196,7 @@ export default function Dashboard() {
         .catch(() => []);
 
       const detailResults = await Promise.allSettled(
-        marketList.map(async (market) => {
+        marketList.slice(0, MARKET_DETAIL_FETCH_LIMIT).map(async (market) => {
           const res = await fetchWithTimeout(`/api/markets/${market.id}`, 5_000);
           if (!res || !res.ok) {
             return { id: market.id, predictions: [], weightedProbability: null, latestAgentTake: null };
@@ -246,7 +252,17 @@ export default function Dashboard() {
         );
       } catch {}
     } catch (err: any) {
-      setLoadError(err?.message ?? "Failed to load dashboard data");
+      const message = err?.message ?? "Failed to load dashboard data";
+      const hasCachedData =
+        hasWarmCacheRef.current || currentMarketCountRef.current > 0;
+      if (hasCachedData) {
+        setLoadError(null);
+        setMarketDataStale(true);
+        setMarketDataSource((prev) => (prev === "unknown" ? "cache" : prev));
+        setMarketDataWarning(message);
+      } else {
+        setLoadError(message);
+      }
       console.error("Failed to load data:", err);
     } finally {
       setLoading(false);
