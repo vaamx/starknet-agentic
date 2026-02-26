@@ -66,10 +66,10 @@ export default function StatusHeader({
       <header className="border-b border-white/[0.07] bg-[#0d111c]/90 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6">
           {/* Main header row */}
-          <div className="flex items-center h-14 gap-3">
+          <div className="flex items-center h-16 gap-3">
             {/* Logo + brand */}
             <div className="flex items-center gap-2.5 shrink-0">
-              <div className="w-8 h-8 bg-neo-brand/15 border border-neo-brand/30 flex items-center justify-center rounded-lg">
+              <div className="w-11 h-11 bg-neo-brand/15 border border-neo-brand/30 flex items-center justify-center rounded-xl">
                 {useTamagotchiLogo ? (
                   <TamagotchiBadge
                     autonomousMode={autonomousMode}
@@ -82,7 +82,7 @@ export default function StatusHeader({
                   <span className="text-neo-brand text-sm font-bold">HC</span>
                 )}
               </div>
-              <span className="font-heading text-sm font-bold tracking-tight text-white">
+              <span className="font-heading text-base font-bold tracking-tight text-white">
                 {brandName}
               </span>
             </div>
