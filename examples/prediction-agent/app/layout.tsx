@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import StarknetProvider from "./providers/StarknetProvider";
-import NavBar from "./components/NavBar";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,10 +16,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-screen bg-cream antialiased">
-        <NavBar />
-        <div className="pt-[41px]">
-          <StarknetProvider>{children}</StarknetProvider>
-        </div>
+        <StarknetProvider>{children}</StarknetProvider>
       </body>
     </html>
   );
