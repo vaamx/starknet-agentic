@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import WalletConnect from "../WalletConnect";
 import TamagotchiBadge from "./TamagotchiBadge";
 import UserStatsBar from "../UserStatsBar";
@@ -42,6 +43,7 @@ export default function StatusHeader({
   onOpenSpawner,
   onOpenCreator,
 }: StatusHeaderProps) {
+  const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [showStats, setShowStats] = useState(true);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
@@ -79,9 +81,6 @@ export default function StatusHeader({
                   <span className="text-neo-brand text-sm font-bold">HC</span>
                 )}
               </div>
-              <span className="font-heading font-bold text-sm sm:text-base text-white hidden sm:block">
-                HiveCaster
-              </span>
             </div>
 
             {/* Search bar — centered (desktop) */}
@@ -248,6 +247,34 @@ export default function StatusHeader({
               </div>
             </div>
           )}
+
+          {/* Route tabs under search */}
+          <div className="pb-2 -mt-0.5 flex items-center justify-center sm:justify-start">
+            <div className="inline-flex items-center rounded-xl border border-white/[0.08] bg-white/[0.03] p-1">
+              {[
+                { href: "/", label: "Markets" },
+                { href: "/fleet", label: "Fleet" },
+              ].map((item) => {
+                const isActive =
+                  item.href === "/"
+                    ? pathname === "/"
+                    : pathname.startsWith(item.href);
+                return (
+                  <a
+                    key={item.href}
+                    href={item.href}
+                    className={`rounded-lg px-4 py-1.5 font-heading text-xs font-semibold tracking-wide no-underline transition-colors ${
+                      isActive
+                        ? "bg-neo-brand/20 text-neo-brand"
+                        : "text-white/60 hover:text-white hover:bg-white/[0.06]"
+                    }`}
+                  >
+                    {item.label}
+                  </a>
+                );
+              })}
+            </div>
+          </div>
 
           {/* Collapsible stats row */}
           {showStats && (
