@@ -144,12 +144,27 @@ export default function AgentDebateTimeline() {
 
     return Array.from(byMarket.values())
       .map((thread) => {
-        const predictionValues = thread.predictions.map((p) => p.probability);
+        const latestByActor = new Map<
+          string,
+          { actor: string; probability: number; timestamp: number }
+        >();
+        const orderedPredictions = thread.predictions
+          .slice()
+          .sort((a, b) => b.timestamp - a.timestamp);
+        for (const prediction of orderedPredictions) {
+          if (!latestByActor.has(prediction.actor)) {
+            latestByActor.set(prediction.actor, prediction);
+          }
+        }
+        const uniquePredictions = Array.from(latestByActor.values()).sort(
+          (a, b) => b.timestamp - a.timestamp
+        );
+        const predictionValues = uniquePredictions.map((p) => p.probability);
         const divergence =
           predictionValues.length > 1
             ? Math.max(...predictionValues) - Math.min(...predictionValues)
             : 0;
-        return { ...thread, divergence };
+        return { ...thread, predictions: uniquePredictions, divergence };
       })
       .filter((thread) => thread.debates.length > 0 || thread.predictions.length > 1)
       .sort((a, b) => b.latestTimestamp - a.latestTimestamp)

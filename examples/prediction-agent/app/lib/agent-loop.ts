@@ -711,6 +711,8 @@ class AgentLoop {
       openCategoryCounts.politics +
       openCategoryCounts.tech +
       openCategoryCounts.other;
+    const cryptoShare =
+      openCategoryCounts.crypto / Math.max(1, openMarkets.length);
 
     let rebalanceCategory:
       | "politics"
@@ -718,30 +720,24 @@ class AgentLoop {
       | "tech"
       | "other"
       | undefined;
-    if (openMarkets.length >= 5 && nonCryptoOpenCount === 0) {
-      const priority: Array<"politics" | "sports" | "tech" | "other"> = [
-        "politics",
-        "sports",
-        "tech",
-        "other",
-      ];
-      rebalanceCategory = priority[0];
-    } else if (
-      openMarkets.length >= 8 &&
-      openCategoryCounts.crypto / Math.max(1, openMarkets.length) >= 0.75
-    ) {
-      const priority: Array<"politics" | "sports" | "tech" | "other"> = [
-        "politics",
-        "sports",
-        "tech",
-        "other",
-      ];
-      rebalanceCategory = [...priority].sort((a, b) => {
-        const aCount = openCategoryCounts[a] ?? 0;
-        const bCount = openCategoryCounts[b] ?? 0;
-        if (aCount === bCount) return priority.indexOf(a) - priority.indexOf(b);
-        return aCount - bCount;
-      })[0];
+    const priority: Array<"politics" | "sports" | "tech" | "other"> = [
+      "politics",
+      "sports",
+      "tech",
+      "other",
+    ];
+    const leastRepresentedNonCrypto = [...priority].sort((a, b) => {
+      const aCount = openCategoryCounts[a] ?? 0;
+      const bCount = openCategoryCounts[b] ?? 0;
+      if (aCount === bCount) return priority.indexOf(a) - priority.indexOf(b);
+      return aCount - bCount;
+    })[0];
+    if (openMarkets.length >= 4 && cryptoShare >= 0.5 && nonCryptoOpenCount <= 2) {
+      rebalanceCategory = leastRepresentedNonCrypto;
+    } else if (openMarkets.length >= 5 && nonCryptoOpenCount === 0) {
+      rebalanceCategory = leastRepresentedNonCrypto;
+    } else if (openMarkets.length >= 8 && cryptoShare >= 0.75) {
+      rebalanceCategory = leastRepresentedNonCrypto;
     }
 
     // Rebalancing creation should not depend on in-memory tick counters because
@@ -1064,14 +1060,15 @@ class AgentLoop {
 
       const gen = researchAndForecast(persona, question, context, sources);
       const forecastStartedAt = Date.now();
-      // Keep each actor bounded so one tick can complete within Vercel's runtime cap.
+      // Keep each actor bounded so one tick can complete within Vercel's runtime cap,
+      // but allow longer tool rounds to avoid over-triggering fallback forecasts.
       const researchTotalTimeoutMs = Math.max(
-        8_000,
-        Math.min(config.agentResearchTotalTimeoutMs, 18_000)
+        12_000,
+        Math.min(config.agentResearchTotalTimeoutMs, 24_000)
       );
       const researchStepTimeoutCeilingMs = Math.max(
-        2_000,
-        Math.min(config.agentResearchStepTimeoutMs, 8_000)
+        3_000,
+        Math.min(config.agentResearchStepTimeoutMs, 12_000)
       );
       let result: any;
       while (true) {
@@ -1636,6 +1633,13 @@ class AgentLoop {
         openCategoryCounts.other
     );
     const cryptoShare = openCategoryCounts.crypto / openTotal;
+    const nonCryptoOpenCount =
+      openCategoryCounts.sports +
+      openCategoryCounts.politics +
+      openCategoryCounts.tech +
+      openCategoryCounts.other;
+    const nonCryptoShortage =
+      openMarkets.length >= 4 && cryptoShare >= 0.5 && nonCryptoOpenCount <= 2;
 
     if (!forcedCategory) {
       try {
@@ -1782,12 +1786,28 @@ class AgentLoop {
           resolutionTime
         );
         const categoryPenalty =
-          category === "crypto" && cryptoShare >= 0.35 ? -0.2 : 0;
+          category === "crypto"
+            ? cryptoShare >= 0.7
+              ? -0.45
+              : cryptoShare >= 0.5
+                ? -0.32
+                : cryptoShare >= 0.35
+                  ? -0.2
+                  : 0
+            : 0;
         const categoryCount = openCategoryCounts[category] ?? 0;
         const underrepresentedBoost =
-          category !== "crypto" && categoryCount <= 1 ? 0.12 : 0;
+          category !== "crypto" && categoryCount <= 1
+            ? nonCryptoShortage
+              ? 0.2
+              : 0.12
+            : 0;
         const categoryAlignmentBoost =
-          suggestedCategory && category === suggestedCategory ? 0.08 : 0;
+          suggestedCategory && category === suggestedCategory
+            ? nonCryptoShortage && category !== "crypto"
+              ? 0.14
+              : 0.08
+            : 0;
         const recencyPenalty = recentlyCreatedFingerprints.has(fingerprint)
           ? -0.4
           : 0;
