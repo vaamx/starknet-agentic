@@ -807,11 +807,11 @@ class AgentLoop {
       Number.isFinite(config.agentActorsPerTick) && config.agentActorsPerTick > 0
         ? Math.floor(config.agentActorsPerTick)
         : 1;
-    const minimumActorsPerTick =
-      config.agentSingleAgentMode || tickActors.length <= 1 ? 1 : 2;
+    // Respect configured actor count so operators can run true staggered
+    // round-robin mode (1 actor/tick) or wider batch mode when desired.
     const actorsPerTick = Math.max(
-      minimumActorsPerTick,
-      Math.min(tickActors.length, configuredActorsPerTick, 2)
+      1,
+      Math.min(tickActors.length, configuredActorsPerTick)
     );
     const selected = selectTickAgentActors(
       tickActors,

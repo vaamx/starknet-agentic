@@ -3,7 +3,11 @@ import { getOnChainActivities } from "@/lib/event-indexer";
 import { agentLoop } from "@/lib/agent-loop";
 import { getMarkets, registerQuestion, resolveMarketQuestion } from "@/lib/market-reader";
 import { config } from "@/lib/config";
-import { getPersistedLoopActions, getPersistedMarketSnapshots } from "@/lib/state-store";
+import {
+  getPersistedLoopActions,
+  getPersistedMarketSnapshots,
+  listPersistedNetworkContributions,
+} from "@/lib/state-store";
 
 export const runtime = "nodejs";
 
@@ -47,9 +51,10 @@ export async function GET(request: NextRequest) {
   const limit = parseInt(request.nextUrl.searchParams.get("limit") ?? "30", 10);
 
   try {
-    const [persistedActions, persistedSnapshots] = await Promise.all([
+    const [persistedActions, persistedSnapshots, networkContributions] = await Promise.all([
       getPersistedLoopActions(Math.max(limit, 200)),
       getPersistedMarketSnapshots(500),
+      listPersistedNetworkContributions({ limit: Math.max(limit * 4, 200) }),
     ]);
     for (const snapshot of persistedSnapshots) {
       if (snapshot.question) {
@@ -131,6 +136,34 @@ export async function GET(request: NextRequest) {
         timestamp: a.timestamp,
       }));
 
+    const normalizedNetworkContributions = networkContributions.map((entry) => {
+      const type =
+        entry.kind === "forecast"
+          ? "prediction"
+          : entry.kind === "bet"
+            ? "bet"
+            : entry.kind === "market"
+              ? "market_creation"
+              : "debate";
+      return {
+        id: entry.id,
+        type,
+        actor: entry.actorName,
+        isAgent: entry.actorType === "agent",
+        marketId: entry.marketId,
+        question: entry.question,
+        outcome: entry.outcome,
+        amount:
+          typeof entry.amountStrk === "number"
+            ? `${entry.amountStrk.toFixed(2)} STRK`
+            : undefined,
+        probability: entry.probability,
+        detail: entry.content,
+        txHash: entry.txHash,
+        timestamp: entry.createdAt,
+      };
+    });
+
     // Normalize on-chain events
     const normalizedOnChain = onChainEvents.map((e) => ({
       id: e.id,
@@ -163,7 +196,11 @@ export async function GET(request: NextRequest) {
     // Merge and deduplicate by txHash
     const seenTxHash = new Set<string>();
     const seenSignature = new Set<string>();
-    const merged = [...normalizedAgentActions, ...normalizedOnChain]
+    const merged = [
+      ...normalizedAgentActions,
+      ...normalizedNetworkContributions,
+      ...normalizedOnChain,
+    ]
       .sort((a, b) => b.timestamp - a.timestamp)
       .filter((activity) => {
         if (activity.txHash) {

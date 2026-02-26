@@ -123,6 +123,74 @@ export interface PersistedLoopAction {
   debateTarget?: string;
 }
 
+export interface PersistedNetworkAgentProfile {
+  id: string;
+  walletAddress: string;
+  x402Address?: string;
+  name: string;
+  handle?: string;
+  description?: string;
+  model?: string;
+  endpointUrl?: string;
+  agentCardUrl?: string;
+  budgetStrk?: number;
+  maxBetStrk?: number;
+  topics?: string[];
+  metadata?: Record<string, string>;
+  proofUrl?: string;
+  signature?: string;
+  active: boolean;
+  createdAt: number;
+  updatedAt: number;
+  lastSeenAt: number;
+}
+
+export type PersistedNetworkContributionKind =
+  | "forecast"
+  | "market"
+  | "comment"
+  | "debate"
+  | "research"
+  | "bet";
+
+export interface PersistedNetworkContribution {
+  id: string;
+  actorType: "agent" | "human";
+  agentId?: string;
+  actorName: string;
+  walletAddress?: string;
+  kind: PersistedNetworkContributionKind;
+  marketId?: number;
+  question?: string;
+  content?: string;
+  probability?: number;
+  outcome?: "YES" | "NO";
+  amountStrk?: number;
+  sources?: string[];
+  txHash?: string;
+  proofId?: string;
+  metadata?: Record<string, string>;
+  signature?: string;
+  createdAt: number;
+}
+
+export type PersistedNetworkAuthAction =
+  | "register_agent"
+  | "update_agent"
+  | "post_contribution";
+
+export interface PersistedNetworkAuthChallenge {
+  id: string;
+  walletAddress: string;
+  action: PersistedNetworkAuthAction;
+  payloadHash: string;
+  nonce: string;
+  expirySec: number;
+  createdAt: number;
+  expiresAt: number;
+  usedAt?: number;
+}
+
 interface PersistedPredictionAgentState {
   version: 1;
   updatedAt: number;
@@ -133,6 +201,9 @@ interface PersistedPredictionAgentState {
   marketSnapshots: PersistedMarketSnapshot[];
   loopRuntime: PersistedLoopRuntimeState | null;
   loopActions: PersistedLoopAction[];
+  networkAgents: Record<string, PersistedNetworkAgentProfile>;
+  networkContributions: PersistedNetworkContribution[];
+  networkAuthChallenges: Record<string, PersistedNetworkAuthChallenge>;
 }
 
 const STATE_FILE =
@@ -192,6 +263,9 @@ function createDefaultState(): PersistedPredictionAgentState {
     marketSnapshots: [],
     loopRuntime: null,
     loopActions: [],
+    networkAgents: {},
+    networkContributions: [],
+    networkAuthChallenges: {},
   };
 }
 
@@ -279,6 +353,18 @@ function normalizeState(raw: unknown): PersistedPredictionAgentState {
     ? (raw.loopActions as PersistedLoopAction[])
     : [];
 
+  const networkAgents = isObject(raw.networkAgents)
+    ? (raw.networkAgents as Record<string, PersistedNetworkAgentProfile>)
+    : {};
+
+  const networkContributions = Array.isArray(raw.networkContributions)
+    ? (raw.networkContributions as PersistedNetworkContribution[])
+    : [];
+
+  const networkAuthChallenges = isObject(raw.networkAuthChallenges)
+    ? (raw.networkAuthChallenges as Record<string, PersistedNetworkAuthChallenge>)
+    : {};
+
   return {
     version,
     updatedAt,
@@ -289,6 +375,9 @@ function normalizeState(raw: unknown): PersistedPredictionAgentState {
     marketSnapshots,
     loopRuntime,
     loopActions,
+    networkAgents,
+    networkContributions,
+    networkAuthChallenges,
   };
 }
 
@@ -382,6 +471,9 @@ async function writeState(state: PersistedPredictionAgentState): Promise<void> {
     marketSnapshots: state.marketSnapshots ?? [],
     loopRuntime: state.loopRuntime ?? null,
     loopActions: state.loopActions ?? [],
+    networkAgents: state.networkAgents ?? {},
+    networkContributions: state.networkContributions ?? [],
+    networkAuthChallenges: state.networkAuthChallenges ?? {},
   };
 
   if (USE_UPSTASH_STATE) {
@@ -615,5 +707,141 @@ export async function appendPersistedLoopAction(
       .sort((a, b) => a.timestamp - b.timestamp)
       .slice(-cap);
     await writeState(state);
+  });
+}
+
+export async function listPersistedNetworkAgents(
+  limit = 500
+): Promise<PersistedNetworkAgentProfile[]> {
+  const state = await readState();
+  const n = Math.max(1, Math.floor(limit));
+  return Object.values(state.networkAgents ?? {})
+    .slice()
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, n);
+}
+
+export async function getPersistedNetworkAgent(
+  id: string
+): Promise<PersistedNetworkAgentProfile | null> {
+  const state = await readState();
+  return state.networkAgents?.[id] ?? null;
+}
+
+export async function upsertPersistedNetworkAgent(
+  profile: PersistedNetworkAgentProfile
+): Promise<PersistedNetworkAgentProfile> {
+  return await queueWrite(async (state) => {
+    const existing = state.networkAgents?.[profile.id];
+    const next: PersistedNetworkAgentProfile = {
+      ...existing,
+      ...profile,
+      id: profile.id,
+      walletAddress: profile.walletAddress,
+      createdAt: existing?.createdAt ?? profile.createdAt,
+      updatedAt: profile.updatedAt,
+      lastSeenAt: profile.lastSeenAt,
+    };
+    if (!state.networkAgents) state.networkAgents = {};
+    state.networkAgents[profile.id] = next;
+    await writeState(state);
+    return next;
+  });
+}
+
+export async function listPersistedNetworkContributions(args?: {
+  limit?: number;
+  marketId?: number;
+  kind?: PersistedNetworkContributionKind;
+  actorId?: string;
+  since?: number;
+}): Promise<PersistedNetworkContribution[]> {
+  const state = await readState();
+  const limit = Math.max(1, Math.floor(args?.limit ?? 200));
+  const marketId = args?.marketId;
+  const kind = args?.kind;
+  const actorId = args?.actorId?.trim();
+  const since = args?.since;
+
+  return (state.networkContributions ?? [])
+    .filter((entry) => {
+      if (marketId !== undefined && entry.marketId !== marketId) return false;
+      if (kind && entry.kind !== kind) return false;
+      if (actorId && entry.agentId !== actorId) return false;
+      if (since !== undefined && entry.createdAt < since) return false;
+      return true;
+    })
+    .slice()
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, limit);
+}
+
+export async function appendPersistedNetworkContribution(
+  contribution: PersistedNetworkContribution,
+  maxRecords = 5000
+): Promise<PersistedNetworkContribution> {
+  return await queueWrite(async (state) => {
+    const records = Array.isArray(state.networkContributions)
+      ? state.networkContributions.slice()
+      : [];
+    const existingIndex = records.findIndex((entry) => entry.id === contribution.id);
+    if (existingIndex >= 0) {
+      records[existingIndex] = contribution;
+    } else {
+      records.push(contribution);
+    }
+
+    const cap = Math.max(500, Math.floor(maxRecords));
+    state.networkContributions = records
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(-cap);
+    await writeState(state);
+    return contribution;
+  });
+}
+
+export async function getPersistedNetworkAuthChallenge(
+  id: string
+): Promise<PersistedNetworkAuthChallenge | null> {
+  const state = await readState();
+  return state.networkAuthChallenges?.[id] ?? null;
+}
+
+export async function upsertPersistedNetworkAuthChallenge(
+  challenge: PersistedNetworkAuthChallenge
+): Promise<PersistedNetworkAuthChallenge> {
+  return await queueWrite(async (state) => {
+    if (!state.networkAuthChallenges) state.networkAuthChallenges = {};
+
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    for (const [id, entry] of Object.entries(state.networkAuthChallenges)) {
+      if ((entry.usedAt ?? entry.expiresAt) < cutoff) {
+        delete state.networkAuthChallenges[id];
+      }
+    }
+
+    state.networkAuthChallenges[challenge.id] = challenge;
+    await writeState(state);
+    return challenge;
+  });
+}
+
+export async function markPersistedNetworkAuthChallengeUsed(
+  id: string,
+  usedAt = Date.now()
+): Promise<PersistedNetworkAuthChallenge | null> {
+  return await queueWrite(async (state) => {
+    const existing = state.networkAuthChallenges?.[id];
+    if (!existing) return null;
+    if (existing.usedAt) return null;
+    if (existing.expiresAt < usedAt) return null;
+
+    const updated: PersistedNetworkAuthChallenge = {
+      ...existing,
+      usedAt,
+    };
+    state.networkAuthChallenges[id] = updated;
+    await writeState(state);
+    return updated;
   });
 }

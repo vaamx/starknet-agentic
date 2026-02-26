@@ -25,16 +25,24 @@ export interface SuggestedMarket {
 
 const LEGACY_SUFFIX_REGEX = /\s+\d+d\s+[0-9a-f]{4}$/i;
 const GARBLED_SUFFIX_REGEX = /\s+[a-z]?\d[a-z0-9]{2,}$/i;
+const TRAILING_TIME_HASH_REGEX = /\s+\d{1,3}d\s+[0-9a-f]{4,8}$/i;
+const TRAILING_HASH_REGEX = /\s+[0-9a-f]{4,8}$/i;
+const TRAILING_FRAGMENT_REGEX = /\s+(?:in|i|win|t|clo)$/i;
+const GENERIC_PREDICATE_END_REGEX = /\b(?:win|lose|reach|hit|close|rise|fall)\?$/i;
 
 function isValidMarketQuestion(question: string): boolean {
   const normalized = question.trim();
   if (normalized.length < 18 || normalized.length > 180) return false;
   if (!/[a-z]/i.test(normalized)) return false;
+  if (!normalized.endsWith("?")) return false;
   if (normalized.startsWith("Market #")) return false;
   if (/^spread:/i.test(normalized)) return false;
   if (/\(-?\d+(?:\.\d+)?\)/.test(normalized)) return false;
   if (LEGACY_SUFFIX_REGEX.test(normalized)) return false;
+  if (TRAILING_TIME_HASH_REGEX.test(normalized)) return false;
   if (/\bwin t\b/i.test(normalized)) return false;
+  if (TRAILING_FRAGMENT_REGEX.test(normalized.replace(/\?$/, ""))) return false;
+  if (GENERIC_PREDICATE_END_REGEX.test(normalized)) return false;
   if (GARBLED_SUFFIX_REGEX.test(normalized) && !/\d{4}/.test(normalized)) {
     return false;
   }
@@ -45,11 +53,25 @@ function isValidMarketQuestion(question: string): boolean {
 function normalizeQuestion(text: string): string {
   const cleaned = text
     .replace(LEGACY_SUFFIX_REGEX, "")
+    .replace(TRAILING_TIME_HASH_REGEX, "")
+    .replace(TRAILING_HASH_REGEX, "")
     .replace(/\bwin t\b/gi, "win")
     .replace(/\s+/g, " ")
     .trim();
   if (!cleaned) return "";
   return cleaned.endsWith("?") ? cleaned : `${cleaned}?`;
+}
+
+function questionFingerprint(question: string): string {
+  return normalizeQuestion(question)
+    .toLowerCase()
+    .replace(LEGACY_SUFFIX_REGEX, "")
+    .replace(TRAILING_TIME_HASH_REGEX, "")
+    .replace(TRAILING_HASH_REGEX, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\bwill\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function headlineToQuestion(title: string): string {
@@ -131,7 +153,7 @@ export async function discoverMarkets(
   const pushSuggestion = (suggestion: SuggestedMarket) => {
     const question = normalizeQuestion(suggestion.question);
     if (!question || !isValidMarketQuestion(question)) return;
-    const key = question.toLowerCase();
+    const key = questionFingerprint(question);
     if (seen.has(key)) return;
     if (
       requestedCategory &&
@@ -279,31 +301,68 @@ export async function discoverMarkets(
     })
     .sort((a, b) => b.score - a.score);
 
-  // Preserve topic diversity by alternating highest-ranked non-crypto with any.
+  // Preserve topic diversity by enforcing a non-crypto floor when category is auto.
   if (!requestedCategory) {
-    const nonCrypto = scored.filter((entry) => entry.suggestion.category !== "crypto");
-    const remaining = scored.slice();
     const selected: SuggestedMarket[] = [];
-    while (selected.length < limit && remaining.length > 0) {
-      const pickFromNonCrypto =
-        selected.filter((s) => s.category === "crypto").length >=
-        Math.floor(selected.length / 2);
-      let pickedIdx = -1;
-      if (pickFromNonCrypto && nonCrypto.length > 0) {
-        const candidate = nonCrypto.find((entry) =>
-          !selected.some((s) => s.question.toLowerCase() === entry.suggestion.question.toLowerCase())
-        );
-        if (candidate) {
-          pickedIdx = remaining.findIndex(
-            (entry) => entry.suggestion.question === candidate.suggestion.question
-          );
+    const selectedKeys = new Set<string>();
+
+    const byCategory: Record<
+      "politics" | "sports" | "tech" | "other" | "crypto",
+      SuggestedMarket[]
+    > = {
+      politics: [],
+      sports: [],
+      tech: [],
+      other: [],
+      crypto: [],
+    };
+    for (const entry of scored) {
+      const category = entry.suggestion.category === "all" ? "other" : entry.suggestion.category;
+      byCategory[category].push(entry.suggestion);
+    }
+
+    const take = (candidate?: SuggestedMarket): boolean => {
+      if (!candidate) return false;
+      const key = questionFingerprint(candidate.question);
+      if (!key || selectedKeys.has(key)) return false;
+      selected.push(candidate);
+      selectedKeys.add(key);
+      return true;
+    };
+
+    const nonCryptoCategories: Array<"politics" | "sports" | "tech" | "other"> = [
+      "politics",
+      "sports",
+      "tech",
+      "other",
+    ];
+    const availableNonCrypto = nonCryptoCategories.reduce(
+      (sum, cat) => sum + byCategory[cat].length,
+      0
+    );
+    const nonCryptoFloor = Math.min(
+      availableNonCrypto,
+      Math.max(0, Math.ceil(limit * 0.7))
+    );
+
+    while (selected.length < nonCryptoFloor) {
+      let added = false;
+      for (const cat of nonCryptoCategories) {
+        const candidate = byCategory[cat].shift();
+        if (take(candidate)) {
+          added = true;
+          if (selected.length >= nonCryptoFloor) break;
         }
       }
-      if (pickedIdx < 0) pickedIdx = 0;
-      const [picked] = remaining.splice(pickedIdx, 1);
-      if (!picked) break;
-      selected.push(picked.suggestion);
+      if (!added) break;
     }
+
+    const remaining = scored.map((entry) => entry.suggestion);
+    for (const candidate of remaining) {
+      if (selected.length >= limit) break;
+      take(candidate);
+    }
+
     return selected.slice(0, limit);
   }
 
