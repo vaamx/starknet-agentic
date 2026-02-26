@@ -52,6 +52,7 @@ export default function StatusHeader({
     process.env.NEXT_PUBLIC_SWARM_LOGO_VARIANT?.toLowerCase() ?? "tamagotchi";
   const useTamagotchiLogo =
     configuredLogoVariant === "tamagotchi" || configuredLogoVariant === "auto";
+  const brandName = process.env.NEXT_PUBLIC_SWARM_NAME?.trim() || "HiveCaster";
 
   const sourceLabel =
     marketDataSource === "onchain"
@@ -81,6 +82,9 @@ export default function StatusHeader({
                   <span className="text-neo-brand text-sm font-bold">HC</span>
                 )}
               </div>
+              <span className="font-heading text-sm font-bold tracking-tight text-white">
+                {brandName}
+              </span>
             </div>
 
             {/* Search bar — centered (desktop) */}
