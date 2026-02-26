@@ -1,7 +1,7 @@
 /**
  * Survival Engine — Economic pressure system for the autonomous agent.
  *
- * Reads the agent's real STRK wallet balance each N ticks.
+ * Reads the agent's real STRK wallet balance.
  * Maps balance to a survival tier which controls:
  *   - Which Claude model is used (opus/sonnet/haiku)
  *   - Bet size multiplier (2x / 1x / 0.5x / 0 / 0)
@@ -11,12 +11,14 @@
  * Only changes effective tier when 2/3 readings agree — prevents
  * a single RPC blip from killing bets.
  *
- * Caching: balance is only re-read every SURVIVAL_CHECK_INTERVAL ticks.
+ * Caching: balance is re-read every SURVIVAL_CHECK_INTERVAL ticks or
+ * after a wall-clock TTL (important for serverless where tickCount can
+ * stay static on cold lambdas).
  * On RPC failure: returns cached state (or dead if no cache exists).
  */
 
-import { CallData, RpcProvider } from "starknet";
 import { config } from "./config";
+import { getWalletBalance } from "./starknet-executor";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,10 +35,9 @@ export interface SurvivalState {
 
 // ── Module state ─────────────────────────────────────────────────────────────
 
-const provider = new RpcProvider({ nodeUrl: config.STARKNET_RPC_URL });
-
 let cachedState: SurvivalState | null = null;
 let lastCheckedTick = -1;
+const SURVIVAL_CACHE_TTL_MS = 45_000;
 
 /** Rolling window of raw tier strings for smoothing */
 const tierWindow: SurvivalTier[] = [];
@@ -92,19 +93,11 @@ function smoothTier(rawTier: SurvivalTier): SurvivalTier {
 
 /**
  * Read STRK balance for the given address from the STRK ERC-20 contract.
- * Returns 0n on any RPC error.
+ * Uses executor RPC failover and returns 0n only if all providers fail.
  */
 export async function readStrkBalance(address: string): Promise<bigint> {
   try {
-    const result = await provider.callContract({
-      contractAddress: config.COLLATERAL_TOKEN_ADDRESS,
-      entrypoint: "balanceOf",
-      calldata: CallData.compile({ account: address }),
-    });
-    // u256 returned as [low, high]
-    const low  = BigInt(result[0] ?? "0x0");
-    const high = BigInt(result[1] ?? "0x0");
-    return low + high * (2n ** 128n);
+    return await getWalletBalance(address);
   } catch (err: any) {
     console.warn("[survival] balanceOf RPC error:", err?.message ?? String(err));
     return 0n;
@@ -122,8 +115,11 @@ export async function readStrkBalance(address: string): Promise<bigint> {
  */
 export async function getSurvivalState(tickCount: number): Promise<SurvivalState> {
   const checkInterval = parseInt(String((config as any).SURVIVAL_CHECK_INTERVAL ?? "3"), 10) || 3;
+  const now = Date.now();
+  const staleByTime =
+    cachedState === null || now - (cachedState?.lastCheckedAt ?? 0) >= SURVIVAL_CACHE_TTL_MS;
   const shouldCheck =
-    cachedState === null || tickCount - lastCheckedTick >= checkInterval;
+    staleByTime || tickCount - lastCheckedTick >= checkInterval;
 
   if (!shouldCheck && cachedState) return cachedState;
 
@@ -148,7 +144,7 @@ export async function getSurvivalState(tickCount: number): Promise<SurvivalState
     balanceStrk,
     balanceWei,
     replicationEligible: tier === "thriving",
-    lastCheckedAt: Date.now(),
+    lastCheckedAt: now,
   };
 
   cachedState = state;
