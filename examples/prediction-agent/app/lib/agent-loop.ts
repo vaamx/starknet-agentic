@@ -294,12 +294,27 @@ function pickResearchSources(
 
 function questionFingerprint(question: string): string {
   return question
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\bwill\b/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 48);
+}
+
+function isCuratedCreationQuestion(question: string): boolean {
+  const normalized = question.trim();
+  if (normalized.length < 18 || normalized.length > 180) return false;
+  if (!/[a-z]/i.test(normalized)) return false;
+  if (/^spread:/i.test(normalized)) return false;
+  if (/\(-?\d+(?:\.\d+)?\)/.test(normalized)) return false;
+  if (/\bwin t\b/i.test(normalized)) return false;
+  if (/\s+\d+d\s+[0-9a-f]{4}$/i.test(normalized)) return false;
+  if (/^market\s*#\d+/i.test(normalized)) return false;
+  const words = normalized.split(/\s+/).filter(Boolean);
+  return words.length >= 4;
 }
 
 function toOnChainQuestion(question: string, durationDays: number): string {
@@ -1660,20 +1675,39 @@ class AgentLoop {
       suggestedCategory = leastRepresented;
     }
 
-    let suggestions = await discoverMarkets(suggestedCategory, 10);
-    if (suggestions.length === 0 && suggestedCategory) {
-      const fallbackOrder: Array<
-        "politics" | "sports" | "tech" | "other" | "crypto"
-      > = ["politics", "sports", "tech", "other", "crypto"];
-      for (const fallbackCategory of fallbackOrder) {
-        if (fallbackCategory === suggestedCategory) continue;
-        const fallback = await discoverMarkets(fallbackCategory, 8);
-        if (fallback.length === 0) continue;
-        suggestions = fallback;
-        suggestedCategory = fallbackCategory;
-        break;
-      }
-    }
+    const categoryOrder: Array<
+      "politics" | "sports" | "tech" | "other" | "crypto"
+    > = ["politics", "sports", "tech", "other", "crypto"];
+    const discoveryOrder = Array.from(
+      new Set(
+        [
+          suggestedCategory as
+            | "politics"
+            | "sports"
+            | "tech"
+            | "other"
+            | "crypto"
+            | undefined,
+          leastRepresented,
+          ...categoryOrder,
+        ].filter(Boolean)
+      )
+    ) as Array<"politics" | "sports" | "tech" | "other" | "crypto">;
+
+    const discoveredByCategory = await Promise.all(
+      discoveryOrder.map(async (category) => ({
+        category,
+        suggestions: await discoverMarkets(category, 10),
+      }))
+    );
+
+    const suggestions = discoveredByCategory.flatMap((entry) =>
+      entry.suggestions.map((suggestion) => ({
+        ...suggestion,
+        categoryHint: entry.category,
+      }))
+    );
+
     if (suggestions.length === 0) {
       emit(
         this.createAction({
@@ -1689,6 +1723,9 @@ class AgentLoop {
     const existingQuestionFingerprints = new Set(
       Object.values(MARKET_QUESTIONS).map((q) => questionFingerprint(q))
     );
+    const recentlyCreatedFingerprints = new Set<string>();
+    const nowMs = Date.now();
+    const creationCooldownMs = 24 * 60 * 60 * 1000;
     try {
       const [snapshotMarkets, loopActions] = await Promise.all([
         getPersistedMarketSnapshots(500),
@@ -1707,9 +1744,11 @@ class AgentLoop {
           typeof action.question === "string" &&
           action.question.trim().length > 0
         ) {
-          existingQuestionFingerprints.add(
-            questionFingerprint(action.question)
-          );
+          const fingerprint = questionFingerprint(action.question);
+          existingQuestionFingerprints.add(fingerprint);
+          if (nowMs - action.timestamp <= creationCooldownMs) {
+            recentlyCreatedFingerprints.add(fingerprint);
+          }
         }
       }
     } catch {
@@ -1723,6 +1762,18 @@ class AgentLoop {
     }
     const rankedSuggestions = suggestions
       .map((suggestion) => {
+        const fingerprint = questionFingerprint(suggestion.question);
+        const curated = isCuratedCreationQuestion(suggestion.question);
+        const rawCategory = suggestion.category;
+        const category = rawCategory === "all" ? "other" : rawCategory;
+        if (!curated) {
+          return {
+            suggestion,
+            fingerprint,
+            score: -1,
+            curated,
+          };
+        }
         const resolutionTime =
           Math.floor(Date.now() / 1000) +
           Math.max(1, suggestion.suggestedResolutionDays ?? 30) * 86_400;
@@ -1731,23 +1782,47 @@ class AgentLoop {
           resolutionTime
         );
         const categoryPenalty =
-          suggestion.category === "crypto" && cryptoShare >= 0.45 ? -0.12 : 0;
+          category === "crypto" && cryptoShare >= 0.35 ? -0.2 : 0;
+        const categoryCount = openCategoryCounts[category] ?? 0;
+        const underrepresentedBoost =
+          category !== "crypto" && categoryCount <= 1 ? 0.12 : 0;
+        const categoryAlignmentBoost =
+          suggestedCategory && category === suggestedCategory ? 0.08 : 0;
+        const recencyPenalty = recentlyCreatedFingerprints.has(fingerprint)
+          ? -0.4
+          : 0;
         return {
           suggestion,
-          score: engagement + categoryPenalty,
+          fingerprint,
+          curated,
+          score:
+            engagement +
+            categoryPenalty +
+            underrepresentedBoost +
+            categoryAlignmentBoost +
+            recencyPenalty,
         };
       })
+      .filter((entry) => entry.curated)
       .sort((a, b) => b.score - a.score);
 
     const picked =
-      rankedSuggestions
-        .map((entry) => entry.suggestion)
-        .find(
-          (s) =>
-            !existingQuestionFingerprints.has(questionFingerprint(s.question))
-        ) ??
-      rankedSuggestions[0]?.suggestion ??
-      suggestions[0];
+      rankedSuggestions.find(
+        (entry) => !existingQuestionFingerprints.has(entry.fingerprint)
+      )?.suggestion;
+
+    if (!picked) {
+      emit(
+        this.createAction({
+          agentId: "agent-loop",
+          agentName: "Agent Loop",
+          type: "discovery",
+          detail:
+            `Creation skipped: no novel curated markets found for "${suggestedCategory ?? "auto"}".`,
+        })
+      );
+      return false;
+    }
 
     const questionRaw = picked.question;
     const durationDays = picked.suggestedResolutionDays ?? 30;

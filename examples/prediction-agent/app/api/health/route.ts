@@ -13,7 +13,10 @@ export async function GET() {
       rpcConfigured: !!config.STARKNET_RPC_URL,
       rpcFailoverEnabled: config.rpcFailoverEnabled,
       rpcProviderCount: config.rpcUrls.length,
+      llmProvider: config.llmProvider,
+      llmConfigured: config.llmConfigured,
       anthropicConfigured: !!process.env.ANTHROPIC_API_KEY,
+      xaiConfigured: !!process.env.XAI_API_KEY,
       agentConfigured: isAgentConfigured(),
       marketFactoryConfigured: config.MARKET_FACTORY_ADDRESS !== "0x0",
       accuracyTrackerConfigured: config.ACCURACY_TRACKER_ADDRESS !== "0x0",
@@ -36,7 +39,7 @@ export async function GET() {
     ].some(Boolean);
 
     const warningState = [
-      !checks.anthropicConfigured,
+      !checks.llmConfigured,
       !checks.heartbeatProtected,
     ].some(Boolean);
 

@@ -11,6 +11,7 @@ import { recordPrediction } from "@/lib/starknet-executor";
 import { logThoughtOnChain } from "@/lib/huginn-executor";
 import { requireX402 } from "@/lib/x402-middleware";
 import { config } from "@/lib/config";
+import { getLlmConfigurationError } from "@/lib/llm-provider";
 import { z } from "zod";
 import { enforceRateLimit, jsonError } from "@/lib/api-guard";
 
@@ -47,8 +48,8 @@ export async function POST(request: NextRequest) {
     return jsonError("Invalid request body", 400, err?.issues ?? err?.message);
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return jsonError("Anthropic API key not configured", 400);
+  if (!config.llmConfigured) {
+    return jsonError(getLlmConfigurationError(), 400);
   }
 
   // Return the stream immediately, do all work inside

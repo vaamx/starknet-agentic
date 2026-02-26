@@ -14,6 +14,7 @@ interface BetFormProps {
   totalPool: string;
   feeBps: number;
   impliedProbYes: number;
+  preselectedOutcome?: 0 | 1;
   onClose: () => void;
 }
 
@@ -26,12 +27,13 @@ export default function BetForm({
   totalPool,
   feeBps,
   impliedProbYes,
+  preselectedOutcome,
   onClose,
 }: BetFormProps) {
   const { address, isConnected } = useAccount();
   const { sendAsync, isPending } = useSendTransaction({});
 
-  const [outcome, setOutcome] = useState<0 | 1>(1);
+  const [outcome, setOutcome] = useState<0 | 1>(preselectedOutcome ?? 1);
   const [amount, setAmount] = useState("");
   const [result, setResult] = useState<{
     status: string;
@@ -39,7 +41,12 @@ export default function BetForm({
     error?: string;
   } | null>(null);
 
-  // Close on Escape key
+  useEffect(() => {
+    if (preselectedOutcome !== undefined) {
+      setOutcome(preselectedOutcome);
+    }
+  }, [preselectedOutcome]);
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -48,7 +55,6 @@ export default function BetForm({
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
-  // Prevent body scroll
   useEffect(() => {
     document.body.style.overflow = "hidden";
     return () => {
@@ -91,10 +97,15 @@ export default function BetForm({
     ? `${address.slice(0, 6)}...${address.slice(-4)}`
     : null;
 
+  // Pool share percentage
+  const poolSharePct =
+    amountBigInt > 0n && newWinningPool > 0n
+      ? ((Number(amountBigInt) / Number(newWinningPool)) * 100).toFixed(1)
+      : null;
+
   async function handleSubmit() {
     if (amountBigInt <= 0n || !isConnected) return;
     setResult(null);
-
     try {
       const calls = buildBetCalls(marketAddress, outcome, amountBigInt);
       const response = await sendAsync(calls);
@@ -110,71 +121,58 @@ export default function BetForm({
   const presets = ["10", "50", "100", "500"];
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      {/* Backdrop */}
+    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center">
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
       />
 
-      {/* Modal */}
-      <div className="relative z-10 w-full max-w-md mx-4 neo-card shadow-neo-lg animate-modal-in">
+      <div className="relative z-10 w-full max-w-md sm:mx-4 neo-card shadow-neo-lg animate-sheet-up sm:animate-modal-in rounded-t-2xl sm:rounded-xl">
+        {/* Mobile drag handle */}
+        <div className="sm:hidden flex justify-center pt-2">
+          <div className="w-10 h-1 bg-white/20 rounded-full" />
+        </div>
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 bg-white/5 border-b border-white/10">
-          <h3 className="font-heading font-bold text-sm uppercase tracking-wider text-white">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.07]">
+          <h3 className="font-heading font-bold text-sm text-white">
             Place Bet
           </h3>
           <button
             onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center border border-white/20 hover:bg-white/10 text-xs font-mono transition-colors rounded-md"
+            className="w-7 h-7 flex items-center justify-center border border-white/15 hover:bg-white/10 text-xs font-mono text-white/60 transition-colors rounded-lg"
           >
             ESC
           </button>
         </div>
 
         <div className="p-5">
-          <p className="text-xs text-white/50 mb-3 line-clamp-2 leading-relaxed">
+          <p className="text-xs text-white/50 mb-4 line-clamp-2 leading-relaxed">
             {question}
           </p>
 
           {/* Account Info */}
-          <div className="border border-dashed border-white/10 p-2.5 mb-4 bg-white/5 rounded-lg">
+          <div className="border border-white/[0.07] p-2.5 mb-4 bg-white/[0.03] rounded-lg">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono uppercase text-white/40">
-                Betting from
-              </span>
+              <span className="text-xs text-white/40">Betting from</span>
               {isConnected && shortWallet ? (
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-neo-green" />
-                  <span className="font-mono text-xs font-medium text-white/80">
-                    {shortWallet}
-                  </span>
-                  <span className="text-[9px] text-white/40">(your wallet)</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-neo-green" />
+                  <span className="font-mono text-xs text-white/80">{shortWallet}</span>
                 </div>
               ) : (
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-white/30" />
-                  <span className="font-mono text-xs text-white/50">
-                    Not connected
-                  </span>
-                </div>
+                <span className="font-mono text-xs text-white/50">Not connected</span>
               )}
             </div>
-            {!isConnected && (
-              <p className="text-[9px] text-white/40 mt-1">
-                Connect your wallet to place bets
-              </p>
-            )}
           </div>
 
           {/* Outcome Toggle */}
           <div className="flex border border-white/10 mb-4 rounded-lg overflow-hidden">
             <button
               onClick={() => setOutcome(1)}
-              className={`flex-1 py-2.5 font-heading font-semibold text-sm transition-all ${
+              className={`flex-1 py-2.5 font-heading font-bold text-sm transition-all ${
                 outcome === 1
-                  ? "bg-neo-green/20 text-neo-green"
-                  : "bg-white/5 text-white/50 hover:text-white/80"
+                  ? "bg-neo-green/15 text-neo-green"
+                  : "bg-white/[0.03] text-white/40 hover:text-white/60"
               }`}
             >
               YES
@@ -182,10 +180,10 @@ export default function BetForm({
             <div className="w-px bg-white/10" />
             <button
               onClick={() => setOutcome(0)}
-              className={`flex-1 py-2.5 font-heading font-semibold text-sm transition-all ${
+              className={`flex-1 py-2.5 font-heading font-bold text-sm transition-all ${
                 outcome === 0
-                  ? "bg-neo-pink/20 text-neo-pink"
-                  : "bg-white/5 text-white/50 hover:text-white/80"
+                  ? "bg-neo-red/15 text-neo-red"
+                  : "bg-white/[0.03] text-white/40 hover:text-white/60"
               }`}
             >
               NO
@@ -194,7 +192,7 @@ export default function BetForm({
 
           {/* Amount */}
           <div className="mb-3">
-            <label className="block text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1.5">
+            <label className="block text-xs font-medium text-white/40 mb-1.5">
               Amount (STRK)
             </label>
             <input
@@ -212,10 +210,10 @@ export default function BetForm({
                 <button
                   key={p}
                   onClick={() => setAmount(p)}
-                  className={`flex-1 py-1 border border-white/10 text-[10px] font-bold transition-all rounded ${
+                  className={`flex-1 py-1.5 border text-xs font-medium transition-all rounded-lg ${
                     amount === p
-                      ? "bg-neo-blue/20 text-neo-blue"
-                      : "bg-white/5 text-white/60 hover:text-white/80 hover:bg-white/10"
+                      ? "bg-neo-blue/15 text-neo-blue border-neo-blue/30"
+                      : "bg-white/[0.04] text-white/60 border-white/10 hover:bg-white/[0.08]"
                   }`}
                 >
                   {p}
@@ -226,7 +224,7 @@ export default function BetForm({
 
           {/* Payout Preview */}
           {amountBigInt > 0n && (
-            <div className="border border-dashed border-white/10 p-3 mb-4 space-y-1.5 bg-white/5 rounded-lg">
+            <div className="border border-white/[0.07] p-3 mb-4 space-y-1.5 bg-white/[0.03] rounded-lg">
               <div className="flex justify-between text-xs">
                 <span className="text-white/50">Potential payout</span>
                 <span className="font-mono font-bold text-white/80">
@@ -239,18 +237,18 @@ export default function BetForm({
                   {estMultiple.toFixed(2)}x
                 </span>
               </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-white/50">Gas (est.)</span>
-                <span className="font-mono text-white/50">
-                  ~0.001 STRK
-                </span>
-              </div>
+              {poolSharePct && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-white/50">Your pool share</span>
+                  <span className="font-mono text-white/60">{poolSharePct}%</span>
+                </div>
+              )}
               {probShift !== 0 && (
                 <div className="flex justify-between text-xs">
                   <span className="text-white/50">Price impact</span>
                   <span
                     className={`font-mono font-bold ${
-                      probShift > 0 ? "text-neo-green" : "text-neo-pink"
+                      probShift > 0 ? "text-neo-green" : "text-neo-red"
                     }`}
                   >
                     {probShift > 0 ? "+" : ""}
@@ -266,18 +264,18 @@ export default function BetForm({
             <button
               onClick={handleSubmit}
               disabled={isPending || amountBigInt <= 0n}
-              className={`neo-btn w-full text-sm ${
+              className={`w-full py-3 rounded-lg font-heading font-bold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                 outcome === 1
-                  ? "bg-neo-green/20 text-neo-green border-neo-green/40"
-                  : "bg-neo-pink/20 text-neo-pink border-neo-pink/40"
-              } disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:translate-x-0 disabled:translate-y-0`}
+                  ? "bg-neo-green/20 text-neo-green border border-neo-green/30 hover:bg-neo-green/30"
+                  : "bg-neo-red/20 text-neo-red border border-neo-red/30 hover:bg-neo-red/30"
+              }`}
             >
               {isPending
                 ? "Signing Transaction..."
                 : `Bet ${outcome === 1 ? "YES" : "NO"}${amount ? ` \u2014 ${amount} STRK` : ""}`}
             </button>
           ) : (
-            <div className="text-center py-3 border border-dashed border-white/10 text-xs font-mono text-white/50 rounded-lg">
+            <div className="text-center py-3 border border-dashed border-white/10 text-sm text-white/50 rounded-lg">
               Connect Wallet to Place Bets
             </div>
           )}
@@ -287,8 +285,8 @@ export default function BetForm({
             <div
               className={`mt-3 p-2.5 border text-xs font-mono rounded-lg ${
                 result.status === "success"
-                  ? "border-neo-green/40 bg-neo-green/10"
-                  : "border-neo-pink/40 bg-neo-pink/10"
+                  ? "border-neo-green/30 bg-neo-green/10"
+                  : "border-neo-red/30 bg-neo-red/10"
               }`}
             >
               {result.status === "success" ? (
@@ -299,14 +297,14 @@ export default function BetForm({
                       href={`https://sepolia.voyager.online/tx/${result.txHash}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="block text-[10px] text-neo-blue mt-1 hover:underline break-all"
+                      className="block text-xs text-neo-blue mt-1 hover:underline break-all"
                     >
                       View on Voyager: {result.txHash.slice(0, 20)}...
                     </a>
                   )}
                 </>
               ) : (
-                <span className="text-neo-pink">{result.error}</span>
+                <span className="text-neo-red">{result.error}</span>
               )}
             </div>
           )}

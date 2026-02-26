@@ -2,15 +2,14 @@
  * Resolution Oracle — AI-driven market resolution.
  *
  * Three resolution strategies by market category:
- * - Sports: ESPN score data + Claude YES/NO determination
+ * - Sports: ESPN score data + LLM YES/NO determination
  * - Crypto: Price threshold parsing + CoinGecko comparison
- * - General: Tavily search + Claude determination
+ * - General: Tavily search + LLM determination
  *
  * All strategies require confidence >= threshold before executing on-chain.
  * Returns null if evidence is insufficient — never guesses.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
 import { categorizeMarket } from "./categories";
 import { fetchEspnScores } from "./data-sources/espn-live";
 import { fetchCryptoPrices } from "./data-sources/crypto-prices";
@@ -19,6 +18,12 @@ import { logThoughtOnChain } from "./huginn-executor";
 import { getActiveAccount, isAgentConfigured } from "./starknet-executor";
 import { buildResolveCalls, buildFinalizeCalls } from "./contracts";
 import { isSuperBowlMarket } from "./market-reader";
+import { config } from "./config";
+import {
+  completeText,
+  getLlmConfigurationError,
+  resolveLlmModel,
+} from "./llm-provider";
 
 export interface ResolutionResult {
   status: "resolved" | "insufficient_evidence" | "error";
@@ -174,20 +179,17 @@ function parsePriceThreshold(question: string): { threshold: number; above: bool
   return { threshold, above };
 }
 
-/** Ask Claude to determine YES/NO from evidence text. */
-async function askClaudeForOutcome(
+/** Ask active LLM provider to determine YES/NO from evidence text. */
+async function askLlmForOutcome(
   question: string,
-  evidence: string,
-  client: Anthropic
+  evidence: string
 ): Promise<{ outcome: 0 | 1; confidence: number } | null> {
   try {
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 128,
-      messages: [
-        {
-          role: "user",
-          content: `Based on this evidence, did the following prediction market question resolve YES or NO?
+    const text = await completeText({
+      task: "resolution",
+      model: resolveLlmModel("resolution"),
+      maxTokens: 128,
+      userMessage: `Based on this evidence, did the following prediction market question resolve YES or NO?
 
 Question: "${question}"
 
@@ -201,12 +203,7 @@ CONFIDENCE:0.0-1.0
 If you cannot determine the outcome from the evidence, respond:
 OUTCOME:UNKNOWN
 CONFIDENCE:0.0`,
-        },
-      ],
     });
-
-    const text =
-      response.content[0]?.type === "text" ? response.content[0].text : "";
 
     const outcomeMatch = text.match(/OUTCOME:(YES|NO|UNKNOWN)/i);
     const confidenceMatch = text.match(/CONFIDENCE:([\d.]+)/i);
@@ -223,10 +220,9 @@ CONFIDENCE:0.0`,
   }
 }
 
-/** Sports resolution strategy: ESPN data + Claude. */
+/** Sports resolution strategy: ESPN data + LLM. */
 async function resolveSports(
-  question: string,
-  client: Anthropic
+  question: string
 ): Promise<OracleDecision | null> {
   const espnResult = await fetchEspnScores(question);
   if (espnResult.data.length === 0) return null;
@@ -249,13 +245,13 @@ async function resolveSports(
     ...espnResult.data.map((d) => `${d.label}: ${d.value}`),
   ].join("\n");
 
-  const decision = await askClaudeForOutcome(question, evidence, client);
+  const decision = await askLlmForOutcome(question, evidence);
   if (!decision || decision.confidence < MIN_SPORTS_CONFIDENCE) return null;
 
   return {
     outcome: decision.outcome,
     confidence: decision.confidence,
-    reasoning: `Sports resolution via ESPN data:\n${evidence}\n\nClaude decision: ${decision.outcome === 1 ? "YES" : "NO"} (confidence: ${(decision.confidence * 100).toFixed(0)}%)`,
+    reasoning: `Sports resolution via ESPN data:\n${evidence}\n\nModel decision: ${decision.outcome === 1 ? "YES" : "NO"} (confidence: ${(decision.confidence * 100).toFixed(0)}%)`,
   };
 }
 
@@ -296,10 +292,9 @@ async function resolveCrypto(question: string): Promise<OracleDecision | null> {
   return { outcome, confidence: 0.95, reasoning };
 }
 
-/** General resolution strategy: Tavily search + Claude. */
+/** General resolution strategy: Tavily search + LLM. */
 async function resolveGeneral(
   question: string,
-  client: Anthropic,
   minConfidence = MIN_GENERAL_CONFIDENCE
 ): Promise<OracleDecision | null> {
   const searchQuery = `${question} result OR outcome OR confirmed OR resolved`;
@@ -317,13 +312,13 @@ async function resolveGeneral(
     ...tavilyResult.data.map((d) => `${d.label}: ${d.value}`),
   ].join("\n");
 
-  const decision = await askClaudeForOutcome(question, evidence, client);
+  const decision = await askLlmForOutcome(question, evidence);
   if (!decision || decision.confidence < minConfidence) return null;
 
   return {
     outcome: decision.outcome,
     confidence: decision.confidence,
-    reasoning: `General resolution via web search:\n${evidence}\n\nClaude decision: ${decision.outcome === 1 ? "YES" : "NO"} (confidence: ${(decision.confidence * 100).toFixed(0)}%)`,
+    reasoning: `General resolution via web search:\n${evidence}\n\nModel decision: ${decision.outcome === 1 ? "YES" : "NO"} (confidence: ${(decision.confidence * 100).toFixed(0)}%)`,
   };
 }
 
@@ -336,12 +331,9 @@ export async function tryResolveMarket(
   marketAddress: string,
   question: string
 ): Promise<ResolutionResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return { status: "error", error: "Anthropic API key not configured" };
+  if (!config.llmConfigured) {
+    return { status: "error", error: getLlmConfigurationError() };
   }
-
-  const client = new Anthropic({ apiKey });
 
   // 1. Select and run strategy
   let decision: OracleDecision | null = null;
@@ -350,20 +342,19 @@ export async function tryResolveMarket(
     const category = categorizeMarket(normalizedQuestion);
 
     if (category === "sports") {
-      decision = await resolveSports(normalizedQuestion, client);
+      decision = await resolveSports(normalizedQuestion);
       if (!decision) {
         decision = await resolveGeneral(
           `${normalizedQuestion} final score winner stats`,
-          client,
           MIN_SPORTS_SEARCH_CONFIDENCE
         );
       }
     } else if (category === "crypto") {
       decision =
         (await resolveCrypto(normalizedQuestion)) ??
-        (await resolveGeneral(normalizedQuestion, client));
+        (await resolveGeneral(normalizedQuestion));
     } else {
-      decision = await resolveGeneral(normalizedQuestion, client);
+      decision = await resolveGeneral(normalizedQuestion);
     }
   } catch (err: any) {
     return { status: "error", error: `Oracle strategy failed: ${err?.message}` };

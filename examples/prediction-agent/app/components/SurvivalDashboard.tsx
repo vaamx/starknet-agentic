@@ -10,6 +10,22 @@ interface SurvivalState {
   balanceWei: string;
   replicationEligible: boolean;
   lastCheckedAt: number;
+  agentAddress?: string | null;
+  network?: string;
+  explorerUrl?: string | null;
+  faucetUrl?: string | null;
+  thresholds?: {
+    critical: number;
+    low: number;
+    healthy: number;
+    thriving: number;
+  };
+  funding?: {
+    targetThreshold: number;
+    topUpToTargetStrk: number;
+    topUpToHealthyStrk: number;
+    canRunOnChain: boolean;
+  };
 }
 
 interface SoulChild {
@@ -180,6 +196,7 @@ export default function SurvivalDashboard() {
   const [survival, setSurvival] = useState<SurvivalState | null>(null);
   const [soulChildren, setSoulChildren] = useState<SoulChild[]>([]);
   const [soulText, setSoulText] = useState<string>("");
+  const [copiedAddress, setCopiedAddress] = useState(false);
 
   useEffect(() => {
     const fetchSurvival = () =>
@@ -230,6 +247,10 @@ export default function SurvivalDashboard() {
   // Extract thesis from SOUL.md
   const thesisMatch = soulText.match(/^>\s*(.+)$/m);
   const thesis = thesisMatch ? thesisMatch[1].trim() : null;
+  const agentAddress = survival?.agentAddress ?? null;
+  const topUpToTarget = Math.max(0, survival?.funding?.topUpToTargetStrk ?? 0);
+  const topUpToHealthy = Math.max(0, survival?.funding?.topUpToHealthyStrk ?? 0);
+  const needsFunding = topUpToTarget > 0.0001;
 
   return (
     <div className={`neo-card overflow-hidden border ${c.border} ${c.glow} transition-all duration-500`}>
@@ -250,6 +271,73 @@ export default function SurvivalDashboard() {
       <div className="p-4 space-y-2 text-[11px] text-white/60">
         {/* Balance bar */}
         <BalanceBar balance={survival?.balanceStrk ?? 0} tier={tier} />
+
+        {agentAddress && (
+          <div className="pt-2 border-t border-white/10 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-mono text-white/40 uppercase tracking-wider">
+                Agent Wallet
+              </span>
+              <span
+                className={`text-[9px] font-mono ${
+                  needsFunding ? "text-neo-yellow" : "text-neo-green"
+                }`}
+              >
+                {needsFunding ? "FUNDING NEEDED" : "FUNDED"}
+              </span>
+            </div>
+            <p className="text-[10px] font-mono text-white/60 break-all">
+              {agentAddress}
+            </p>
+            {needsFunding && (
+              <div className="rounded-lg border border-neo-yellow/30 bg-neo-yellow/10 p-2">
+                <p className="text-[10px] text-neo-yellow">
+                  Add {topUpToTarget.toFixed(2)} STRK to resume on-chain actions
+                  {topUpToHealthy > topUpToTarget + 0.01
+                    ? ` (${topUpToHealthy.toFixed(2)} STRK to healthy tier).`
+                    : "."}
+                </p>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(agentAddress);
+                    setCopiedAddress(true);
+                    setTimeout(() => setCopiedAddress(false), 1200);
+                  } catch {
+                    // Ignore clipboard failures.
+                  }
+                }}
+                className="text-[10px] font-mono px-2 py-1 rounded border border-white/15 text-white/70 hover:text-white hover:border-white/30 transition-colors"
+              >
+                {copiedAddress ? "COPIED" : "COPY"}
+              </button>
+              {survival?.explorerUrl && (
+                <a
+                  href={survival.explorerUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] font-mono px-2 py-1 rounded border border-white/15 text-white/70 hover:text-white hover:border-white/30 transition-colors"
+                >
+                  EXPLORER
+                </a>
+              )}
+              {survival?.faucetUrl && (
+                <a
+                  href={survival.faucetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] font-mono px-2 py-1 rounded border border-neo-yellow/30 text-neo-yellow hover:border-neo-yellow/50 transition-colors"
+                >
+                  FAUCET
+                </a>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Model */}
         <div className="flex items-center justify-between pt-1">

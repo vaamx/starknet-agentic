@@ -5,6 +5,7 @@ import {
   registerQuestion,
   getWeightedProbability,
   resolveMarketQuestion,
+  seedKnownQuestions,
 } from "@/lib/market-reader";
 import { agentLoop } from "@/lib/agent-loop";
 import {
@@ -13,6 +14,8 @@ import {
 } from "@/lib/state-store";
 
 export const runtime = "nodejs";
+
+seedKnownQuestions();
 
 async function withTimeout<T>(
   promise: Promise<T>,

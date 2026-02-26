@@ -13,6 +13,7 @@ import type { DataSourceName } from "@/lib/data-sources/index";
 import { runDebateRound, type Round1Result } from "@/lib/agent-debate";
 import { requireX402 } from "@/lib/x402-middleware";
 import { config } from "@/lib/config";
+import { getLlmConfigurationError } from "@/lib/llm-provider";
 import { z } from "zod";
 import { enforceRateLimit, jsonError } from "@/lib/api-guard";
 
@@ -60,9 +61,8 @@ export async function POST(request: NextRequest) {
     Math.floor((market.resolutionTime - Date.now() / 1000) / 86400)
   );
 
-  const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
-  if (!hasApiKey) {
-    return jsonError("Anthropic API key not configured", 400);
+  if (!config.llmConfigured) {
+    return jsonError(getLlmConfigurationError(), 400);
   }
 
   const encoder = new TextEncoder();

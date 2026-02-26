@@ -56,7 +56,7 @@ function parseTierThreshold(key: string, defaultStrk: number): bigint {
   return BigInt(Math.round((Number.isFinite(n) ? n : defaultStrk) * 1e18));
 }
 
-function balanceToRawTier(balanceWei: bigint): SurvivalTier {
+export function balanceToRawTier(balanceWei: bigint): SurvivalTier {
   const thriving = parseTierThreshold("SURVIVAL_TIER_THRIVING", 1000);
   const healthy  = parseTierThreshold("SURVIVAL_TIER_HEALTHY",  100);
   const low      = parseTierThreshold("SURVIVAL_TIER_LOW",      10);
