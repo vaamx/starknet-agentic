@@ -249,7 +249,7 @@ export default function StatusHeader({
           )}
 
           {/* Route tabs under search */}
-          <div className="pb-2 -mt-0.5 flex items-center justify-center sm:justify-start">
+          <div className="pb-2 -mt-0.5 flex items-center justify-center">
             <div className="inline-flex items-center rounded-xl border border-white/[0.08] bg-white/[0.03] p-1">
               {[
                 { href: "/", label: "Markets" },
