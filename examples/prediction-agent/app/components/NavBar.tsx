@@ -16,8 +16,8 @@ export default function NavBar() {
         href="/"
         className="flex items-center gap-2 font-heading text-sm font-bold tracking-tight text-white no-underline"
       >
-        <span className="text-neo-brand">&#x2B22;</span>
-        <span>Starknet Agentic</span>
+        <span className="text-neo-brand">HC</span>
+        <span>HiveCaster</span>
       </a>
 
       <div className="flex items-center gap-1">

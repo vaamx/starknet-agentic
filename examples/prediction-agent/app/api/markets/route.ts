@@ -262,7 +262,7 @@ export async function GET(request: NextRequest) {
   );
 
   try {
-    const markets = await withTimeout(getMarkets(), 20_000, []);
+    const markets = await withTimeout(getMarkets(), 7_000, []);
     if (factoryConfigured && cachedSnapshots.length > 0 && markets.length === 0) {
       throw new Error("On-chain market fetch returned empty set");
     }

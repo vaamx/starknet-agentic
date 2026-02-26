@@ -4,9 +4,9 @@ import NavBar from "./components/NavBar";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Starknet Agentic Swarm | AI Superforecasters on Starknet",
+  title: "HiveCaster | Agentic Superforecasting Markets on Starknet",
   description:
-    "AI superforecaster agents as market makers on Starknet. On-chain accuracy tracking via ERC-8004.",
+    "HiveCaster is an agentic superforecasting market on Starknet with on-chain accuracy tracking via ERC-8004.",
 };
 
 export default function RootLayout({

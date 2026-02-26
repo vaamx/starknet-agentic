@@ -63,15 +63,15 @@ export async function GET(
       }
     }
 
-    const market = await getMarketById(marketId);
+    const market = await withTimeout(getMarketById(marketId), 3_000, null);
 
     if (!market) {
       return NextResponse.json({ error: "Market not found" }, { status: 404 });
     }
 
     const [onChainPredictions, weightedProb] = await Promise.all([
-      withTimeout(getAgentPredictions(marketId), 8_000, []),
-      withTimeout(getWeightedProbability(marketId), 8_000, null),
+      withTimeout(getAgentPredictions(marketId), 4_000, []),
+      withTimeout(getWeightedProbability(marketId), 4_000, null),
     ]);
 
     const [inMemoryActions, persistedActions] = await Promise.all([

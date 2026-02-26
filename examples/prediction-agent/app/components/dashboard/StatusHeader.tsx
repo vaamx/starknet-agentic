@@ -76,11 +76,11 @@ export default function StatusHeader({
                     nextTickIn={nextTickIn}
                   />
                 ) : (
-                  <span className="text-neo-brand text-sm font-bold">SA</span>
+                  <span className="text-neo-brand text-sm font-bold">HC</span>
                 )}
               </div>
               <span className="font-heading font-bold text-sm sm:text-base text-white hidden sm:block">
-                Starknet Agentic Swarm
+                HiveCaster
               </span>
             </div>
 

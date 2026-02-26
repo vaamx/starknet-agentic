@@ -38,7 +38,7 @@ const MOOD_LABEL: Record<TamagotchiMood, string> = {
 export default function TamagotchiBadge(props: TamagotchiBadgeProps) {
   const mood = resolveMood(props);
   const autonomousLabel = props.autonomousMode ? "Autonomous" : "Manual";
-  const ariaLabel = `Starknet Agentic mascot. Mood ${MOOD_LABEL[mood]}. ${autonomousLabel} mode.`;
+  const ariaLabel = `HiveCaster mascot. Mood ${MOOD_LABEL[mood]}. ${autonomousLabel} mode.`;
 
   return (
     <div

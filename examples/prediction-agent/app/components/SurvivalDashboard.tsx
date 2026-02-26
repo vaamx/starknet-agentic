@@ -276,7 +276,7 @@ export default function SurvivalDashboard() {
           <div className="pt-2 border-t border-white/10 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[9px] font-mono text-white/40 uppercase tracking-wider">
-                Agent Wallet
+                Owner Wallet (Server)
               </span>
               <span
                 className={`text-[9px] font-mono ${
@@ -288,6 +288,9 @@ export default function SurvivalDashboard() {
             </div>
             <p className="text-[10px] font-mono text-white/60 break-all">
               {agentAddress}
+            </p>
+            <p className="text-[10px] text-white/45">
+              Autonomous forecasts/bets use this server wallet. User wallet connect is optional for manual actions.
             </p>
             {needsFunding && (
               <div className="rounded-lg border border-neo-yellow/30 bg-neo-yellow/10 p-2">

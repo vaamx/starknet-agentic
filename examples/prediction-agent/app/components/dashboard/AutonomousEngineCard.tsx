@@ -24,7 +24,7 @@ export default function AutonomousEngineCard({
 }: AutonomousEngineCardProps) {
   const sessionStatusLabel =
     loopStatus?.signerMode === "owner"
-      ? "N/A (OWNER)"
+      ? "N/A (OWNER WALLET)"
       : loopStatus?.sessionKeyConfigured
         ? "READY"
         : "MISSING";
@@ -86,7 +86,9 @@ export default function AutonomousEngineCard({
         <div className="flex items-center justify-between">
           <span>Signer</span>
           <span className="font-mono text-white/80">
-            {loopStatus?.signerMode?.toUpperCase() ?? "--"}
+            {loopStatus?.signerMode === "owner"
+              ? "OWNER (SERVER)"
+              : loopStatus?.signerMode?.toUpperCase() ?? "--"}
           </span>
         </div>
         <div className="flex items-center justify-between">
