@@ -99,7 +99,7 @@ export default function FleetPage() {
     if (showLoading) setLoading(true);
 
     try {
-      const res = await fetchWithTimeout("/api/fleet", 10_000);
+      const res = await fetchWithTimeout("/api/fleet", 5_000);
       if (!res) {
         setStale(true);
         return;

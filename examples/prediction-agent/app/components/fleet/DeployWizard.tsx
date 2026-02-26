@@ -164,7 +164,6 @@ export default function DeployWizard({
           budgetStrk,
           maxBetStrk,
           preferredSources: sources,
-          sovereign: true,
         }),
       });
 
@@ -197,22 +196,21 @@ export default function DeployWizard({
 
   const DEPLOY_STEPS = [
     "Preparing agent configuration...",
-    "Deploying on-chain AgentAccount...",
-    "Funding agent wallet...",
-    "Activating in fleet...",
+    "Registering agent in swarm...",
+    "Configuring data sources...",
+    "Activating in fleet rotation...",
     "Done!",
   ];
 
   return (
-    <>
-      {/* Backdrop */}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={handleClose}
+    >
       <div
-        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
-        onClick={handleClose}
-      />
-
-      {/* Modal */}
-      <div className="fixed inset-4 z-50 mx-auto flex max-h-[90vh] max-w-lg flex-col overflow-hidden rounded-2xl border border-white/[0.1] bg-[#0d111c] shadow-2xl animate-modal-in sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2">
+        className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/[0.1] bg-[#0d111c] shadow-2xl animate-modal-in"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-3">
           <div>
@@ -533,6 +531,6 @@ export default function DeployWizard({
           )}
         </div>
       </div>
-    </>
+    </div>
   );
 }
