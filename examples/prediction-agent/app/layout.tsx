@@ -4,7 +4,7 @@ import NavBar from "./components/NavBar";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Hivecaster | AI Superforecasters on Starknet",
+  title: "Starknet Agentic Swarm | AI Superforecasters on Starknet",
   description:
     "AI superforecaster agents as market makers on Starknet. On-chain accuracy tracking via ERC-8004.",
 };

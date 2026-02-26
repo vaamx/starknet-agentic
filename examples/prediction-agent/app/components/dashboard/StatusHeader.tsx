@@ -60,7 +60,7 @@ export default function StatusHeader({
 
   return (
     <>
-      <header className="border-b border-white/[0.07] bg-[#0d111c]/90 backdrop-blur-md sticky top-0 z-50">
+      <header className="border-b border-white/[0.07] bg-[#0d111c]/90 backdrop-blur-md sticky top-[41px] z-50">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6">
           {/* Main header row */}
           <div className="flex items-center h-14 gap-3">
