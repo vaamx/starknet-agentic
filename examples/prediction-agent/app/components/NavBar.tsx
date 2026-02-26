@@ -12,13 +12,13 @@ export default function NavBar() {
   const pathname = usePathname();
 
   return (
-    <nav className="sticky top-0 z-50 flex items-center gap-6 border-b border-white/[0.07] bg-[#0d111c]/90 px-4 py-2.5 backdrop-blur-md sm:px-6">
+    <nav className="sticky top-0 z-[60] flex items-center gap-6 border-b border-white/[0.07] bg-[#0d111c]/90 px-4 py-2.5 backdrop-blur-md sm:px-6">
       <Link
         href="/"
         className="flex items-center gap-2 font-heading text-sm font-bold tracking-tight text-white"
       >
         <span className="text-neo-brand">&#x2B22;</span>
-        <span>Hivecaster</span>
+        <span>Starknet Agentic</span>
       </Link>
 
       <div className="flex items-center gap-1">
