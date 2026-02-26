@@ -432,6 +432,13 @@ class AgentLoop {
   /** Count of consecutive thriving ticks for replication guard */
   private thrivingTickCount = 0;
 
+  private getBuiltInPersonas(): AgentPersona[] {
+    if (config.agentSingleAgentMode) {
+      return AGENT_PERSONAS.slice(0, 1);
+    }
+    return AGENT_PERSONAS;
+  }
+
   /** Legacy: start server-side interval (only works in long-lived processes) */
   start(intervalMs?: number) {
     if (this.isRunning) return;
@@ -452,6 +459,7 @@ class AgentLoop {
 
   getStatus(): LoopStatus {
     const spawned = agentSpawner.list().filter((a) => a.status === "running");
+    const builtInPersonas = this.getBuiltInPersonas();
     return {
       isRunning: this.isRunning,
       tickCount: this.tickCount,
@@ -459,7 +467,7 @@ class AgentLoop {
       nextTickAt: this.isRunning
         ? (this.lastTickAt ?? Date.now()) + this.intervalMs
         : null,
-      activeAgentCount: AGENT_PERSONAS.length + spawned.length,
+      activeAgentCount: builtInPersonas.length + spawned.length,
       intervalMs: this.intervalMs,
       onChainEnabled: isAgentConfigured(),
       aiEnabled: config.llmConfigured,
@@ -793,12 +801,14 @@ class AgentLoop {
         if (!runtimeActive) return true;
         return runtime.schedulerMode === "parent";
       });
-    const tickActors = buildTickAgentActors(AGENT_PERSONAS, parentEligibleSpawned);
+    const builtInPersonas = this.getBuiltInPersonas();
+    const tickActors = buildTickAgentActors(builtInPersonas, parentEligibleSpawned);
     const configuredActorsPerTick =
       Number.isFinite(config.agentActorsPerTick) && config.agentActorsPerTick > 0
         ? Math.floor(config.agentActorsPerTick)
         : 1;
-    const minimumActorsPerTick = tickActors.length > 1 ? 2 : 1;
+    const minimumActorsPerTick =
+      config.agentSingleAgentMode || tickActors.length <= 1 ? 1 : 2;
     const actorsPerTick = Math.max(
       minimumActorsPerTick,
       Math.min(tickActors.length, configuredActorsPerTick, 2)
@@ -920,7 +930,7 @@ class AgentLoop {
     if (openMarkets.length === 0) return;
 
     // Run built-in personas
-    for (const persona of AGENT_PERSONAS) {
+    for (const persona of this.getBuiltInPersonas()) {
       const target = openMarkets[Math.floor(Math.random() * openMarkets.length)];
       await this.runAgentOnMarket(persona, target);
     }
@@ -1020,7 +1030,7 @@ class AgentLoop {
     let marketPeerPredictions = [] as Awaited<ReturnType<typeof getAgentPredictions>>;
     const toolEvidence: ToolEvidence[] = [];
     try {
-      if (!config.llmConfigured) {
+      if (!config.llmForecastConfigured) {
         emit(
           this.createAction({
             agentId,
@@ -1029,7 +1039,7 @@ class AgentLoop {
             marketId: target.id,
             question,
             detail:
-              `LLM provider ${config.llmProvider} not configured — forecasting disabled`,
+              `LLM provider ${config.llmForecastProvider} not configured for forecast — forecasting disabled`,
           })
         );
         return;
@@ -2131,7 +2141,9 @@ class AgentLoop {
     this.debateCounter += 1;
     if (!params.force && this.debateCounter % interval !== 0) return;
 
-    const challengers = AGENT_PERSONAS.filter((p) => p.id !== params.lead.id);
+    const challengers = this
+      .getBuiltInPersonas()
+      .filter((p) => p.id !== params.lead.id);
     if (challengers.length === 0) return;
     const shuffled = challengers
       .slice()

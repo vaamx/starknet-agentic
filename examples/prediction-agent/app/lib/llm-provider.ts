@@ -1,8 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "./config";
 
-export type LlmTask = "forecast" | "debate" | "resolution";
-export type LlmProvider = "anthropic" | "xai";
+export type LlmTask = "forecast" | "debate" | "resolution" | "triage";
+export type LlmProvider = "anthropic" | "xai" | "local";
 
 interface CompleteTextParams {
   task: LlmTask;
@@ -14,6 +14,13 @@ interface CompleteTextParams {
   enableXaiResearchTools?: boolean;
 }
 
+export function getLlmProviderForTask(task: LlmTask): LlmProvider {
+  if (task === "forecast") return config.llmForecastProvider as LlmProvider;
+  if (task === "debate") return config.llmDebateProvider as LlmProvider;
+  if (task === "resolution") return config.llmResolutionProvider as LlmProvider;
+  return config.llmTriageProvider as LlmProvider;
+}
+
 function defaultModelForTask(provider: LlmProvider, task: LlmTask): string {
   if (provider === "xai") {
     const fromTask =
@@ -21,45 +28,69 @@ function defaultModelForTask(provider: LlmProvider, task: LlmTask): string {
         ? config.llmForecastModel
         : task === "debate"
           ? config.llmDebateModel
-          : config.llmResolutionModel;
+          : task === "resolution"
+            ? config.llmResolutionModel
+            : config.llmTriageModel;
     return fromTask || config.llmModel || "grok-4-latest";
+  }
+
+  if (provider === "anthropic") {
+    const fromTask =
+      task === "forecast"
+        ? config.llmForecastModel
+        : task === "debate"
+          ? config.llmDebateModel
+          : task === "resolution"
+            ? config.llmResolutionModel
+            : config.llmTriageModel;
+    return fromTask || config.llmModel || "claude-sonnet-4-6";
   }
 
   const fromTask =
     task === "forecast"
-      ? config.llmForecastModel
+      ? config.ollamaForecastModel
       : task === "debate"
-        ? config.llmDebateModel
-        : config.llmResolutionModel;
-  return fromTask || config.llmModel || "claude-sonnet-4-6";
+        ? config.ollamaDebateModel
+        : task === "resolution"
+          ? config.ollamaResolutionModel
+          : config.ollamaTriageModel;
+  return fromTask || config.ollamaModel || "qwen2.5:7b-instruct";
 }
 
 function modelMatchesProvider(model: string, provider: LlmProvider): boolean {
   const normalized = model.toLowerCase();
   if (provider === "xai") return normalized.startsWith("grok");
-  return normalized.includes("claude");
+  if (provider === "anthropic") return normalized.includes("claude");
+  return !normalized.includes("claude") && !normalized.startsWith("grok");
 }
 
 export function resolveLlmModel(task: LlmTask, modelOverride?: string): string {
-  const provider = config.llmProvider as LlmProvider;
+  const provider = getLlmProviderForTask(task);
   if (modelOverride && modelMatchesProvider(modelOverride, provider)) {
     return modelOverride;
   }
   return defaultModelForTask(provider, task);
 }
 
-export function getLlmProviderLabel(): string {
-  return (config.llmProvider as LlmProvider) === "xai"
-    ? "xAI (Grok)"
-    : "Anthropic";
+export function getLlmProviderLabel(task: LlmTask = "forecast"): string {
+  const provider = getLlmProviderForTask(task);
+  if (provider === "xai") return "xAI (Grok)";
+  if (provider === "local") return "Local (Ollama)";
+  return "Anthropic";
 }
 
-export function getLlmConfigurationError(): string {
-  const provider = config.llmProvider as LlmProvider;
+export function getLlmConfigurationError(task: LlmTask = "forecast"): string {
+  const provider = getLlmProviderForTask(task);
   if (provider === "xai") {
-    return "xAI provider selected but XAI_API_KEY is not configured";
+    return `xAI provider selected for ${task} but XAI_API_KEY is not configured`;
   }
-  return "Anthropic provider selected but ANTHROPIC_API_KEY is not configured";
+  if (provider === "local") {
+    return (
+      `Local provider selected for ${task} but Ollama is not configured. ` +
+      "Set OLLAMA_BASE_URL and OLLAMA_MODEL."
+    );
+  }
+  return `Anthropic provider selected for ${task} but ANTHROPIC_API_KEY is not configured`;
 }
 
 function extractAnthropicText(response: Anthropic.Message): string {
@@ -85,6 +116,16 @@ function extractXaiText(payload: any): string {
   return "";
 }
 
+function extractOllamaText(payload: any): string {
+  const fromChat = payload?.message?.content;
+  if (typeof fromChat === "string") return fromChat.trim();
+  const fromGenerate = payload?.response;
+  if (typeof fromGenerate === "string") return fromGenerate.trim();
+  const fromOutput = payload?.output?.text;
+  if (typeof fromOutput === "string") return fromOutput.trim();
+  return "";
+}
+
 function buildXaiNativeTools(): Array<Record<string, unknown>> {
   if (!config.xaiNativeToolsEnabled) return [];
 
@@ -107,7 +148,7 @@ function buildXaiNativeTools(): Array<Record<string, unknown>> {
 async function completeWithXai(params: CompleteTextParams): Promise<string> {
   const apiKey = process.env.XAI_API_KEY;
   if (!apiKey) {
-    throw new Error(getLlmConfigurationError());
+    throw new Error(getLlmConfigurationError(params.task));
   }
 
   const model = resolveLlmModel(params.task, params.model);
@@ -176,10 +217,56 @@ async function completeWithXai(params: CompleteTextParams): Promise<string> {
   return fallbackText;
 }
 
+async function completeWithLocal(params: CompleteTextParams): Promise<string> {
+  const model = resolveLlmModel(params.task, params.model);
+  const messages: Array<{ role: "system" | "user"; content: string }> = [];
+  if (params.systemPrompt) {
+    messages.push({ role: "system", content: params.systemPrompt });
+  }
+  messages.push({ role: "user", content: params.userMessage });
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (config.ollamaApiKey) {
+    headers.Authorization = `Bearer ${config.ollamaApiKey}`;
+  }
+
+  const response = await fetch(`${config.ollamaBaseUrl}/api/chat`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model,
+      messages,
+      stream: false,
+      options: {
+        temperature: params.temperature ?? 0.2,
+        num_predict: params.maxTokens ?? 1024,
+      },
+    }),
+    cache: "no-store",
+  });
+
+  const payload = await response
+    .json()
+    .catch(() => ({ error: `Ollama HTTP ${response.status}` }));
+  if (!response.ok) {
+    const message =
+      payload?.error || payload?.message || `Ollama request failed: HTTP ${response.status}`;
+    throw new Error(String(message));
+  }
+
+  const text = extractOllamaText(payload);
+  if (!text) {
+    throw new Error("Ollama response missing content");
+  }
+  return text;
+}
+
 async function completeWithAnthropic(params: CompleteTextParams): Promise<string> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    throw new Error(getLlmConfigurationError());
+    throw new Error(getLlmConfigurationError(params.task));
   }
 
   const client = new Anthropic({ apiKey });
@@ -197,12 +284,21 @@ async function completeWithAnthropic(params: CompleteTextParams): Promise<string
 }
 
 export async function completeText(params: CompleteTextParams): Promise<string> {
-  if (!config.llmConfigured) {
-    throw new Error(getLlmConfigurationError());
-  }
-
-  if ((config.llmProvider as LlmProvider) === "xai") {
+  const provider = getLlmProviderForTask(params.task);
+  if (provider === "xai") {
+    if (!process.env.XAI_API_KEY) {
+      throw new Error(getLlmConfigurationError(params.task));
+    }
     return completeWithXai(params);
+  }
+  if (provider === "local") {
+    if (!config.ollamaBaseUrl || !config.ollamaModel) {
+      throw new Error(getLlmConfigurationError(params.task));
+    }
+    return completeWithLocal(params);
+  }
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error(getLlmConfigurationError(params.task));
   }
   return completeWithAnthropic(params);
 }

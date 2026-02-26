@@ -17,6 +17,7 @@ import {
   type AgenticForecastEvent,
 } from "./forecast-tools";
 import { config } from "./config";
+import { completeText, resolveLlmModel } from "./llm-provider";
 import type { AgentPersona } from "./agent-personas";
 
 export interface ResearchEvent {
@@ -48,6 +49,41 @@ export interface MarketContext {
   timeUntilResolution?: string;
   systemPrompt?: string;
   model?: string;
+}
+
+async function triageResearchBrief(question: string, brief: string): Promise<string> {
+  if (!config.agentResearchTriageEnabled || !config.llmTriageConfigured) {
+    return brief;
+  }
+
+  const truncated =
+    brief.length > 14_000 ? `${brief.slice(0, 14_000)}\n...[truncated]` : brief;
+
+  try {
+    const triage = await completeText({
+      task: "triage",
+      model: resolveLlmModel("triage"),
+      maxTokens: 420,
+      temperature: 0.1,
+      enableXaiResearchTools: false,
+      systemPrompt:
+        "You are a research triage agent. Condense noisy source output into decision-grade evidence for a forecaster.",
+      userMessage:
+        `Question: "${question}"\n\n` +
+        "Research evidence:\n" +
+        `${truncated}\n\n` +
+        "Return exactly 4 sections:\n" +
+        "1) Confirmed facts (bullets)\n" +
+        "2) Conflicting signals (bullets)\n" +
+        "3) Missing evidence required to resolve uncertainty (bullets)\n" +
+        "4) Calibration note (1-2 lines, no probability)\n",
+    });
+
+    const cleaned = triage.trim();
+    return cleaned.length > 0 ? cleaned : brief;
+  } catch {
+    return brief;
+  }
 }
 
 /**
@@ -86,17 +122,18 @@ export async function* researchAndForecast(
 
   // 3. Build research brief
   const brief = buildResearchBrief(results);
+  const triagedBrief = await triageResearchBrief(question, brief);
 
   // 4. Run forecast with enriched context
   const useToolUse = config.toolUseEnabled;
   const generator = useToolUse
     ? agenticForecastMarket(question, {
         ...marketContext,
-        researchBrief: brief,
+        researchBrief: triagedBrief,
       })
     : forecastMarket(question, {
         ...marketContext,
-        researchBrief: brief,
+        researchBrief: triagedBrief,
       });
 
   let fullText = "";

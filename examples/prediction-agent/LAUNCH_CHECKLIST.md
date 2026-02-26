@@ -11,7 +11,10 @@ Production checklist for the Starknet superforecasting prediction agent.
 - [ ] Optional dry run for template env: `pnpm --filter prediction-agent preflight -- --env-file .env.example --allow-placeholders --skip-test --skip-build`.
 - [ ] `HEARTBEAT_SECRET` configured (not empty).
 - [ ] `AGENT_ADDRESS`, `AGENT_PRIVATE_KEY`, `MARKET_FACTORY_ADDRESS`, `ACCURACY_TRACKER_ADDRESS` configured.
-- [ ] `ANTHROPIC_API_KEY` configured.
+- [ ] Forecast provider credential configured:
+  - `XAI_API_KEY`, or
+  - `ANTHROPIC_API_KEY`, or
+  - `OLLAMA_BASE_URL` + `OLLAMA_MODEL` (local).
 - [ ] STRK balance funded for the agent wallet.
 
 ## 2. Rate Limit and Abuse Controls

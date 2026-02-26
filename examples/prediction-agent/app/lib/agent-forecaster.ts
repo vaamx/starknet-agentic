@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { config } from "./config";
 import {
   completeText,
+  getLlmProviderForTask,
   getLlmConfigurationError,
   resolveLlmModel,
 } from "./llm-provider";
@@ -52,8 +53,9 @@ export async function* forecastMarket(
     model?: string;
   }
 ): AsyncGenerator<string, ForecastResult> {
-  if (!config.llmConfigured) {
-    throw new Error(getLlmConfigurationError());
+  const forecastProvider = getLlmProviderForTask("forecast");
+  if (!config.llmForecastConfigured) {
+    throw new Error(getLlmConfigurationError("forecast"));
   }
 
   let contextStr = "";
@@ -82,10 +84,10 @@ export async function* forecastMarket(
   const model = resolveLlmModel("forecast", context.model);
   let fullText = "";
 
-  if (config.llmProvider === "anthropic") {
+  if (forecastProvider === "anthropic") {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
-      throw new Error(getLlmConfigurationError());
+      throw new Error(getLlmConfigurationError("forecast"));
     }
     const client = new Anthropic({ apiKey });
     const stream = client.messages.stream({

@@ -396,6 +396,19 @@ export function buildChildServerEnv(args: {
   if (process.env.AGENT_LLM_MODEL) {
     envVars.AGENT_LLM_MODEL = process.env.AGENT_LLM_MODEL;
   }
+  if (process.env.AGENT_LLM_PROVIDER_FORECAST) {
+    envVars.AGENT_LLM_PROVIDER_FORECAST = process.env.AGENT_LLM_PROVIDER_FORECAST;
+  }
+  if (process.env.AGENT_LLM_PROVIDER_DEBATE) {
+    envVars.AGENT_LLM_PROVIDER_DEBATE = process.env.AGENT_LLM_PROVIDER_DEBATE;
+  }
+  if (process.env.AGENT_LLM_PROVIDER_RESOLUTION) {
+    envVars.AGENT_LLM_PROVIDER_RESOLUTION =
+      process.env.AGENT_LLM_PROVIDER_RESOLUTION;
+  }
+  if (process.env.AGENT_LLM_PROVIDER_TRIAGE) {
+    envVars.AGENT_LLM_PROVIDER_TRIAGE = process.env.AGENT_LLM_PROVIDER_TRIAGE;
+  }
   if (process.env.AGENT_LLM_FORECAST_MODEL) {
     envVars.AGENT_LLM_FORECAST_MODEL = process.env.AGENT_LLM_FORECAST_MODEL;
   }
@@ -404,6 +417,16 @@ export function buildChildServerEnv(args: {
   }
   if (process.env.AGENT_LLM_RESOLUTION_MODEL) {
     envVars.AGENT_LLM_RESOLUTION_MODEL = process.env.AGENT_LLM_RESOLUTION_MODEL;
+  }
+  if (process.env.AGENT_LLM_TRIAGE_MODEL) {
+    envVars.AGENT_LLM_TRIAGE_MODEL = process.env.AGENT_LLM_TRIAGE_MODEL;
+  }
+  if (process.env.AGENT_RESEARCH_TRIAGE_ENABLED) {
+    envVars.AGENT_RESEARCH_TRIAGE_ENABLED =
+      process.env.AGENT_RESEARCH_TRIAGE_ENABLED;
+  }
+  if (process.env.AGENT_SINGLE_AGENT_MODE) {
+    envVars.AGENT_SINGLE_AGENT_MODE = process.env.AGENT_SINGLE_AGENT_MODE;
   }
   if (process.env.ANTHROPIC_API_KEY) {
     envVars.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
@@ -435,6 +458,27 @@ export function buildChildServerEnv(args: {
   }
   if (process.env.XAI_CODE_TOOL_TYPE) {
     envVars.XAI_CODE_TOOL_TYPE = process.env.XAI_CODE_TOOL_TYPE;
+  }
+  if (process.env.OLLAMA_BASE_URL) {
+    envVars.OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL;
+  }
+  if (process.env.OLLAMA_MODEL) {
+    envVars.OLLAMA_MODEL = process.env.OLLAMA_MODEL;
+  }
+  if (process.env.OLLAMA_FORECAST_MODEL) {
+    envVars.OLLAMA_FORECAST_MODEL = process.env.OLLAMA_FORECAST_MODEL;
+  }
+  if (process.env.OLLAMA_DEBATE_MODEL) {
+    envVars.OLLAMA_DEBATE_MODEL = process.env.OLLAMA_DEBATE_MODEL;
+  }
+  if (process.env.OLLAMA_RESOLUTION_MODEL) {
+    envVars.OLLAMA_RESOLUTION_MODEL = process.env.OLLAMA_RESOLUTION_MODEL;
+  }
+  if (process.env.OLLAMA_TRIAGE_MODEL) {
+    envVars.OLLAMA_TRIAGE_MODEL = process.env.OLLAMA_TRIAGE_MODEL;
+  }
+  if (process.env.OLLAMA_API_KEY) {
+    envVars.OLLAMA_API_KEY = process.env.OLLAMA_API_KEY;
   }
   if (config.HEARTBEAT_SECRET) {
     envVars.HEARTBEAT_SECRET = config.HEARTBEAT_SECRET;

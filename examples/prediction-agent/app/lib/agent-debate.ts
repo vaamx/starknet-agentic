@@ -62,8 +62,8 @@ export async function runDebateRound(
   question: string,
   systemPrompts: Record<string, string>
 ): Promise<DebateResult[]> {
-  if (!config.llmConfigured) {
-    throw new Error(getLlmConfigurationError());
+  if (!config.llmDebateConfigured) {
+    throw new Error(getLlmConfigurationError("debate"));
   }
   const results: DebateResult[] = [];
 
@@ -146,10 +146,10 @@ export async function generateDebateExchange(params: {
     });
   }
 
-  if (!config.llmConfigured) {
+  if (!config.llmDebateConfigured) {
     return buildFallbackDebateMessage({
       leadProbability: params.leadProbability,
-      reason: getLlmConfigurationError(),
+      reason: getLlmConfigurationError("debate"),
     });
   }
 
