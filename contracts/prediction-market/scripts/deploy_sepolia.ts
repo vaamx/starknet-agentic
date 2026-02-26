@@ -215,6 +215,31 @@ async function main() {
   const factoryAddress = (factoryDeploy as any).contract_address ?? (factoryDeploy as any).address;
   console.log(`  Factory deployed: ${factoryAddress}\n`);
 
+  const configuredFeeRecipient =
+    process.env.FACTORY_FEE_RECIPIENT?.trim() || deployerAddress;
+  if (configuredFeeRecipient !== deployerAddress) {
+    console.log(`[CONFIGURE] Setting factory fee recipient -> ${configuredFeeRecipient}`);
+    const FACTORY_ADMIN_ABI = [
+      {
+        name: "set_fee_recipient",
+        type: "function",
+        inputs: [
+          {
+            name: "fee_recipient",
+            type: "core::starknet::contract_address::ContractAddress",
+          },
+        ],
+        outputs: [],
+        state_mutability: "external",
+      },
+    ] as const;
+    const adminFactory = new Contract(FACTORY_ADMIN_ABI as any, factoryAddress, account);
+    const tx = await adminFactory.set_fee_recipient(configuredFeeRecipient);
+    console.log(`  Tx: ${tx.transaction_hash}`);
+    await provider.waitForTransaction(tx.transaction_hash);
+    console.log("  Fee recipient configured.\n");
+  }
+
   // ---- Deploy AccuracyTracker ----
   console.log("[DEPLOY] AccuracyTracker...");
   const trackerDeploy = await account.deployContract({

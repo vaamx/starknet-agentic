@@ -1,5 +1,6 @@
 #[starknet::contract]
 pub mod MarketFactory {
+    use core::num::traits::Zero;
     use openzeppelin::access::ownable::OwnableComponent;
     use starknet::storage::*;
     use starknet::{
@@ -19,6 +20,7 @@ pub mod MarketFactory {
         #[substorage(v0)]
         ownable: OwnableComponent::Storage,
         market_class_hash: ClassHash,
+        fee_recipient: ContractAddress,
         market_count: u256,
         markets: Map<u256, ContractAddress>,
     }
@@ -29,6 +31,7 @@ pub mod MarketFactory {
         #[flat]
         OwnableEvent: OwnableComponent::Event,
         MarketCreated: MarketCreated,
+        FeeRecipientUpdated: FeeRecipientUpdated,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -41,12 +44,19 @@ pub mod MarketFactory {
         pub resolution_time: u64,
     }
 
+    #[derive(Drop, starknet::Event)]
+    pub struct FeeRecipientUpdated {
+        pub previous_fee_recipient: ContractAddress,
+        pub new_fee_recipient: ContractAddress,
+    }
+
     #[constructor]
     fn constructor(
         ref self: ContractState, owner: ContractAddress, market_class_hash: ClassHash,
     ) {
         self.ownable.initializer(owner);
         self.market_class_hash.write(market_class_hash);
+        self.fee_recipient.write(owner);
         self.market_count.write(0);
     }
 
@@ -69,6 +79,7 @@ pub mod MarketFactory {
             calldata.append(oracle.into());
             calldata.append(caller.into()); // creator = caller
             calldata.append(collateral_token.into());
+            calldata.append(self.fee_recipient.read().into());
             calldata.append(fee_bps.into());
 
             // Unique salt from market count + caller + timestamp
@@ -100,6 +111,21 @@ pub mod MarketFactory {
 
         fn get_market_count(self: @ContractState) -> u256 {
             self.market_count.read()
+        }
+
+        fn set_fee_recipient(ref self: ContractState, fee_recipient: ContractAddress) {
+            self.ownable.assert_only_owner();
+            assert(!fee_recipient.is_zero(), 'bad fee recipient');
+            let previous = self.fee_recipient.read();
+            self.fee_recipient.write(fee_recipient);
+            self.emit(FeeRecipientUpdated {
+                previous_fee_recipient: previous,
+                new_fee_recipient: fee_recipient,
+            });
+        }
+
+        fn get_fee_recipient(self: @ContractState) -> ContractAddress {
+            self.fee_recipient.read()
         }
     }
 

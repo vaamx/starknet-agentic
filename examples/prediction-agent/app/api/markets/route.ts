@@ -65,12 +65,49 @@ function applyMarketWindow<T extends { id: number; status: number; resolutionTim
   return filtered.sort((a, b) => b.id - a.id).slice(0, limit);
 }
 
+const LEGACY_TIME_HASH_SUFFIX_REGEX = /\s+\d{1,3}d\s+[0-9a-f]{4,8}\??$/i;
+const TRAILING_SHORT_HEX_SUFFIX_REGEX = /\s+[0-9a-f]{4,8}\??$/i;
+const TRAILING_FRAGMENT_SUFFIX_REGEX = /\s+(?:in|i|win|t|clo)\??$/i;
+const GENERIC_PREDICATE_END_SUFFIX_REGEX = /\b(?:win|lose|reach|hit|close|rise|fall)\?$/i;
+
 function normalizeQuestionKey(value: string): string {
-  return value
+  const cleaned = value
+    .trim()
+    .replace(LEGACY_TIME_HASH_SUFFIX_REGEX, "")
+    .replace(TRAILING_SHORT_HEX_SUFFIX_REGEX, "")
+    .replace(/\bwin t\b/gi, "win")
+    .replace(TRAILING_FRAGMENT_SUFFIX_REGEX, "");
+
+  if (!cleaned) return "";
+
+  return cleaned
     .toLowerCase()
+    .replace(/\bwill\b/g, " ")
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function isMalformedQuestion(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) return true;
+  if (normalized.length < 15) return true;
+  if (normalized.startsWith("Market #")) return true;
+  if (/\bwin t\b/i.test(normalized)) return true;
+  if (LEGACY_TIME_HASH_SUFFIX_REGEX.test(normalized)) return true;
+  if (TRAILING_FRAGMENT_SUFFIX_REGEX.test(normalized)) return true;
+  if (GENERIC_PREDICATE_END_SUFFIX_REGEX.test(normalized)) return true;
+  if (
+    TRAILING_SHORT_HEX_SUFFIX_REGEX.test(normalized) &&
+    !/\b(19|20)\d{2}\b/.test(normalized)
+  ) {
+    return true;
+  }
+
+  return value
+    .replace(/\0/g, "")
+    .trim()
+    .length < 15;
 }
 
 function parsePool(value: string): bigint {
@@ -154,9 +191,8 @@ function filterEmptyMarkets<
     const isOpen = m.status === 0 && m.resolutionTime > nowSec;
     const keepRecent = keepRecentMarketIds.has(m.id);
 
-    // Drop unresolved placeholders / garbled short labels.
-    if (m.question.length < 15) return false;
-    if (m.question.startsWith("Market #")) return false;
+    // Drop malformed/junk labels even if they are "recent".
+    if (isMalformedQuestion(m.question)) return false;
 
     // Filter legacy truncated labels that end mid-phrase and have no activity.
     const truncatedLegacy =
