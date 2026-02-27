@@ -29,7 +29,7 @@ export async function GET() {
 
   const manifest = {
     schema_version: "1.0",
-    name: "BitSage Prediction Oracle",
+    name: "HiveCaster Prediction Oracle",
     description:
       "Autonomous on-chain prediction market agent on Starknet Sepolia. " +
       "Multi-AI-persona research + debate + STRK-collateral betting. " +
@@ -38,8 +38,8 @@ export async function GET() {
     url: baseUrl,
     version: "2.0.0",
     author: {
-      name: "BitSage Network / keep-starknet-strange",
-      url: "https://github.com/keep-starknet-strange/starknet-agentic",
+      name: "HiveCaster Labs",
+      url: "https://github.com/vaamx/starknet-agentic",
     },
 
     // ── Protocol support ───────────────────────────────────────────────────
@@ -69,6 +69,16 @@ export async function GET() {
         description:
           "A2A peer forecast mesh. POST forecasts to /api/openclaw/forecast; " +
           "delegate to peers via /api/openclaw/delegate.",
+      },
+      {
+        name: "OpenAPI",
+        description: "Machine-readable HTTP API schema for workers and SDK generation.",
+        endpoint: `${baseUrl}/api/openapi.json`,
+      },
+      {
+        name: "Protocol Lifecycle",
+        description: "Machine-readable network state machine for orchestration compatibility.",
+        endpoint: `${baseUrl}/api/network/state-machine`,
       },
     ],
 
@@ -140,6 +150,13 @@ export async function GET() {
     // ── Endpoints ─────────────────────────────────────────────────────────
     endpoints: {
       agentCard:    `${baseUrl}/.well-known/agent-card.json`,
+      skill:        `${baseUrl}/skill.md`,
+      stateMachineDoc: `${baseUrl}/network-state-machine.md`,
+      openapi:      `${baseUrl}/api/openapi.json`,
+      swagger:      `${baseUrl}/api/swagger`,
+      contracts:    `${baseUrl}/api/network/contracts`,
+      stateMachine: `${baseUrl}/api/network/state-machine`,
+      stateMachineSchema: `${baseUrl}/api/network/state-machine/schema`,
       predict:      `${baseUrl}/api/predict`,
       multiPredict: `${baseUrl}/api/multi-predict`,
       markets:      `${baseUrl}/api/markets`,

@@ -10,6 +10,7 @@
     "chaos:sim": "tsx scripts/chaos-sim.ts",
     "network:heartbeat": "tsx scripts/network-heartbeat.ts",
     "network:agent": "tsx scripts/network-agent.ts",
+    "hivecaster": "tsx scripts/hivecaster.ts",
     "preflight": "bash scripts/preflight.sh",
     "secrets:audit": "node scripts/secrets-audit.mjs",
     "launch:closure": "node scripts/launch-closure.mjs",
