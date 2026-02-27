@@ -263,6 +263,9 @@ export default function AgentPage() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const displayName = entry?.identity?.name ?? entry?.agent ?? resolvedName;
+  const displayLabel = isWalletLike(displayName)
+    ? truncateMiddle(displayName, 14, 10)
+    : displayName;
   const voice = getAgentVoiceByName(displayName);
   const accentColor = voice?.colorClass ?? "text-neo-blue";
   const accentBg = accentColor.replace("text-", "bg-");
@@ -380,7 +383,7 @@ export default function AgentPage() {
   if (loading) return (
     <div className="min-h-screen bg-cream">
       <div className="max-w-3xl mx-auto px-4 pt-8">
-        <TamagotchiLoader text={`Loading ${displayName}...`} />
+        <TamagotchiLoader size="large" text={`Loading ${displayLabel}...`} />
       </div>
     </div>
   );
@@ -443,6 +446,13 @@ export default function AgentPage() {
       : 0;
   const signalWindowLabel =
     signalWindow === "1h" ? "Last 1h" : signalWindow === "24h" ? "Last 24h" : "Last 7d";
+  const latestActivityAt =
+    activities.length > 0 ? Math.max(...activities.map((item) => item.timestamp)) : null;
+  const profileState = latestActivityAt ? "ACTIVE" : "BOOTSTRAP";
+  const profileStateTone = latestActivityAt
+    ? "border-neo-green/35 bg-neo-green/10 text-neo-green"
+    : "border-white/15 bg-white/[0.06] text-white/55";
+  const hasDomainCoverage = domainMix.some((item) => item.count > 0);
 
   return (
     <div className="min-h-screen bg-cream">
@@ -477,8 +487,11 @@ export default function AgentPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h1 className={`font-heading font-bold text-xl sm:text-2xl leading-tight break-words ${accentColor}`}>
-                    {displayName}
+                    {displayLabel}
                   </h1>
+                  <span className={`neo-badge border text-[9px] sm:text-[10px] ${profileStateTone}`}>
+                    {profileState}
+                  </span>
                   {entry.identity && (
                     <span className="neo-badge border border-neo-brand/35 bg-neo-brand/18 text-neo-brand text-[9px] sm:text-[10px]">
                       VERIFIED
@@ -505,6 +518,9 @@ export default function AgentPage() {
                       {truncateMiddle(profileWallet, 12, 10)}
                     </span>
                   )}
+                  <span className="neo-badge border border-white/12 bg-white/[0.05] text-white/60 font-mono">
+                    {latestActivityAt ? `last ${timeAgo(latestActivityAt)}` : "no actions yet"}
+                  </span>
                 </div>
               </div>
 
@@ -654,17 +670,23 @@ export default function AgentPage() {
 
               <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
                 <p className="text-[10px] uppercase tracking-widest text-white/35 mb-2">Domain Mix</p>
-                <div className="space-y-1.5">
-                  {domainMix.map((item) => (
-                    <div key={item.domain} className="grid grid-cols-[64px,1fr,32px] items-center gap-2 text-[10px]">
-                      <span className="text-white/55">{item.domain}</span>
-                      <div className="h-1.5 rounded-full bg-white/[0.09] overflow-hidden">
-                        <div className="h-full rounded-full bg-gradient-to-r from-neo-cyan to-neo-brand" style={{ width: `${item.pct}%` }} />
+                {hasDomainCoverage ? (
+                  <div className="space-y-1.5">
+                    {domainMix.map((item) => (
+                      <div key={item.domain} className="grid grid-cols-[64px,1fr,32px] items-center gap-2 text-[10px]">
+                        <span className="text-white/55">{item.domain}</span>
+                        <div className="h-1.5 rounded-full bg-white/[0.09] overflow-hidden">
+                          <div className="h-full rounded-full bg-gradient-to-r from-neo-cyan to-neo-brand" style={{ width: `${item.pct}%` }} />
+                        </div>
+                        <span className="font-mono text-right text-white/55">{item.count}</span>
                       </div>
-                      <span className="font-mono text-right text-white/55">{item.count}</span>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-white/45 leading-relaxed">
+                    No domain coverage yet. Once this agent posts forecasts, domain breakdown appears here.
+                  </p>
+                )}
               </div>
             </div>
           </section>
@@ -764,10 +786,25 @@ export default function AgentPage() {
                   );
                 })
               ) : (
-                <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-5 text-center">
-                  <p className="text-xs text-white/45">
-                    No live debate thread yet for this agent. Threads appear after disagreements.
+                <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+                  <p className="text-xs text-white/70 font-heading">No live debate threads yet</p>
+                  <p className="mt-2 text-[11px] text-white/45 leading-relaxed">
+                    Debate timelines appear once this agent and peer agents disagree on the same market.
                   </p>
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <Link
+                      href="/fleet"
+                      className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-[11px] text-white/70 hover:bg-white/[0.08] transition-colors text-center"
+                    >
+                      Open Fleet
+                    </Link>
+                    <Link
+                      href="/"
+                      className="rounded-lg border border-neo-brand/25 bg-neo-brand/12 px-3 py-2 text-[11px] text-neo-brand hover:bg-neo-brand/20 transition-colors text-center"
+                    >
+                      View Markets
+                    </Link>
+                  </div>
                 </div>
               )}
             </div>
@@ -823,8 +860,24 @@ export default function AgentPage() {
             </div>
           ) : (
             <div className="neo-card p-6">
-              <h2 className="font-heading font-bold text-sm text-white mb-3">Prediction Timeline</h2>
-              <p className="text-xs text-white/40">No activity recorded yet.</p>
+              <h2 className="font-heading font-bold text-sm text-white mb-2">Prediction Timeline</h2>
+              <p className="text-xs text-white/45 leading-relaxed">
+                No activity recorded yet. This section fills with forecasts, debates, bets, and resolution actions.
+              </p>
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5">
+                  <p className="text-[10px] text-white/35 uppercase tracking-wide">Step 1</p>
+                  <p className="mt-1 text-[11px] text-white/65">Run autonomous tick</p>
+                </div>
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5">
+                  <p className="text-[10px] text-white/35 uppercase tracking-wide">Step 2</p>
+                  <p className="mt-1 text-[11px] text-white/65">Generate first forecast</p>
+                </div>
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5">
+                  <p className="text-[10px] text-white/35 uppercase tracking-wide">Step 3</p>
+                  <p className="mt-1 text-[11px] text-white/65">Track debate + bet trail</p>
+                </div>
+              </div>
             </div>
           )}
 
@@ -859,6 +912,16 @@ export default function AgentPage() {
                   <div className="pt-2 border-t border-white/[0.07]">
                     <p className="text-[10px] text-white/35 uppercase tracking-wider mb-1">Wallet</p>
                     <p className="text-[11px] font-mono text-neo-cyan break-all">{profileWallet}</p>
+                    <div className="mt-2">
+                      <a
+                        href={`https://sepolia.starkscan.co/contract/${profileWallet}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-md border border-neo-cyan/30 bg-neo-cyan/10 px-2 py-1 text-[10px] font-mono text-neo-cyan hover:bg-neo-cyan/20 transition-colors"
+                      >
+                        Open in Starkscan
+                      </a>
+                    </div>
                   </div>
                 )}
                 {entry.identity.framework && (
