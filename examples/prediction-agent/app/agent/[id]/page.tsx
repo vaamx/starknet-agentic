@@ -20,9 +20,33 @@ interface ApiAgentSummary {
 }
 
 interface NetworkAgentSummary {
+  id?: string;
   name?: string;
+  handle?: string;
   model?: string;
   walletAddress?: string;
+  x402Address?: string;
+  topics?: string[];
+  active?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+  metadata?: Record<string, string>;
+}
+
+interface RewardsSummary {
+  actorId: string;
+  actorName: string;
+  actorType: "agent" | "human";
+  walletAddress: string | null;
+  points: number;
+  totalContributions: number;
+  forecastCount: number;
+  resolvedForecasts: number;
+  avgBrier: number | null;
+  marketCreations: number;
+  debates: number;
+  bets: number;
+  lastContributionAt: number | null;
 }
 
 interface ActivityItem {
@@ -134,6 +158,14 @@ export default function AgentPage() {
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [allActivities, setAllActivities] = useState<ActivityItem[]>([]);
   const [agentAliases, setAgentAliases] = useState<string[]>([normalizedTarget]);
+  const [resolvedAgentNumber, setResolvedAgentNumber] = useState<string | null>(null);
+  const [resolvedWalletAddress, setResolvedWalletAddress] = useState<string | null>(
+    walletTarget ? target.toLowerCase() : null
+  );
+  const [networkProfile, setNetworkProfile] = useState<NetworkAgentSummary | null>(null);
+  const [rewardSummary, setRewardSummary] = useState<RewardsSummary | null>(null);
+  const [identityRegistryAddress, setIdentityRegistryAddress] = useState<string | null>(null);
+  const [identityNetwork, setIdentityNetwork] = useState<string>("starknet-sepolia");
   const [signalWindow, setSignalWindow] = useState<SignalWindow>("24h");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -147,6 +179,9 @@ export default function AgentPage() {
       let inferredModel = "";
       let inferredType = "";
       let inferredPredictions = 0;
+      let inferredAgentNumber: string | null = null;
+      let inferredWalletAddress: string | null = walletTarget ? normalizedTarget : null;
+      let inferredNetworkProfile: NetworkAgentSummary | null = null;
       const aliases = new Set<string>([normalizedTarget]);
 
       if (walletTarget) {
@@ -182,6 +217,12 @@ export default function AgentPage() {
           if (primaryMatch?.model) inferredModel = primaryMatch.model;
           if (primaryMatch?.agentType) inferredType = primaryMatch.agentType;
           inferredPredictions = Number(primaryMatch?.stats?.predictions ?? 0);
+          if (primaryMatch?.agentId !== undefined && primaryMatch?.agentId !== null) {
+            inferredAgentNumber = String(primaryMatch.agentId);
+          }
+          if (primaryMatch?.walletAddress) {
+            inferredWalletAddress = String(primaryMatch.walletAddress).toLowerCase();
+          }
         }
 
         if (networkAgentsRes?.ok) {
@@ -197,16 +238,25 @@ export default function AgentPage() {
           const firstNetwork = networkAgents[0];
           if (firstNetwork?.name && inferredName === target) inferredName = firstNetwork.name;
           if (firstNetwork?.model && !inferredModel) inferredModel = firstNetwork.model;
+          if (firstNetwork) inferredNetworkProfile = firstNetwork;
+          if (firstNetwork?.walletAddress) {
+            inferredWalletAddress = String(firstNetwork.walletAddress).toLowerCase();
+          }
         }
       }
 
       aliases.add(inferredName.toLowerCase());
       setResolvedName(inferredName);
       setAgentAliases(Array.from(aliases));
+      setResolvedAgentNumber(inferredAgentNumber);
+      setResolvedWalletAddress(inferredWalletAddress);
+      setNetworkProfile(inferredNetworkProfile);
 
-      const [leaderboardRes, activityRes] = await Promise.all([
+      const [leaderboardRes, activityRes, rewardsRes, agentCardRes] = await Promise.all([
         fetch("/api/leaderboard", { cache: "no-store" }),
         fetch("/api/activity?limit=500", { cache: "no-store" }),
+        fetch("/api/network/rewards?limit=500", { cache: "no-store" }).catch(() => null),
+        fetch("/api/well-known-agent-card", { cache: "no-store" }).catch(() => null),
       ]);
 
       if (leaderboardRes.ok) {
@@ -252,6 +302,45 @@ export default function AgentPage() {
           (a) => aliases.has(a.actor?.toLowerCase() ?? "")
         );
         setActivities(agentActivities);
+      }
+
+      if (rewardsRes?.ok) {
+        const rewardsData = await rewardsRes.json().catch(() => null);
+        const rewardsList: RewardsSummary[] = Array.isArray(rewardsData?.leaderboard)
+          ? (rewardsData.leaderboard as RewardsSummary[])
+          : [];
+        const candidateWallets = new Set(
+          [inferredWalletAddress, normalizedTarget]
+            .map((value) => (value ? value.toLowerCase() : ""))
+            .filter(Boolean)
+        );
+        const rewardMatch =
+          rewardsList.find((item) =>
+            item.walletAddress
+              ? candidateWallets.has(String(item.walletAddress).toLowerCase())
+              : false
+          ) ??
+          rewardsList.find(
+            (item) =>
+              aliases.has(String(item.actorName ?? "").toLowerCase()) ||
+              aliases.has(String(item.actorId ?? "").toLowerCase())
+          ) ??
+          null;
+        setRewardSummary(rewardMatch);
+      } else {
+        setRewardSummary(null);
+      }
+
+      if (agentCardRes?.ok) {
+        const agentCard = await agentCardRes.json().catch(() => null);
+        const registry = String(agentCard?.starknetIdentity?.identityRegistryAddress ?? "").trim();
+        const network = String(agentCard?.starknetIdentity?.network ?? "").trim();
+        setIdentityRegistryAddress(registry && registry !== "0x0" ? registry : null);
+        if (network) {
+          setIdentityNetwork(network.startsWith("starknet-") ? network : `starknet-${network}`);
+        }
+      } else {
+        setIdentityRegistryAddress(null);
       }
     } catch (err: any) {
       setError(err?.message ?? "Failed to load agent data");
@@ -453,6 +542,42 @@ export default function AgentPage() {
     ? "border-neo-green/35 bg-neo-green/10 text-neo-green"
     : "border-white/15 bg-white/[0.06] text-white/55";
   const hasDomainCoverage = domainMix.some((item) => item.count > 0);
+  const profileWalletAddress =
+    resolvedWalletAddress ??
+    (profileWallet ? profileWallet.toLowerCase() : null) ??
+    (networkProfile?.walletAddress ? String(networkProfile.walletAddress).toLowerCase() : null) ??
+    (isWalletLike(entry.agent) ? entry.agent.toLowerCase() : null);
+  const registryAgentId =
+    resolvedAgentNumber ??
+    (networkProfile?.metadata?.erc8004TokenId ? String(networkProfile.metadata.erc8004TokenId) : null);
+  const completedTasks = rewardSummary?.totalContributions ?? activities.length;
+  const ratedTasks = rewardSummary?.resolvedForecasts ?? (entry.identity?.feedbackCount ?? 0);
+  const averageRating =
+    rewardSummary?.avgBrier !== null && rewardSummary?.avgBrier !== undefined
+      ? Number((1 - rewardSummary.avgBrier).toFixed(3))
+      : Number((entry.identity?.reputationScore ?? 0).toFixed(3));
+  const totalEarnedPoints = rewardSummary?.points ?? 0;
+  const skills = Array.from(
+    new Set([
+      ...(networkProfile?.topics ?? []),
+      ...(entry.identity?.framework ? [entry.identity.framework] : []),
+      ...(entry.identity?.agentType ? [entry.identity.agentType] : []),
+    ])
+  ).filter(Boolean);
+  const identitySnapshot = {
+    agentId: registryAgentId ?? "n/a",
+    address: profileWalletAddress ?? "n/a",
+    network: identityNetwork,
+    identityRegistry: identityRegistryAddress ?? "0x0",
+    completedTasks,
+    ratedTasks,
+    averageRating,
+    totalEarnings: String(totalEarnedPoints),
+    skills,
+  };
+  const registryJson = JSON.stringify(identitySnapshot, null, 2);
+  const cliAddress = profileWalletAddress ?? "0x...";
+  const cliSearch = registryAgentId ?? displayLabel;
 
   return (
     <div className="min-h-screen bg-cream">
@@ -908,18 +1033,18 @@ export default function AgentPage() {
                   <span className="text-white/40">Feedback Count</span>
                   <span className="font-mono text-white/70">{entry.identity.feedbackCount}</span>
                 </div>
-                {profileWallet && (
+                {profileWalletAddress && (
                   <div className="pt-2 border-t border-white/[0.07]">
                     <p className="text-[10px] text-white/35 uppercase tracking-wider mb-1">Wallet</p>
-                    <p className="text-[11px] font-mono text-neo-cyan break-all">{profileWallet}</p>
+                    <p className="text-[11px] font-mono text-neo-cyan break-all">{profileWalletAddress}</p>
                     <div className="mt-2">
                       <a
-                        href={`https://sepolia.starkscan.co/contract/${profileWallet}`}
+                        href={`https://sepolia.voyager.online/contract/${profileWalletAddress}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 rounded-md border border-neo-cyan/30 bg-neo-cyan/10 px-2 py-1 text-[10px] font-mono text-neo-cyan hover:bg-neo-cyan/20 transition-colors"
                       >
-                        Open in Starkscan
+                        Open in Voyager
                       </a>
                     </div>
                   </div>
@@ -958,6 +1083,92 @@ export default function AgentPage() {
             </div>
           </div>
         </div>
+
+        <section className="neo-card overflow-hidden">
+          <div className="px-4 sm:px-5 py-2.5 sm:py-3 border-b border-white/[0.07] bg-white/[0.03] flex items-center justify-between">
+            <h2 className="font-heading font-bold text-sm text-white">Agent Registry Snapshot</h2>
+            <span className="text-[10px] font-mono text-white/40">ERC-8004 + Network</span>
+          </div>
+          <div className="p-4 sm:p-5 grid grid-cols-1 xl:grid-cols-[1.2fr,1fr] gap-4">
+            <div className="space-y-3">
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+                <p className="text-[10px] uppercase tracking-widest text-white/35">Agent</p>
+                <p className="mt-1 text-sm font-heading text-white/85">
+                  {registryAgentId ? `Agent #${registryAgentId}` : "Agent (unassigned token)"}
+                </p>
+                {profileWalletAddress && (
+                  <p className="mt-1 text-[11px] font-mono text-neo-cyan break-all">{profileWalletAddress}</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5">
+                  <p className="text-[10px] text-white/35 uppercase tracking-wide">ERC-8004</p>
+                  <p className="mt-1 text-xs font-mono text-white/75">
+                    {registryAgentId ? `token #${registryAgentId}` : "N/A"}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5">
+                  <p className="text-[10px] text-white/35 uppercase tracking-wide">Network</p>
+                  <p className="mt-1 text-xs font-mono text-white/75">{identityNetwork}</p>
+                </div>
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5">
+                  <p className="text-[10px] text-white/35 uppercase tracking-wide">Tasks Completed</p>
+                  <p className="mt-1 text-xs font-mono text-white/75">{completedTasks}</p>
+                </div>
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5">
+                  <p className="text-[10px] text-white/35 uppercase tracking-wide">Rated Tasks</p>
+                  <p className="mt-1 text-xs font-mono text-white/75">{ratedTasks}</p>
+                </div>
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5">
+                  <p className="text-[10px] text-white/35 uppercase tracking-wide">Avg Rating</p>
+                  <p className="mt-1 text-xs font-mono text-white/75">
+                    {Number.isFinite(averageRating) ? averageRating.toFixed(3) : "N/A"}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5">
+                  <p className="text-[10px] text-white/35 uppercase tracking-wide">Total Earned</p>
+                  <p className="mt-1 text-xs font-mono text-white/75">{totalEarnedPoints} pts</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+                <p className="text-[10px] uppercase tracking-widest text-white/35 mb-2">CLI</p>
+                <pre className="text-[10px] sm:text-[11px] font-mono text-white/70 whitespace-pre-wrap break-words leading-relaxed">{`curl "https://prediction-agent-cirolabs.vercel.app/api/network/agents?wallet=${cliAddress}&limit=20"\ncurl "https://prediction-agent-cirolabs.vercel.app/api/network/rewards?limit=500"\ncurl "https://prediction-agent-cirolabs.vercel.app/api/activity?limit=200" | rg -i "${cliSearch}"`}</pre>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+                <p className="text-[10px] uppercase tracking-widest text-white/35 mb-2">Identity JSON</p>
+                <pre className="max-h-[320px] overflow-auto rounded-lg border border-white/[0.08] bg-black/25 p-2.5 text-[10px] sm:text-[11px] font-mono text-white/70 whitespace-pre-wrap break-words">
+{registryJson}
+                </pre>
+              </div>
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 space-y-2">
+                <p className="text-[10px] uppercase tracking-widest text-white/35">Explorer</p>
+                {profileWalletAddress ? (
+                  <a
+                    href={`https://sepolia.voyager.online/contract/${profileWalletAddress}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-md border border-neo-brand/35 bg-neo-brand/12 px-2 py-1 text-[10px] font-mono text-neo-brand hover:bg-neo-brand/20 transition-colors"
+                  >
+                    Open Wallet in Voyager
+                  </a>
+                ) : (
+                  <p className="text-[11px] text-white/45">Wallet address unavailable.</p>
+                )}
+                <p className="text-[11px] text-white/45">
+                  Identity Registry:{" "}
+                  <span className="font-mono text-white/65 break-all">
+                    {identityRegistryAddress ?? "0x0"}
+                  </span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );
