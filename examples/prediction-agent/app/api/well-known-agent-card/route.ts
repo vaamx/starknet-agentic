@@ -50,7 +50,7 @@ export async function GET() {
 
   const card = {
     // ── Identity ───────────────────────────────────────────────────────────
-    name: "BitSage Prediction Oracle",
+    name: "HiveCaster Prediction Oracle",
     description:
       "Autonomous on-chain prediction market agent on Starknet. " +
       "Multi-AI-persona research, debate, and STRK-collateral betting. " +
@@ -59,8 +59,17 @@ export async function GET() {
     url: baseUrl,
     version: "2.0.0",
     provider: {
-      organization: "BitSage Network / keep-starknet-strange",
-      url: "https://github.com/keep-starknet-strange/starknet-agentic",
+      organization: "HiveCaster Labs",
+      url: "https://github.com/vaamx/starknet-agentic",
+    },
+    docs: {
+      skill: `${baseUrl}/skill.md`,
+      stateMachineDoc: `${baseUrl}/network-state-machine.md`,
+      contracts: `${baseUrl}/api/network/contracts`,
+      stateMachine: `${baseUrl}/api/network/state-machine`,
+      stateMachineSchema: `${baseUrl}/api/network/state-machine/schema`,
+      openapi: `${baseUrl}/api/openapi.json`,
+      swagger: `${baseUrl}/api/swagger`,
     },
 
     // ── A2A capabilities ───────────────────────────────────────────────────
