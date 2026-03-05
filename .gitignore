@@ -151,3 +151,21 @@ target/
 deployed_addresses*.json
 .env.local
 .mcp.json
+examples/onboard-agent/onboarding_secrets.json
+
+# Demo receipts (safe, but easy to accidentally commit)
+examples/**/crosschain_receipt.json
+examples/**/onboarding_receipt.json
+examples/**/validation_receipt.json
+examples/**/state.json
+examples/**/demo-evidence.json
+examples/**/TWEET_EVIDENCE.md
+
+# Claude Code
+.claude/settings.local.json
+
+# Stale worktrees / ad-hoc clones (local only)
+starknet-agentic-*/
+
+# macOS
+.DS_Store

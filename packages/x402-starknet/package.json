@@ -6,19 +6,20 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
+    "build": "pnpm --filter @starknet-agentic/shared build && tsup src/index.ts --format esm --dts",
     "test": "vitest run",
     "lint": "eslint ."
   },
   "dependencies": {
-    "starknet": "^8.9.1"
+    "@starknet-agentic/shared": "workspace:*",
+    "starknet": "^9.2.1"
   },
   "devDependencies": {
-    "@types/node": "^22.13.0",
-    "eslint": "^9.19.0",
-    "@eslint/js": "^9.19.0",
+    "@types/node": "^25.3.2",
+    "eslint": "^10.0.2",
+    "@eslint/js": "^10.0.1",
     "typescript": "^5.9.0",
     "tsup": "^8.5.0",
-    "vitest": "^2.1.9"
+    "vitest": "^4.0.18"
   }
 }

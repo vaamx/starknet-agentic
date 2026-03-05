@@ -18,38 +18,34 @@ Core infrastructure features required for v1.0 release. MVP definition: MCP serv
 
 ---
 
-### 1.0 ~~Upgrade starknet.js to v8 Across All Packages~~ DONE
-
-All TypeScript packages are already standardized on starknet.js ^8.9.1.
-
----
-
-### 1.1 ~~Enable and Write MCP Server Tests~~ DONE
-
-MCP server tests are fully implemented with 7 test files covering handlers, tools, services, providers, and utils. Vitest is configured with 80% coverage thresholds.
-
----
-
 ### 1.2 Publish Skills to Distribution Channels
 
-**Description**: Publish all complete skills to GitHub, ClawHub, and npm for maximum distribution.
+**Description**: Publish all complete skills to GitHub, ClawHub, and other channels for maximum distribution.
 
 **Requirements**:
-- [x] Create npm packages for each skill (as installable dependencies)
-- [x] Register `@starknet-agentic/skill-wallet` on npm
-- [x] Register `@starknet-agentic/skill-defi` on npm
-- [x] Register `@starknet-agentic/skill-identity` on npm
-- [x] Register `@starknet-agentic/skill-mini-pay` on npm
-- [x] Register `@starknet-agentic/skill-anonymous-wallet` on npm
-- [ ] Publish skills to ClawHub for OpenClaw/MoltBook users
+- [x] Register/Setup Publication for `@starknet-agentic/skill-wallet`
+- [x] Register/Setup Publication for `@starknet-agentic/skill-defi`
+- [x] Register/Setup Publication for `@starknet-agentic/skill-identity`
+- [x] Register/Setup Publication for `@starknet-agentic/skill-mini-pay`
+- [x] Register/Setup Publication for `@starknet-agentic/skill-anonymous-wallet`
+- [x] Register/Setup Publication for `@starknet-agentic/huginn-onboard`
+- [ ] Publish skills to ClawHub for OpenClaw/MoltBook users (blocked: CLI not on npm, publishing workflow undocumented)
 - [x] Update skills README with installation instructions for all channels
 - [x] Set up automated publishing in CI workflow
 
 **Implementation Notes**:
-- Skills are complete in `skills/` directory
-- ClawHub publication requires OpenClaw account setup
-- npm packages should include SKILL.md, references/, and scripts/
-- Consider scoped packages under `@starknet-agentic` org
+- Skills are complete in `skills/` directory with standardized frontmatter
+- Claude Code plugin manifest at `.claude-plugin/marketplace.json`
+- CI validation workflow added to `.github/workflows/ci.yml`
+- Skills README at `skills/README.md` with installation instructions
+- Monorepo approach chosen: all skills in one repo, installable individually or together
+- ClawHub blocked: CLI not published to npm, publishing workflow not documented
+
+**Distribution Channels**:
+- GitHub: `npx skills add keep-starknet-strange/starknet-agentic`
+- Claude Code: `/plugin marketplace add keep-starknet-strange/starknet-agentic`
+- skills.sh: Auto-indexed from GitHub
+- ClawHub: Blocked (check clawhub.ai for updates)
 
 ---
 
@@ -58,38 +54,17 @@ MCP server tests are fully implemented with 7 test files covering handlers, tool
 **Description**: Standardize agent-passport as the convention for agents to describe their capabilities via ERC-8004 metadata.
 
 **Requirements**:
-- [x] Document agent-passport schema in SPECIFICATION.md
-- [x] Create JSON schema for capability metadata validation
-- [x] Add capability metadata examples to skills documentation
-- [x] Update starknet-identity skill to use agent-passport for registration
+- [ ] Document agent-passport schema in SPECIFICATION.md
+- [ ] Create JSON schema for capability metadata validation
+- [ ] Add capability metadata examples to skills documentation
+- [ ] Update starknet-identity skill to use agent-passport for registration
 - [ ] Add agent-passport integration to MCP server (optional helper tool)
-- [x] Write migration guide for existing ERC-8004 agents
+- [ ] Write migration guide for existing ERC-8004 agents
 
 **Implementation Notes**:
 - `packages/starknet-agent-passport/` already implements the client
 - Standardize on capability categories: `defi`, `trading`, `identity`, `messaging`, `payments`
 - Capability metadata stored in ERC-8004 IdentityRegistry via `setMetadata`
-
----
-
-### 1.4 Flagship DeFi Agent Documentation
-
-**Description**: Promote defi-agent as the flagship demo with comprehensive documentation and tutorials.
-
-**Requirements**:
-- [ ] Create detailed README.md for `examples/defi-agent/`
-- [ ] Add architecture diagram showing agent components
-- [ ] Document configuration options (trade size, profit thresholds, intervals)
-- [ ] Add step-by-step setup guide for beginners
-- [ ] Create video tutorial or GIF walkthrough
-- [ ] Link prominently from main README.md and website
-- [ ] Add production deployment guide (systemd, Docker, cloud)
-
-**Implementation Notes**:
-- defi-agent is ~337 lines demonstrating arbitrage patterns
-- Demonstrates triangular arbitrage with ETH/STRK
-- Includes risk management (spending limits, min profit thresholds)
-- Good showcase for Starknet's low fees enabling high-frequency strategies
 
 ---
 
@@ -109,6 +84,7 @@ MCP server tests are fully implemented with 7 test files covering handlers, tool
 - Use conventional commits format: `feat:`, `fix:`, `docs:`, `chore:`
 - release-please handles monorepo versioning well
 - Consider changesets as alternative for more manual control
+- Consider backfilling changelog from existing commit history
 
 ---
 
@@ -117,13 +93,13 @@ MCP server tests are fully implemented with 7 test files covering handlers, tool
 **Description**: The starknet-defi skill is currently a template. Complete the implementation with full documentation and examples.
 
 **Requirements**:
-- [x] Add comprehensive swap documentation (avnu patterns)
-- [x] Add staking documentation (STRK staking, liquid staking)
-- [x] Add lending documentation (zkLend, Nostra patterns)
-- [x] Add DCA (Dollar Cost Averaging) documentation
-- [x] Create example scripts for each operation
-- [x] Add error handling guide with recovery steps
-- [x] Include token addresses and protocol endpoints
+- [ ] Add comprehensive swap documentation (avnu patterns)
+- [ ] Add staking documentation (STRK staking, liquid staking)
+- [ ] Add lending documentation (zkLend, Nostra patterns)
+- [ ] Add DCA (Dollar Cost Averaging) documentation
+- [ ] Create example scripts for each operation
+- [ ] Add error handling guide with recovery steps
+- [ ] Include token addresses and protocol endpoints
 
 **Implementation Notes**:
 - Basic structure exists at `skills/starknet-defi/SKILL.md` (345 lines)
@@ -137,18 +113,123 @@ MCP server tests are fully implemented with 7 test files covering handlers, tool
 **Description**: The starknet-identity skill has structure but needs ERC-8004 integration details.
 
 **Requirements**:
-- [x] Add agent registration workflow documentation
-- [x] Add reputation system usage guide
-- [x] Add validation request/response documentation
-- [x] Add metadata schema reference
-- [x] Create example scripts for identity operations
-- [x] Document deployed contract addresses (Sepolia, Mainnet when available)
-- [x] Add querying reputation and validation status examples
+- [ ] Add agent registration workflow documentation
+- [ ] Add reputation system usage guide
+- [ ] Add validation request/response documentation
+- [ ] Add metadata schema reference
+- [ ] Create example scripts for identity operations
+- [ ] Document deployed contract addresses (Sepolia, Mainnet when available)
+- [ ] Add querying reputation and validation status examples
 
 **Implementation Notes**:
 - Basic structure exists at `skills/starknet-identity/SKILL.md` (303 lines)
-- ERC-8004 contracts are production-ready in `packages/starknet-identity/erc8004-cairo/`
+- ERC-8004 contracts are production-ready in `contracts/erc8004-cairo/`
 - Include agent-passport integration
+
+---
+
+### 1.8 Standardize MCP ↔ Skill Architecture Separation
+
+**Description**: Align all skills with 2025-2026 best practices for the MCP (capability layer) vs Skills (knowledge layer) separation. Currently, skills vary in how they relate to the MCP server—some document MCP tools (ideal), some bundle standalone execution (acceptable for missing capabilities), and some are complete standalone apps (should be refactored).
+
+**Background** (from architecture analysis):
+- **Best practice**: Skills provide "context, instructions, domain knowledge, and behavioral patterns"—MCP tools provide executable functions. Skills teach *when/what*, MCP executes *how*.
+- **Token economics**: One MCP server can consume 50k+ tokens of schemas; skills use progressive disclosure (~100 tokens metadata, ~5k when activated).
+- **Industry alignment**: AgentSkills spec (agentskills.io) + MCP (donated to Linux Foundation AAIF) are complementary standards adopted by Microsoft, OpenAI, Cursor, GitHub, etc.
+
+**Current State Assessment**:
+
+| Skill | Pattern | Best Practice Alignment |
+|-------|---------|-------------------------|
+| `starknet-wallet` | Documents 8 MCP tools, minimal validation scripts | ✅ 100% - Ideal separation |
+| `starknet-defi` | Documents MCP swap/quote tools, SDK patterns | ✅ 95% - Good separation |
+| `starknet-identity` | Template, needs ERC-8004 integration | ⚠️ 60% - Incomplete |
+| `starknet-anonymous-wallet` | Bundles Node.js scripts (Typhoon not in MCP) | ⚠️ 60% - Valid deviation |
+| `starknet-mini-pay` | Complete standalone Python app + Telegram bot | ❌ 40% - Should use MCP |
+| `huginn-onboard` | Onboarding workflow | ⚠️ TBD - Needs review |
+
+**Requirements**:
+
+#### 1.8.1 starknet-wallet (Reference Implementation)
+- [x] Documents MCP tools in skill body
+- [x] Provides TypeScript code examples
+- [x] Bundles only validation scripts (`scripts/check-balance.ts`, `scripts/check-balances.ts`)
+- [ ] Add explicit "MCP Tools Used" section with tool schemas
+- [ ] Add integration test: skill + MCP server working together
+- [ ] Document as reference implementation for other skills
+
+#### 1.8.2 starknet-defi (Minor Improvements)
+- [x] Documents MCP swap/quote tools
+- [x] Comprehensive avnu SDK patterns
+- [ ] Add explicit "MCP Tools Used" section listing `starknet_swap`, `starknet_get_quote`
+- [ ] Add integration test: DeFi skill guiding agent to use MCP swap tools
+- [ ] Verify all code examples use MCP tool patterns (not direct SDK calls for operations MCP exposes)
+
+#### 1.8.3 starknet-identity (Complete Implementation)
+- [ ] Complete skill implementation (see 1.7)
+- [ ] Document which operations should be MCP tools vs skill knowledge
+- [ ] Add "MCP Tools Used" section (pending 2.2 MCP Identity Tools)
+- [ ] Ensure skill teaches patterns, doesn't duplicate MCP execution logic
+
+#### 1.8.4 starknet-anonymous-wallet (Document Deviation)
+- [x] Bundles scripts because Typhoon protocol not in MCP server
+- [ ] Add explicit note: "This skill bundles execution because Typhoon is not exposed via MCP"
+- [ ] Evaluate: Should Typhoon operations be added to MCP server?
+  - If yes: Create issue to add `starknet_typhoon_deposit`, `starknet_typhoon_withdraw` tools
+  - If no: Document rationale (specialized use case, different security model, etc.)
+- [ ] Add integration test for script-based workflow
+
+#### 1.8.5 starknet-mini-pay (Refactor to MCP Pattern)
+- [ ] **Add payment operations to MCP server**:
+  - [ ] `starknet_create_payment_link` - Generate `starknet:<addr>?amount=...` links
+  - [ ] `starknet_parse_payment_link` - Parse incoming payment links
+  - [ ] `starknet_create_invoice` - Create payment request with expiry
+  - [ ] `starknet_get_invoice_status` - Check invoice fulfillment
+  - [ ] `starknet_generate_qr` - Generate QR code for address/payment (returns base64 or file path)
+- [ ] **Refactor skill to document MCP tools** (like starknet-wallet does)
+- [ ] **Keep Telegram bot as separate deployment** that consumes MCP server
+- [ ] **Maintain Python scripts** as alternative runtime (document as "standalone mode")
+- [ ] Add integration test: skill + MCP payment tools
+
+#### 1.8.6 huginn-onboard (Review and Align)
+- [ ] Review current implementation
+- [ ] Determine if it documents MCP tools or bundles execution
+- [ ] Align with starknet-wallet pattern if applicable
+- [ ] Add integration test
+
+#### 1.8.7 Cross-Skill Integration Testing
+- [ ] Create `tests/integration/` directory for skill + MCP tests
+- [ ] Test: Agent loads starknet-wallet skill → uses MCP tools correctly
+- [ ] Test: Agent loads starknet-defi skill → executes swap via MCP
+- [ ] Test: Agent loads starknet-mini-pay skill → creates payment link via MCP
+- [ ] Document test patterns for community skill authors
+
+#### 1.8.8 Documentation Updates
+- [ ] Add "MCP ↔ Skill Architecture" section to SPECIFICATION.md
+- [ ] Document when to add capability to MCP vs bundle in skill
+- [ ] Add skill authoring guide with best practices
+- [ ] Update CLAUDE.md with architecture guidance
+
+**Implementation Notes**:
+- starknet-wallet is the reference implementation—other skills should follow its pattern
+- Skills that bundle execution (anonymous-wallet, mini-pay) should document *why*
+- MCP server changes require Zod schemas, tests, and documentation updates
+- Telegram bot in mini-pay is a valid standalone deployment—it can consume MCP server
+- Python scripts in mini-pay can remain as "standalone mode" for non-MCP environments
+
+**Acceptance Criteria**:
+- All skills have explicit "MCP Tools Used" section (or "Standalone Execution" with rationale)
+- Integration tests pass for each skill + MCP combination
+- SPECIFICATION.md documents the architecture pattern
+- New skill authors have clear guidance on MCP vs bundled execution
+
+**Priority**: MEDIUM - Improves maintainability and aligns with industry standards, but current skills are functional.
+
+**References**:
+- [Anthropic: Code Execution with MCP](https://www.anthropic.com/engineering/code-execution-with-mcp)
+- [Anthropic: Equipping Agents with Agent Skills](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills)
+- [Agent Skills Specification](https://agentskills.io/specification)
+- [Skills vs Tools Production Guide](https://blog.arcade.dev/what-are-agent-skills-and-tools)
 
 ---
 
@@ -160,7 +241,7 @@ Features that enhance the platform but are not required for v1.0 release.
 
 ### 2.1 Agent Account Contract Deployment
 
-**Description**: The Agent Account contract is fully tested (110 tests across 4 suites). Next step is Sepolia deployment.
+**Description**: The Agent Account contract is fully tested (110 tests across 4 suites) and deployed on Sepolia. Next step is mainnet deployment readiness and operations hardening.
 
 **Requirements**:
 - [x] ~~Create tests directory~~ — 4 test files exist in `contracts/agent-account/tests/`
@@ -170,15 +251,17 @@ Features that enhance the platform but are not required for v1.0 release.
 - [x] ~~Write snforge tests for time bounds validation~~
 - [x] ~~Write snforge tests for emergency revoke mechanism~~
 - [x] ~~Write snforge tests for agent ID linking~~
-- [ ] Create Sepolia deployment script
-- [ ] Deploy to Sepolia testnet
-- [ ] Document deployed contract address
+- [x] Create Sepolia deployment script
+- [x] Deploy to Sepolia testnet
+- [x] Document deployed contract address
+- [ ] Deploy AgentAccountFactory to mainnet
 
 **Implementation Notes**:
 - Contract at `contracts/agent-account/src/agent_account.cairo` (~570 lines)
 - Tests: test_agent_account (43), test_execute_validate (20), test_security (33), test_agent_account_factory (14)
 - Uses OpenZeppelin AccountComponent
 - Single-level session keys (owner -> agent, no nested delegation)
+- Use starkli in the deployment script. Follow this as an example: https://github.com/keep-starknet-strange/pow/tree/main/onchain/scripts ( see deploy-sepolia.sh, deploy-mainnet.sh, ... )
 
 ---
 
@@ -244,45 +327,26 @@ Features that enhance the platform but are not required for v1.0 release.
 
 ---
 
-### 2.5 OpenClaw.ai Agent Discovery Integration
-
-**Description**: Integrate OpenClaw.ai as the agent discovery and connection layer, allowing externally-registered agents to join prediction markets and other agentic workflows.
-
-**Requirements**:
-- [ ] Register starknet-agentic agents on OpenClaw.ai registry
-- [ ] Implement OpenClaw agent discovery client (fetch external agents by capability)
-- [ ] Bridge OpenClaw agent profiles to ERC-8004 on-chain identity (reputation sync)
-- [ ] Allow discovered agents to join the autonomous prediction loop as participants
-- [ ] Publish skills to ClawHub for OpenClaw/MoltBook agent ecosystem
-- [ ] Expose agent spawner via OpenClaw so external users can spin up agents remotely
-- [ ] Add OpenClaw agent card ↔ A2A agent card bidirectional mapping
-
-**Implementation Notes**:
-- OpenClaw.ai provides agent registry, discovery, and connection brokering
-- Our A2A adapter (`packages/starknet-a2a/`) already generates agent cards — map these to OpenClaw profiles
-- ERC-8004 reputation scores can feed into OpenClaw trust signals
-- The agent spawner (`examples/prediction-agent/app/lib/agent-spawner.ts`) currently runs in-memory; OpenClaw integration would enable persistent, cross-session agent discovery
-- ClawHub skill publishing is already tracked in 1.2 — this item covers the runtime agent discovery side
-
----
-
-### 2.6 CI/CD Enhancements
+### 2.5 CI/CD Enhancements
 
 **Description**: Improve CI/CD pipeline with additional checks and automation.
 
 **Requirements**:
-- [x] ~~Add Cairo contract build verification to CI~~ — done in `ci.yml`
-- [x] ~~Add snforge test execution to CI~~ — done in `ci.yml`
+- [x] ~~Add Cairo contract build verification to CI~~ — done in `ci.yml` (erc8004, agent-account, huginn-registry)
+- [x] ~~Add snforge test execution to CI~~ — done in `ci.yml` (3 separate Cairo test jobs)
 - [x] ~~Add automated npm publishing on release~~ — done in `publish.yml`
+- [x] ~~Add skill validation to CI~~ — done in `ci.yml` (`validate-skills` job)
+- [x] ~~Add onboarding smoke tests to CI~~ — done in `ci.yml` (`onboarding-smoke` job)
+- [x] ~~Add dependency vulnerability scanning~~
+- [x] ~~Add daily health check cron~~ — done in `health-check.yml`
 - [ ] Add starknet.js version consistency check
-- [ ] Add dependency vulnerability scanning
 - [ ] Add automated ClawHub publishing on release
 - [ ] Add test coverage reporting
 
 **Implementation Notes**:
-- CI pipeline at `.github/workflows/ci.yml` runs TS + Cairo builds + tests
-- `publish.yml` publishes 3 packages to npm on release
-- `health-check.yml` runs daily cron checks
+- CI pipeline at `.github/workflows/ci.yml` runs 11 jobs: typecheck, lint, test, 3x cairo-test, website-build, validate-skills, onboarding-smoke, all-checks
+- `publish.yml` publishes 3 packages to npm on release (mcp-server, a2a, agent-passport)
+- `health-check.yml` runs daily at 9:15 UTC, creates GitHub issues on failure
 
 ---
 
@@ -429,13 +493,36 @@ Long-term features and ecosystem expansion planned for v2.0+.
 
 ---
 
+### 1.9 Agent Onboarding E2E Flow
+
+**Status**: IN PROGRESS
+
+**Description**: End-to-end onboarding flow for new agents including account deployment, ERC-8004 registration, and first action. Demonstrated via `examples/onboard-agent/` and `examples/crosschain-demo/`.
+
+**Implemented**:
+- [x] `examples/onboard-agent/` -- E2E onboarding flow with network/gasfree/verify options
+- [x] `examples/crosschain-demo/` -- Base Sepolia ↔ Starknet ERC-8004 cross-chain flow
+- [x] AVNU-sponsored gasfree deploy path (PR #140)
+- [x] Cross-chain funding logic with threshold/skip+mock (PR #155)
+- [x] Onboarding smoke tests in CI (`onboarding-smoke` job)
+- [x] `skills/huginn-onboard/` -- Huginn onboarding skill
+- [ ] Production deployment of HuginnRegistry contract
+- [ ] Mainnet onboarding documentation
+
+**Implementation Notes**:
+- Onboard agent: preflight checks → account deployment → identity registration → first action
+- Crosschain demo: EVM funding → bridge → Starknet registration → URI update
+- Smoke tests run in CI to prevent regressions
+
+---
+
 ## Implementation Priority Summary
 
 | Phase | Target | Key Deliverables |
 |-------|--------|------------------|
-| **MVP (v1.0)** | Q1 2026 | starknet.js v8, MCP tests, skill publishing, defi-agent docs, changelog |
-| **Nice to Have (v1.x)** | Q2 2026 | Agent Account deployment, identity MCP tools, OpenClaw.ai discovery, A2A expansion, messaging |
-| **Future (v2.0+)** | 2026+ | Framework extensions, economy apps, cross-chain, zkML |
+| **MVP (v1.0)** | Q1 2026 | CLI scaffolding ✅, skill publishing, agent onboarding, defi/identity skill completion, changelog |
+| **Nice to Have (v1.x)** | Q2 2026 | Agent Account deployment, identity MCP tools, A2A expansion, messaging |
+| **Future (v2.0+)** | 2026+ | Framework extensions, economy apps, cross-chain bridge, zkML |
 
 ---
 
@@ -445,23 +532,4 @@ Long-term features and ecosystem expansion planned for v2.0+.
 - `[x]` Complete
 - `[~]` In progress
 
-*Last updated: 2026-02-08*
-
----
-
-## Milestone 5: Evals
-- Reproducible eval harness for agent actions
-- Security and policy gating tests
-
-## Milestone 6: Proof of Inference (Obelysk Integration)
-- **Tier 1 (LIVE)**: Fully on-chain ZK proofs for agent decision models (<200K params)
-  - 8 benchmark TXs verified on Sepolia (see [PROOF_OF_INFERENCE.md](./PROOF_OF_INFERENCE.md))
-  - SAGE payment distribution on verified proofs
-  - Proof batching: 20+ agent decisions per proof (~$0.003/decision)
-- **Tier 2 (This week)**: Embedding + ZK head for mid-size models (<10M params)
-  - Image classification, recommendation engines, NLP embeddings
-  - TEE attestation for embedding model + STWO proof for classifier head
-- **Tier 3 (In progress)**: TEE + stochastic ZK for billion-parameter models
-  - Qwen-72B, Llama-70B, DeepSeek-R1, YOLOv8-X
-  - NVIDIA H100 CC-On with NRAS attestation
-  - 24-hour fraud proof window + economic security
+*Last updated: 2026-02-11*

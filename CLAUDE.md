@@ -12,7 +12,7 @@ Infrastructure layer for AI agents on Starknet. Provides Cairo smart contracts (
 | Contract deps | OpenZeppelin Cairo | v3.0.0 |
 | TypeScript packages | pnpm workspaces, tsup | Node 20+ |
 | MCP server | `@modelcontextprotocol/sdk` | ^1.0.0 |
-| Starknet interaction | starknet.js | ^8.9.1 |
+| Starknet interaction | starknet.js | ^9.2.1 |
 | DeFi aggregation | `@avnu/avnu-sdk` | ^4.0.1 |
 | Schema validation | zod | ^3.23.0 |
 | TS testing | Vitest | -- |
@@ -27,6 +27,7 @@ Infrastructure layer for AI agents on Starknet. Provides Cairo smart contracts (
 ```
 starknet-agentic/
 ├── packages/
+│   ├── create-starknet-agent/            # CLI scaffolding tool (COMPLETE)
 │   ├── starknet-mcp-server/              # MCP server (PRODUCTION - 9 tools)
 │   ├── starknet-a2a/                     # A2A protocol adapter (FUNCTIONAL)
 │   ├── starknet-agent-passport/          # Capability metadata client (FUNCTIONAL)
@@ -44,10 +45,13 @@ starknet-agentic/
 │   ├── starknet-mini-pay/                # P2P payments + Telegram bot (COMPLETE)
 │   ├── starknet-anonymous-wallet/        # Privacy-focused wallet (COMPLETE)
 │   ├── starknet-defi/                    # DeFi operations skill (TEMPLATE)
-│   └── starknet-identity/                # Identity & reputation skill (TEMPLATE)
+│   ├── starknet-identity/                # Identity & reputation skill (TEMPLATE)
+│   └── huginn-onboard/                   # Cross-chain onboarding skill (COMPLETE)
 ├── examples/
 │   ├── hello-agent/                      # Minimal E2E proof (WORKING)
 │   ├── defi-agent/                       # Arbitrage bot example (~337 lines)
+│   ├── onboard-agent/                    # E2E agent onboarding flow (WORKING)
+│   ├── crosschain-demo/                  # Base Sepolia ↔ Starknet demo (WORKING)
 │   └── scaffold-stark-agentic/           # Frontend reference
 ├── references/
 │   ├── agentskills/                      # AgentSkills format specs
@@ -55,10 +59,15 @@ starknet-agentic/
 ├── docs/
 │   ├── ROADMAP.md                        # Detailed roadmap with MVP/Nice-to-have/Future
 │   ├── SPECIFICATION.md                  # Technical architecture & component specs
-│   └── AGENTIC_ECONOMY_PLAN.md           # Use cases, apps, token economy vision
+│   ├── AGENTIC_ECONOMY_PLAN.md           # Use cases, apps, token economy vision
+│   ├── ERC8004-PARITY.md                 # ERC-8004 cross-chain parity document
+│   ├── GETTING_STARTED.md                # Quick-start onboarding guide
+│   ├── GOOD_FIRST_ISSUES.md              # Contributor starter issues
+│   └── TROUBLESHOOTING.md                # Common issues and solutions
 ├── website/                              # Next.js documentation site (Vercel)
 ├── AGENT.md                              # Agent mission & ecosystem context
 ├── CLAUDE.md                             # This file
+├── agents.md                             # Multi-agent coordination guide
 └── package.json                          # Root monorepo (pnpm workspaces)
 ```
 
@@ -79,6 +88,7 @@ NOTE: The Agent Account contract at `contracts/agent-account/` (~570 lines main 
 | Build single TS package | `pnpm build` | `packages/<pkg>/` |
 | Dev mode (website) | `pnpm dev` | `website/` |
 | Deploy contracts (Sepolia) | `bash scripts/deploy_sepolia.sh` | `contracts/erc8004-cairo/` |
+| Scaffold new agent | `npx create-starknet-agent@latest` | any |
 
 </commands>
 
@@ -235,7 +245,11 @@ Metadata schema keys: `agentName`, `agentType`, `version`, `model`, `status`, `f
 | Starknet docs | `references/starknet-docs/` | Any Starknet architecture, Cairo, or AA questions |
 | Technical spec | `docs/SPECIFICATION.md` | Understanding planned architecture, interfaces, security model |
 | Economy plan | `docs/AGENTIC_ECONOMY_PLAN.md` | Understanding long-term vision and use cases |
+| ERC-8004 parity | `docs/ERC8004-PARITY.md` | Cross-chain compatibility, session keys, Starknet extensions |
+| Getting started | `docs/GETTING_STARTED.md` | New user onboarding, quick-start guide |
+| Troubleshooting | `docs/TROUBLESHOOTING.md` | Debugging common issues |
 | Agent mission | `AGENT.md` | Understanding project goals, existing assets, gaps |
+| Multi-agent coordination | `agents.md` | Delegating tasks across multiple agents |
 
 Always consult `references/` before relying on training data for Starknet-specific or AgentSkills-specific information.
 
@@ -245,6 +259,7 @@ Always consult `references/` before relying on training data for Starknet-specif
 
 | Component | Status | Location |
 |-----------|--------|----------|
+| create-starknet-agent CLI | **Complete** (scaffolding tool) | `packages/create-starknet-agent/` |
 | ERC-8004 Cairo contracts | **Production** (131+ unit + 47 E2E tests) | `contracts/erc8004-cairo/` |
 | MCP server | **Production** (9 tools, 1,600+ lines) | `packages/starknet-mcp-server/` |
 | A2A adapter | **Functional** (437 lines) | `packages/starknet-a2a/` |
@@ -252,16 +267,20 @@ Always consult `references/` before relying on training data for Starknet-specif
 | X-402 Starknet signing | **Functional** (110 lines) | `packages/x402-starknet/` |
 | Prediction arb scanner | **MVP** (296 lines) | `packages/prediction-arb-scanner/` |
 | Agent Account contract | **Tested** (~570 lines, 110 tests) | `contracts/agent-account/` |
+| Huginn Registry contract | **WIP** (thought provenance) | `contracts/huginn-registry/` |
 | Skill: starknet-wallet | **Complete** (465 lines) | `skills/starknet-wallet/` |
 | Skill: starknet-mini-pay | **Complete** (Python CLI + Telegram bot) | `skills/starknet-mini-pay/` |
 | Skill: starknet-anonymous-wallet | **Complete** (271 lines) | `skills/starknet-anonymous-wallet/` |
 | Skill: starknet-defi | **Template** (needs expansion) | `skills/starknet-defi/` |
 | Skill: starknet-identity | **Template** (needs expansion) | `skills/starknet-identity/` |
+| Skill: huginn-onboard | **Complete** (cross-chain onboarding) | `skills/huginn-onboard/` |
 | Example: hello-agent | **Working** (E2E proof) | `examples/hello-agent/` |
 | Example: defi-agent | **Working** (~337 lines, arb example) | `examples/defi-agent/` |
+| Example: onboard-agent | **Working** (E2E onboarding flow) | `examples/onboard-agent/` |
+| Example: crosschain-demo | **Working** (Base Sepolia ↔ Starknet) | `examples/crosschain-demo/` |
 | Website | **Scaffolded** (Next.js 16 + landing content) | `website/` |
-| Docs & specs | **Complete** (updated 2026-02-06) | `docs/` |
-| CI/CD | **Implemented** | `.github/workflows/` |
+| Docs & specs | **Complete** (updated 2026-02-10) | `docs/` |
+| CI/CD | **Implemented** (11 jobs: typecheck, lint, test, 3x cairo, website, skills, smoke) | `.github/workflows/` |
 | Framework extensions | **TODO** (deferred to v2.0) | Not yet created |
 | MCP identity tools | **TODO** (nice-to-have) | Not yet implemented |
 
@@ -276,7 +295,7 @@ Always consult `references/` before relying on training data for Starknet-specif
 | pnpm install fails | Ensure pnpm installed globally. Node 18+ required. |
 | E2E tests fail | Check `.env` has valid Sepolia RPC URL and funded account. |
 | Git submodule empty (`references/starknet-docs/`) | Run `git submodule update --init --recursive` |
-| starknet.js type errors | All packages standardized on v8.9.1. Use object-form constructors: `new Account({ provider, address, signer })` and `new Contract({ abi, address, providerOrAccount })`. |
+| starknet.js type errors | All packages standardized on ^9.2.1. Use object-form constructors: `new Account({ provider, address, signer })` and `new Contract({ abi, address, providerOrAccount })`. |
 
 
 </troubleshooting>

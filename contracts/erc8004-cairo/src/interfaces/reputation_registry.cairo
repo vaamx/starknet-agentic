@@ -126,6 +126,8 @@ pub trait IReputationRegistry<TState> {
     ) -> (i128, u8, ByteArray, ByteArray, bool);
 
     /// Read all feedback matching filters
+    /// Requires non-empty `client_addresses`; use `read_all_feedback_paginated`
+    /// for broad scans.
     /// Returns arrays: (clients, feedbackIndexes, values, valueDecimals, tag1s, tag2s, revokedStatuses)
     fn read_all_feedback(
         self: @TState,
@@ -144,6 +146,33 @@ pub trait IReputationRegistry<TState> {
         Array<bool>,
     );
 
+    /// Read feedback entries matching filters using a bounded scan window.
+    /// Returns arrays: (clients, feedbackIndexes, values, valueDecimals, tag1s, tag2s, revokedStatuses, truncated)
+    /// - client_offset/client_limit paginate the client list
+    /// - feedback_offset/feedback_limit paginate feedback indices per client
+    /// - truncated=true means additional scan work exists outside this window
+    fn read_all_feedback_paginated(
+        self: @TState,
+        agent_id: u256,
+        client_addresses: Span<ContractAddress>,
+        tag1: ByteArray,
+        tag2: ByteArray,
+        include_revoked: bool,
+        client_offset: u32,
+        client_limit: u32,
+        feedback_offset: u64,
+        feedback_limit: u64,
+    ) -> (
+        Array<ContractAddress>,
+        Array<u64>,
+        Array<i128>,
+        Array<u8>,
+        Array<ByteArray>,
+        Array<ByteArray>,
+        Array<bool>,
+        bool,
+    );
+
     /// Get response count for feedback
     fn get_response_count(
         self: @TState,
@@ -156,9 +185,19 @@ pub trait IReputationRegistry<TState> {
     /// Get all clients who have given feedback for an agent
     fn get_clients(self: @TState, agent_id: u256) -> Array<ContractAddress>;
 
+    /// Get clients who have given feedback for an agent (paginated)
+    /// @return (clients, truncated)
+    /// - truncated=true means additional items exist after this page
+    fn get_clients_paginated(
+        self: @TState, agent_id: u256, offset: u64, limit: u64,
+    ) -> (Array<ContractAddress>, bool);
+
     /// Get last feedback index for a client-agent pair
     fn get_last_index(self: @TState, agent_id: u256, client_address: ContractAddress) -> u64;
 
     /// Get the identity registry address
     fn get_identity_registry(self: @TState) -> ContractAddress;
+
+    /// Get implementation version
+    fn get_version(self: @TState) -> ByteArray;
 }
