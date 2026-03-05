@@ -438,6 +438,88 @@ async function executeTransaction(
   gasfree: boolean,
   gasToken: string = TOKENS.STRK
 ): Promise<string> {
+  if (executionSurface === "starkzap") {
+    const dynamicImport = new Function(
+      "moduleName",
+      "return import(moduleName)"
+    ) as (moduleName: string) => Promise<any>;
+
+    if (signerMode !== "direct") {
+      throw new Error(
+        "starkzap execution requires STARKNET_SIGNER_MODE=direct with STARKNET_PRIVATE_KEY set"
+      );
+    }
+
+    if (!env.STARKNET_PRIVATE_KEY) {
+      throw new Error(
+        "starkzap execution requires STARKNET_PRIVATE_KEY"
+      );
+    }
+
+    let sdkModule: any;
+    try {
+      sdkModule = await dynamicImport("starkzap");
+    } catch {
+      throw new Error(
+        'Starkzap SDK is unavailable. Install dependency "starkzap" to enable STARKNET_EXECUTION_SURFACE=starkzap.'
+      );
+    }
+
+    const StarkSDK = sdkModule.StarkSDK;
+    const StarkSigner = sdkModule.StarkSigner;
+    const ChainId = sdkModule.ChainId;
+    if (!StarkSDK || !StarkSigner || !ChainId) {
+      throw new Error(
+        "Incomplete Starkzap SDK exports (StarkSDK/StarkSigner/ChainId)"
+      );
+    }
+
+    const chainId =
+      (isSepoliaRpc ? ChainId.SEPOLIA : ChainId.MAINNET) ??
+      (isSepoliaRpc ? ChainId.SN_SEPOLIA : ChainId.SN_MAIN);
+
+    const sdk = new StarkSDK({
+      rpcUrl: env.STARKNET_RPC_URL,
+      chainId,
+    });
+
+    const wallet = await sdk.connectWallet({
+      account: { signer: new StarkSigner(env.STARKNET_PRIVATE_KEY) },
+      feeMode: gasfree ? "sponsored" : "user_pays",
+    });
+
+    await wallet.ensureReady({ deploy: "if_needed" });
+
+    const callsArray = Array.isArray(calls) ? calls : [calls];
+    if (typeof wallet.preflight === "function") {
+      const preflight = await wallet.preflight({
+        calls: callsArray,
+        feeMode: gasfree ? "sponsored" : "user_pays",
+      });
+      if (preflight && preflight.ok === false) {
+        throw new Error(`starkzap preflight failed: ${preflight.reason ?? "unknown"}`);
+      }
+    }
+
+    const execution = await wallet.execute(callsArray, {
+      feeMode: gasfree ? "sponsored" : "user_pays",
+    });
+
+    if (execution && typeof execution.wait === "function") {
+      await execution.wait();
+    }
+
+    const txHash =
+      execution?.transactionHash ??
+      execution?.transaction_hash ??
+      execution?.hash;
+
+    if (!txHash) {
+      throw new Error("starkzap execute returned no transaction hash");
+    }
+    return txHash;
+  }
+
   if (!gasfree) {
     const result = await account.execute(calls);
     return result.transaction_hash;
@@ -1224,7 +1306,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "starknet_transfer": {
-        assertSurfaceSupported("starknet_transfer", ["direct"]);
+        assertSurfaceSupported("starknet_transfer", ["direct", "starkzap"]);
 
         const { recipient, token, amount, gasfree = false, gasToken } = args as {
           recipient: string;
@@ -1506,7 +1588,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "starknet_swap": {
-        assertSurfaceSupported("starknet_swap", ["direct", "avnu"]);
+        assertSurfaceSupported("starknet_swap", ["direct", "avnu", "starkzap"]);
 
         const { sellToken, buyToken, amount, slippage = 0.01, gasfree = false, gasToken } = args as {
           sellToken: string;
@@ -1583,7 +1665,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "starknet_get_quote": {
-        assertSurfaceSupported("starknet_get_quote", ["direct", "avnu"]);
+        assertSurfaceSupported("starknet_get_quote", ["direct", "avnu", "starkzap"]);
 
         const { sellToken, buyToken, amount } = args as {
           sellToken: string;

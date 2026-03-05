@@ -28,6 +28,10 @@ export function normalizeExecutionError(
     return { code: "UNSUPPORTED_SURFACE", surface: executionSurface };
   }
 
+  if (msg.includes("requires starknet_signer_mode=direct")) {
+    return { code: "UNSUPPORTED_SURFACE", surface: executionSurface };
+  }
+
   if (msg.includes("no quotes available") || msg.includes("insufficient_liquidity")) {
     return { code: "NO_LIQUIDITY", surface: executionSurface };
   }
@@ -54,4 +58,3 @@ export function normalizeExecutionError(
 
   return { code: "EXECUTION_FAILED", surface: executionSurface };
 }
-

@@ -164,6 +164,24 @@ function parseResponse(response: any) {
   return text ? JSON.parse(text) : null;
 }
 
+async function reloadServerWithEnv(overrides: Record<string, string | undefined> = {}) {
+  for (const [key, value] of Object.entries(mockEnv)) {
+    process.env[key] = value;
+  }
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  vi.resetModules();
+  await import("../../src/index.js");
+  stderrSpy.mockRestore();
+}
+
 // Structured log output (process.stderr.write) is suppressed during module
 // imports in beforeEach blocks to keep test output clean.
 
@@ -424,6 +442,36 @@ describe("MCP Tool Handlers", () => {
       expect(response.isError).toBe(true);
       const result = parseResponse(response);
       expect(result.error).toBe(true);
+    });
+
+    it("blocks transfer when execution surface is avnu", async () => {
+      await reloadServerWithEnv({ STARKNET_EXECUTION_SURFACE: "avnu" });
+
+      const response = await callTool("starknet_transfer", {
+        recipient,
+        token: "ETH",
+        amount: "1",
+      });
+
+      expect(response.isError).toBe(true);
+      const result = parseResponse(response);
+      expect(result.code).toBe("UNSUPPORTED_SURFACE");
+      expect(result.surface).toBe("avnu");
+    });
+
+    it("returns provider-unavailable when starkzap surface is enabled but sdk is missing", async () => {
+      await reloadServerWithEnv({ STARKNET_EXECUTION_SURFACE: "starkzap" });
+
+      const response = await callTool("starknet_transfer", {
+        recipient,
+        token: "ETH",
+        amount: "1",
+      });
+
+      expect(response.isError).toBe(true);
+      const result = parseResponse(response);
+      expect(result.code).toBe("PROVIDER_UNAVAILABLE");
+      expect(result.surface).toBe("starkzap");
     });
   });
 
