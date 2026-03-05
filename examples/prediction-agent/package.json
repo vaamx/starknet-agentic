@@ -29,6 +29,14 @@
     "better-sqlite3": "^11.0.0",
     "zod": "^3.23.0"
   },
+  "peerDependencies": {
+    "starkzap": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "starkzap": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.8",
     "@types/node": "^22.0.0",

@@ -398,10 +398,23 @@ function buildAllowanceCall(
   };
 }
 
-export interface TxResult {
-  txHash: string;
-  status: "success" | "error";
-  error?: string;
+function unsupportedSurfaceResult(
+  executionSurface: ExecutionSurface,
+  operation:
+    | "placeBet"
+    | "recordPrediction"
+    | "claimWinnings"
+    | "createMarket"
+    | "resolveMarket"
+    | "finalizeMarket"
+): TxResult {
+  return {
+    txHash: "",
+    status: "error",
+    executionSurface,
+    errorCode: "UNSUPPORTED_SURFACE",
+    error: `${operation} is not yet implemented for execution surface "${executionSurface}".`,
+  };
 }
 
 export interface CreateMarketResult extends TxResult {
@@ -492,8 +505,7 @@ export async function placeBet(
   }
 }
 
-/** Record an agent prediction on the accuracy tracker. */
-export async function recordPrediction(
+async function recordPredictionDirect(
   marketId: number,
   probability: number,
   accountOverride?: Account
@@ -504,19 +516,12 @@ export async function recordPrediction(
 
   const trackerAddress = config.ACCURACY_TRACKER_ADDRESS;
   if (trackerAddress === "0x0") {
-    return { txHash: "", status: "error", error: "Accuracy tracker not deployed" };
-  }
-
-  try {
-    const scaledProb = toScaled(probability);
-
-    const tx = {
-      contractAddress: trackerAddress,
-      entrypoint: "record_prediction",
-      calldata: CallData.compile({
-        market_id: { low: BigInt(marketId), high: 0n },
-        predicted_prob: { low: scaledProb, high: 0n },
-      }),
+    return {
+      txHash: "",
+      status: "error",
+      executionSurface: "direct",
+      errorCode: "TRACKER_NOT_DEPLOYED",
+      error: "Accuracy tracker not deployed",
     };
 
     ensureCallsAllowlisted([tx]);
@@ -532,6 +537,18 @@ export async function recordPrediction(
   } catch (err: any) {
     return { txHash: "", status: "error", error: normalizeTxError(err) };
   }
+
+  const scaledProb = toScaled(probability);
+  const tx = {
+    contractAddress: trackerAddress,
+    entrypoint: "record_prediction",
+    calldata: CallData.compile({
+      market_id: { low: BigInt(marketId), high: 0n },
+      predicted_prob: { low: scaledProb, high: 0n },
+    }),
+  };
+
+  return executeDirect([tx]);
 }
 
 /** Create a new prediction market via the factory (agent-only). */
@@ -646,9 +663,206 @@ export async function createMarket(
   } catch (err: any) {
     return { txHash: "", status: "error", error: normalizeTxError(err) };
   }
+
+  const scaledProb = toScaled(probability);
+  const tx = {
+    contractAddress: trackerAddress,
+    entrypoint: "record_prediction",
+    calldata: CallData.compile({
+      market_id: { low: BigInt(marketId), high: 0n },
+      predicted_prob: { low: scaledProb, high: 0n },
+    }),
+  };
+
+  return executeStarkzap([tx], {
+    operation: "recordPrediction",
+    allowFallbackToDirect: true,
+  });
 }
 
-/** Check if the agent has an account configured. */
+async function claimWinningsDirect(marketAddress: string): Promise<TxResult> {
+  const tx = {
+    contractAddress: marketAddress,
+    entrypoint: "claim",
+    calldata: [],
+  };
+  return executeDirect([tx]);
+}
+
+async function claimWinningsStarkzap(marketAddress: string): Promise<TxResult> {
+  const tx = {
+    contractAddress: marketAddress,
+    entrypoint: "claim",
+    calldata: [],
+  };
+  return executeStarkzap([tx], {
+    operation: "claimWinnings",
+    allowFallbackToDirect: true,
+  });
+}
+
+export async function createMarket(
+  questionHash: string,
+  resolutionTime: number,
+  oracle: string,
+  feeBps: number,
+  executionSurface?: ExecutionSurface
+): Promise<TxResult> {
+  const factoryAddress = config.MARKET_FACTORY_ADDRESS;
+  if (factoryAddress === "0x0") {
+    return {
+      txHash: "",
+      status: "error",
+      executionSurface: executionSurface ?? resolveExecutionSurface(),
+      errorCode: "FACTORY_NOT_DEPLOYED",
+      error: "Market factory not deployed",
+    };
+  }
+
+  const tx = {
+    contractAddress: factoryAddress,
+    entrypoint: "create_market",
+    calldata: CallData.compile({
+      question_hash: questionHash,
+      resolution_time: resolutionTime,
+      oracle,
+      collateral_token: config.COLLATERAL_TOKEN_ADDRESS,
+      fee_bps: feeBps,
+    }),
+  };
+
+  const surface = resolveExecutionSurface(executionSurface);
+  const policyViolation = guardStarkzapOperation(surface, "createMarket");
+  if (policyViolation) return policyViolation;
+
+  if (surface === "direct") {
+    return executeDirect([tx]);
+  }
+  if (surface === "starkzap") {
+    return executeStarkzap([tx], { operation: "createMarket" });
+  }
+  return unsupportedSurfaceResult(surface, "createMarket");
+}
+
+export async function resolveMarket(
+  marketAddress: string,
+  winningOutcome: 0 | 1,
+  executionSurface?: ExecutionSurface
+): Promise<TxResult> {
+  const tx = {
+    contractAddress: marketAddress,
+    entrypoint: "resolve",
+    calldata: CallData.compile({
+      winning_outcome: winningOutcome,
+    }),
+  };
+
+  const surface = resolveExecutionSurface(executionSurface);
+  const policyViolation = guardStarkzapOperation(surface, "resolveMarket");
+  if (policyViolation) return policyViolation;
+
+  if (surface === "direct") {
+    return executeDirect([tx]);
+  }
+  if (surface === "starkzap") {
+    return executeStarkzap([tx], { operation: "resolveMarket" });
+  }
+  return unsupportedSurfaceResult(surface, "resolveMarket");
+}
+
+export async function finalizeMarket(
+  marketId: number,
+  actualOutcome: 0 | 1,
+  executionSurface?: ExecutionSurface
+): Promise<TxResult> {
+  const trackerAddress = config.ACCURACY_TRACKER_ADDRESS;
+  if (trackerAddress === "0x0") {
+    return {
+      txHash: "",
+      status: "error",
+      executionSurface: executionSurface ?? resolveExecutionSurface(),
+      errorCode: "TRACKER_NOT_DEPLOYED",
+      error: "Accuracy tracker not deployed",
+    };
+  }
+
+  const tx = {
+    contractAddress: trackerAddress,
+    entrypoint: "finalize_market",
+    calldata: CallData.compile({
+      market_id: { low: BigInt(marketId), high: 0n },
+      actual_outcome: actualOutcome,
+    }),
+  };
+
+  const surface = resolveExecutionSurface(executionSurface);
+  const policyViolation = guardStarkzapOperation(surface, "finalizeMarket");
+  if (policyViolation) return policyViolation;
+
+  if (surface === "direct") {
+    return executeDirect([tx]);
+  }
+  if (surface === "starkzap") {
+    return executeStarkzap([tx], { operation: "finalizeMarket" });
+  }
+  return unsupportedSurfaceResult(surface, "finalizeMarket");
+}
+
+export async function placeBet(
+  marketAddress: string,
+  outcome: 0 | 1,
+  amount: bigint,
+  collateralToken: string,
+  executionSurface?: ExecutionSurface
+): Promise<TxResult> {
+  const surface = resolveExecutionSurface(executionSurface);
+  const policyViolation = guardStarkzapOperation(surface, "placeBet");
+  if (policyViolation) return policyViolation;
+
+  if (surface === "direct") {
+    return placeBetDirect(marketAddress, outcome, amount, collateralToken);
+  }
+  if (surface === "starkzap") {
+    return placeBetStarkzap(marketAddress, outcome, amount, collateralToken);
+  }
+  return unsupportedSurfaceResult(surface, "placeBet");
+}
+
+export async function recordPrediction(
+  marketId: number,
+  probability: number,
+  executionSurface?: ExecutionSurface
+): Promise<TxResult> {
+  const surface = resolveExecutionSurface(executionSurface);
+  const policyViolation = guardStarkzapOperation(surface, "recordPrediction");
+  if (policyViolation) return policyViolation;
+
+  if (surface === "direct") {
+    return recordPredictionDirect(marketId, probability);
+  }
+  if (surface === "starkzap") {
+    return recordPredictionStarkzap(marketId, probability);
+  }
+  return unsupportedSurfaceResult(surface, "recordPrediction");
+}
+
+export async function claimWinnings(
+  marketAddress: string,
+  executionSurface?: ExecutionSurface
+): Promise<TxResult> {
+  const surface = resolveExecutionSurface(executionSurface);
+  const policyViolation = guardStarkzapOperation(surface, "claimWinnings");
+  if (policyViolation) return policyViolation;
+
+  if (surface === "direct") {
+    return claimWinningsDirect(marketAddress);
+  }
+  if (surface === "starkzap") {
+    return claimWinningsStarkzap(marketAddress);
+  }
+  return unsupportedSurfaceResult(surface, "claimWinnings");
+}
+
 export function isAgentConfigured(): boolean {
   if (!config.AGENT_ADDRESS) return false;
   if (resolveSignerMode() === "session") {
@@ -657,7 +871,6 @@ export function isAgentConfigured(): boolean {
   return !!config.AGENT_PRIVATE_KEY;
 }
 
-/** Get the agent's address. */
 export function getAgentAddress(): string | null {
   return config.AGENT_ADDRESS ?? null;
 }

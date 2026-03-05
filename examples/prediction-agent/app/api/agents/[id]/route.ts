@@ -25,7 +25,7 @@ const controlSchema = z.object({
  * DELETE: Remove agent.
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   await ensureAgentSpawnerHydrated();

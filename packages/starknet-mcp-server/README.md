@@ -7,6 +7,7 @@ An MCP (Model Context Protocol) server that exposes Starknet blockchain operatio
 - **Wallet Operations**: Check balances, transfer tokens
 - **Contract Interactions**: Call read/write functions on any Starknet contract
 - **DeFi Operations**: Execute swaps via avnu aggregator with best-price routing
+- **Execution Surface Guardrails**: `STARKNET_EXECUTION_SURFACE` controls tool routing and blocks unsupported combinations
 - **Fee Estimation**: Estimate transaction costs before execution
 - **Mini-Pay Operations**: Payment links, invoices, and QR payload generation
 - **Multi-token Support**: ETH, STRK, USDC, USDT, and custom ERC20 tokens
@@ -28,6 +29,8 @@ Direct signer mode (development/local only):
 ```bash
 STARKNET_RPC_URL=https://starknet-mainnet.g.alchemy.com/v2/YOUR_KEY
 STARKNET_ACCOUNT_ADDRESS=0x...
+STARKNET_EXECUTION_SURFACE=direct
+STARKNET_EXECUTION_PROFILE=hardened
 STARKNET_SIGNER_MODE=direct
 STARKNET_PRIVATE_KEY=0x...
 
@@ -53,19 +56,46 @@ Proxy signer mode (recommended for production):
 ```bash
 STARKNET_RPC_URL=https://starknet-mainnet.g.alchemy.com/v2/YOUR_KEY
 STARKNET_ACCOUNT_ADDRESS=0x...
+STARKNET_EXECUTION_SURFACE=direct
+STARKNET_EXECUTION_PROFILE=hardened
 STARKNET_SIGNER_MODE=proxy
 KEYRING_PROXY_URL=https://signer.internal:8545
 KEYRING_HMAC_SECRET=replace-with-long-random-secret
+KEYRING_CLIENT_ID=starknet-mcp-server
 # mTLS client material (required in production for non-loopback signer URLs)
 # KEYRING_TLS_CLIENT_CERT_PATH=/etc/starknet-mcp/tls/client.crt
 # KEYRING_TLS_CLIENT_KEY_PATH=/etc/starknet-mcp/tls/client.key
 # KEYRING_TLS_CA_PATH=/etc/starknet-mcp/tls/ca.crt
 # Optional:
-# KEYRING_CLIENT_ID=starknet-mcp-server
 # KEYRING_SIGNING_KEY_ID=default
 # KEYRING_REQUEST_TIMEOUT_MS=5000
 # KEYRING_SESSION_VALIDITY_SECONDS=300
 ```
+
+`STARKNET_EXECUTION_SURFACE` values:
+- `direct` (default): direct account execution for transfers/swaps.
+- `avnu`: enables AVNU quote/swap path; transfer remains direct-only and is blocked otherwise.
+- `starkzap`: executes transfer/swap calls through Starkzap wallet execution path.
+  Requirements: `STARKNET_SIGNER_MODE=direct`, `STARKNET_PRIVATE_KEY`, and `starkzap` dependency installed.
+
+`STARKNET_EXECUTION_PROFILE` values:
+- `hardened` (default): when `STARKNET_EXECUTION_SURFACE=starkzap`, only `starknet_transfer` and `starknet_swap` can execute through Starkzap.
+- `standard`: legacy behavior; all write tools that use account execution may run through Starkzap.
+
+Optional fallback:
+- `STARKNET_STARKZAP_FALLBACK_TO_DIRECT=true`: if Starkzap is unavailable (missing SDK or invalid Starkzap signer preconditions), transfer/swap execution falls back to direct account execution and emits structured fallback telemetry.
+
+Signer boundary contract:
+- OpenAPI: `spec/signer-api-v1.openapi.yaml`
+- JSON Schema: `spec/signer-api-v1.schema.json`
+- Auth vectors: `spec/signer-auth-v1.json`
+- Auth vectors schema: `spec/signer-auth-v1.schema.json`
+- Security notes: `docs/security/SIGNER_API_SPEC.md`
+- Rotation runbook: `docs/security/SIGNER_PROXY_ROTATION_RUNBOOK.md`
+
+Interop note:
+- `spec/interop-version.json` remains at `0.1.0` until cross-repo conformance updates land.
+- Proxy clients should follow the signer API v1 contract above, including `X-Keyring-Client-Id`.
 
 SISNA server-side production key-custody guard:
 - Current SISNA builds fail production startup unless
@@ -201,6 +231,10 @@ Get swap quote without executing.
   "amount": "1.0"
 }
 ```
+
+### `starknet_execution_surface_status`
+
+Report execution readiness and effective surface selection, including Starkzap probe status and fallback posture.
 
 ### `starknet_estimate_fee`
 
@@ -365,6 +399,7 @@ The server uses:
 - Production startup guard: rejects `STARKNET_PRIVATE_KEY` when `STARKNET_SIGNER_MODE=proxy`
 - Production startup guard: non-loopback proxy URLs require mTLS client cert/key/CA paths
 - Proxy mode keeps signing outside MCP process (`starknet-keyring-proxy`)
+- Signer boundary API is versioned at `/v1/sign/session-transaction`
 - SISNA currently requires explicit production acknowledgement for in-process
   key custody: `KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION=true`
 - Direct private key mode is intended for local development only

@@ -1,0 +1,12 @@
+import { z } from "zod";
+export type VenueId = "polymarket" | "limitless" | "raize";
+export declare const PriceLevelSchema: any;
+export type PriceLevel = z.infer<typeof PriceLevelSchema>;
+export declare const VenueBookSnapshotSchema: any;
+export type VenueBookSnapshot = z.infer<typeof VenueBookSnapshotSchema>;
+export declare const MatchConfidenceSchema: any;
+export type MatchConfidence = z.infer<typeof MatchConfidenceSchema>;
+export declare const OpportunitySchema: any;
+export type Opportunity = z.infer<typeof OpportunitySchema>;
+export declare const HedgeRecipeSchema: any;
+export type HedgeRecipe = z.infer<typeof HedgeRecipeSchema>;

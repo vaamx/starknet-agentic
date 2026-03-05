@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import { quickResearch } from "@/lib/research-agent";
 import type { DataSourceName } from "@/lib/data-sources/index";
 import { categorizeMarket } from "@/lib/categories";
@@ -59,10 +60,35 @@ function getDefaultSources(question: string): DataSourceName[] {
 }
 
 export async function GET(request: NextRequest) {
-  const question = request.nextUrl.searchParams.get("question");
-  if (!question) {
+  const context = requireRole(request, "viewer");
+  if (!context) {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const rateLimit = checkRateLimit(
+    `research:${context.membership.organizationId}:${context.user.id}`,
+    {
+      windowMs: 60_000,
+      max: 30,
+      blockMs: 60_000,
+    }
+  );
+  if (!rateLimit.allowed) {
     return Response.json(
-      { error: "Missing 'question' query parameter" },
+      { error: "Rate limit exceeded for research requests" },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.ceil(rateLimit.retryAfterMs / 1000)),
+        },
+      }
+    );
+  }
+
+  const question = request.nextUrl.searchParams.get("question");
+  if (!question || question.trim().length < 5 || question.trim().length > 280) {
+    return Response.json(
+      { error: "Question must be between 5 and 280 characters" },
       { status: 400 }
     );
   }
@@ -72,12 +98,22 @@ export async function GET(request: NextRequest) {
   const sources =
     parsedSources.length > 0 ? parsedSources : getDefaultSources(question);
 
-  const results = await quickResearch(question, sources);
+  const [results, reliabilityProfile] = await Promise.all([
+    quickResearch(question.trim(), sources),
+    getSourceReliabilityProfile(context.membership.organizationId).catch(
+      (): Record<string, SourceReliabilityBacktestRow> => ({})
+    ),
+  ]);
+
+  const enriched = results.map((result) => ({
+    ...result,
+    backtest: reliabilityProfile[result.source.toLowerCase()] ?? null,
+  }));
 
   return Response.json({
-    question,
+    question: question.trim(),
     timestamp: Date.now(),
-    sourceCount: results.length,
-    results,
+    sourceCount: enriched.length,
+    results: enriched,
   });
 }
