@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { agentLoop } from "@/lib/agent-loop";
-import { z } from "zod";
 import { config } from "@/lib/config";
 import { enforceRateLimit, getRequestSecret, jsonError } from "@/lib/api-guard";
 import { ensureAgentSpawnerHydrated } from "@/lib/agent-persistence";
@@ -129,13 +128,6 @@ export async function POST(request: NextRequest) {
 
   if (action === "start") {
     agentLoop.start(intervalMs);
-    await recordAudit({
-      organizationId: context.membership.organizationId,
-      userId: context.user.id,
-      action: "agent_loop.start",
-      targetType: "system",
-      metadata: { intervalMs: intervalMs ?? null },
-    });
     return Response.json({
       ok: true,
       message: "Agent loop started",
@@ -145,12 +137,6 @@ export async function POST(request: NextRequest) {
 
   if (action === "stop") {
     agentLoop.stop();
-    await recordAudit({
-      organizationId: context.membership.organizationId,
-      userId: context.user.id,
-      action: "agent_loop.stop",
-      targetType: "system",
-    });
     return Response.json({
       ok: true,
       message: "Agent loop stopped",

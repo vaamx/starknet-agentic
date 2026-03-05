@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
+import { z } from "zod";
 import {
   getMarkets,
+  MARKET_QUESTIONS,
   registerQuestion,
   resolveMarketQuestion,
   seedKnownQuestions,
 } from "@/lib/market-reader";
+import { createMarket, type ExecutionSurface } from "@/lib/starknet-executor";
 import { config } from "@/lib/config";
 import { getOnChainActivityCounts } from "@/lib/event-indexer";
 import {
@@ -13,11 +17,34 @@ import {
   setPersistedMarketSnapshots,
 } from "@/lib/state-store";
 import { upsertMarkets, getAllMarkets } from "@/lib/market-db";
+import { requireRole } from "@/lib/require-auth";
+import { recordAudit, recordTradeExecution } from "@/lib/ops-store";
+import { reviewMarketQuestion } from "@/lib/market-quality";
 
 export const runtime = "nodejs";
 
 // Seed known question texts before any API calls
 seedKnownQuestions();
+
+const CreateMarketSchema = z.object({
+  question: z.string().min(5).max(280),
+  days: z.number().int().min(1).max(3650),
+  feeBps: z.number().int().min(0).max(1000),
+  oracle: z.string().regex(/^0x[0-9a-fA-F]+$/).optional(),
+  category: z
+    .enum(["crypto", "macro", "politics", "tech", "sports", "other"])
+    .optional(),
+  resolutionCriteria: z.string().min(12).max(600).optional(),
+  executionSurface: z.enum(["direct", "starkzap", "avnu"]).optional(),
+});
+
+function hashQuestionToFelt(question: string): string {
+  const digest = createHash("sha256")
+    .update(question.trim())
+    .digest("hex")
+    .slice(0, 62);
+  return `0x${digest}`;
+}
 
 async function withTimeout<T>(
   promise: Promise<T>,
@@ -451,7 +478,7 @@ export async function POST(request: NextRequest) {
     }
 
     const existingMarketQuestions = new Set(
-      Object.values(DEMO_QUESTIONS).map((q) => q.trim().toLowerCase())
+      Object.values(MARKET_QUESTIONS).map((q) => q.trim().toLowerCase())
     );
     if (existingMarketQuestions.has(normalizedQuestion.toLowerCase())) {
       return NextResponse.json(
@@ -524,7 +551,7 @@ export async function POST(request: NextRequest) {
       );
 
     if (createdMarket) {
-      setMarketQuestion(createdMarket.id, normalizedQuestion);
+      registerQuestion(createdMarket.id, normalizedQuestion);
       await recordAudit({
         organizationId: context.membership.organizationId,
         userId: context.user.id,

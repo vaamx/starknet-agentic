@@ -99,7 +99,15 @@ const SOURCE_BASELINE_RELIABILITY: Record<DataSourceName, number> = {
   polymarket: 0.82,
   coingecko: 0.87,
   news: 0.68,
+  web: 0.64,
+  tavily: 0.72,
   social: 0.58,
+  espn: 0.84,
+  github: 0.79,
+  onchain: 0.86,
+  rss: 0.66,
+  x: 0.57,
+  telegram: 0.52,
 };
 
 function clampUnit(value: number): number {

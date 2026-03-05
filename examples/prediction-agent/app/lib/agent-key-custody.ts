@@ -50,7 +50,7 @@ function buildKeyRef(agentId: string, provider: PersistedAgentKeyProvider): stri
   return `${provider}:${agentId}`;
 }
 
-function deriveLocalMasterKey(): Buffer | null {
+function deriveLocalMasterKey(): Uint8Array | null {
   const raw = config.agentKeyCustodyMasterKey.trim();
   if (!raw) return null;
 
@@ -61,8 +61,10 @@ function deriveLocalMasterKey(): Buffer | null {
       ? Buffer.from(value, "hex")
       : Buffer.from(value, "utf8");
 
-  if (decoded.length === 32) return decoded;
-  return createHash("sha256").update(decoded).digest();
+  if (decoded.length === 32) return Uint8Array.from(decoded);
+  return Uint8Array.from(
+    createHash("sha256").update(Uint8Array.from(decoded)).digest()
+  );
 }
 
 function localEncrypt(plaintext: string): {
@@ -78,17 +80,19 @@ function localEncrypt(plaintext: string): {
   }
 
   const iv = randomBytes(LOCAL_IV_BYTES);
-  const cipher = createCipheriv("aes-256-gcm", masterKey, iv);
-  const encrypted = Buffer.concat([
-    cipher.update(Buffer.from(plaintext, "utf8")),
-    cipher.final(),
-  ]);
-  const authTag = cipher.getAuthTag();
+  const ivBytes = Uint8Array.from(iv);
+  const cipher = createCipheriv("aes-256-gcm", masterKey, ivBytes);
+  const encryptedHead = cipher.update(plaintext, "utf8");
+  const encryptedTail = cipher.final();
+  const encrypted = new Uint8Array(encryptedHead.length + encryptedTail.length);
+  encrypted.set(encryptedHead, 0);
+  encrypted.set(encryptedTail, encryptedHead.length);
+  const authTag = Uint8Array.from(cipher.getAuthTag());
 
   return {
-    ciphertext: encrypted.toString("base64"),
-    iv: iv.toString("base64"),
-    authTag: authTag.toString("base64"),
+    ciphertext: toBase64(encrypted),
+    iv: toBase64(ivBytes),
+    authTag: toBase64(authTag),
   };
 }
 
@@ -103,17 +107,18 @@ function localDecrypt(material: PersistedAgentKeyMaterial): string {
     throw new Error("Local-encrypted key material is missing iv/authTag");
   }
 
-  const iv = Buffer.from(material.iv, "base64");
-  const authTag = Buffer.from(material.authTag, "base64");
+  const iv = fromBase64(material.iv);
+  const authTag = fromBase64(material.authTag);
   const decipher = createDecipheriv("aes-256-gcm", masterKey, iv);
   decipher.setAuthTag(authTag);
 
-  const decrypted = Buffer.concat([
-    decipher.update(Buffer.from(material.ciphertext, "base64")),
-    decipher.final(),
-  ]);
+  const decryptedHead = decipher.update(fromBase64(material.ciphertext));
+  const decryptedTail = decipher.final();
+  const decrypted = new Uint8Array(decryptedHead.length + decryptedTail.length);
+  decrypted.set(decryptedHead, 0);
+  decrypted.set(decryptedTail, decryptedHead.length);
 
-  return decrypted.toString("utf8");
+  return new TextDecoder().decode(decrypted);
 }
 
 async function loadAwsKmsModule(): Promise<any> {
@@ -305,4 +310,3 @@ export async function deleteAgentSigningMaterial(agentId: string): Promise<void>
   inMemoryPrivateKeys.delete(agentId);
   await deletePersistedAgentKey(agentId);
 }
-

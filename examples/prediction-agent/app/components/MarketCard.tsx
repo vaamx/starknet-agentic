@@ -52,9 +52,6 @@ export default function MarketCard({
   predictions = [],
   onAnalyze,
   onBet,
-  onResolve,
-  onFinalize,
-  onClaim,
 }: MarketCardProps) {
   const { address: connectedAddress, isConnected } = useAccount();
   const { sendAsync, isPending: resolving } = useSendTransaction({});

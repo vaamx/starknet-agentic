@@ -97,8 +97,8 @@ function decodeSessionToken(token: string): WalletSessionPayload | null {
   const [payloadB64, signature] = token.split(".");
   if (!payloadB64 || !signature) return null;
   const expectedSig = signPayload(payloadB64);
-  const sigBuf = Buffer.from(signature, "utf8");
-  const expectedBuf = Buffer.from(expectedSig, "utf8");
+  const sigBuf = Uint8Array.from(Buffer.from(signature, "utf8"));
+  const expectedBuf = Uint8Array.from(Buffer.from(expectedSig, "utf8"));
   if (sigBuf.length !== expectedBuf.length) return null;
   if (!timingSafeEqual(sigBuf, expectedBuf)) return null;
 
