@@ -7,6 +7,7 @@ An MCP (Model Context Protocol) server that exposes Starknet blockchain operatio
 - **Wallet Operations**: Check balances, transfer tokens
 - **Contract Interactions**: Call read/write functions on any Starknet contract
 - **DeFi Operations**: Execute swaps via avnu aggregator with best-price routing
+- **Execution Surface Guardrails**: `STARKNET_EXECUTION_SURFACE` controls tool routing and blocks unsupported combinations
 - **Fee Estimation**: Estimate transaction costs before execution
 - **Multi-token Support**: ETH, STRK, USDC, USDT, and custom ERC20 tokens
 
@@ -27,6 +28,7 @@ Direct signer mode (development/local only):
 ```bash
 STARKNET_RPC_URL=https://starknet-mainnet.g.alchemy.com/v2/YOUR_KEY
 STARKNET_ACCOUNT_ADDRESS=0x...
+STARKNET_EXECUTION_SURFACE=direct
 STARKNET_SIGNER_MODE=direct
 STARKNET_PRIVATE_KEY=0x...
 
@@ -47,6 +49,7 @@ Proxy signer mode (recommended for production):
 ```bash
 STARKNET_RPC_URL=https://starknet-mainnet.g.alchemy.com/v2/YOUR_KEY
 STARKNET_ACCOUNT_ADDRESS=0x...
+STARKNET_EXECUTION_SURFACE=direct
 STARKNET_SIGNER_MODE=proxy
 KEYRING_PROXY_URL=https://signer.internal:8545
 KEYRING_HMAC_SECRET=replace-with-long-random-secret

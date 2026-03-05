@@ -83,6 +83,7 @@ import { log } from "./logger.js";
 const envSchema = z.object({
   STARKNET_RPC_URL: z.string().url(),
   STARKNET_ACCOUNT_ADDRESS: z.string().startsWith("0x"),
+  STARKNET_EXECUTION_SURFACE: z.enum(["direct", "avnu", "starkzap"]).optional(),
   STARKNET_SIGNER_MODE: z.enum(["direct", "proxy"]).optional(),
   STARKNET_PRIVATE_KEY: z.string().startsWith("0x").optional(),
   AVNU_BASE_URL: z.string().url().optional(),
@@ -116,6 +117,7 @@ const defaultAvnuPaymasterUrl = isSepoliaRpc
 const env = envSchema.parse({
   STARKNET_RPC_URL: process.env.STARKNET_RPC_URL,
   STARKNET_ACCOUNT_ADDRESS: process.env.STARKNET_ACCOUNT_ADDRESS,
+  STARKNET_EXECUTION_SURFACE: process.env.STARKNET_EXECUTION_SURFACE,
   STARKNET_SIGNER_MODE: process.env.STARKNET_SIGNER_MODE,
   STARKNET_PRIVATE_KEY: process.env.STARKNET_PRIVATE_KEY,
   AVNU_BASE_URL: process.env.AVNU_BASE_URL || defaultAvnuApiUrl,
@@ -139,6 +141,7 @@ const env = envSchema.parse({
   NODE_ENV: process.env.NODE_ENV,
 });
 
+const executionSurface = env.STARKNET_EXECUTION_SURFACE ?? "direct";
 const signerMode = env.STARKNET_SIGNER_MODE ?? "direct";
 const runtimeEnvironment = (env.NODE_ENV || "development").toLowerCase();
 const isProductionRuntime = runtimeEnvironment === "production";
@@ -271,6 +274,19 @@ function parseFelt(name: string, value: string): bigint {
     throw new Error(`${name} must fit in 251 bits`);
   }
   return parsed;
+}
+
+function assertSurfaceSupported(
+  toolName: "starknet_transfer" | "starknet_swap" | "starknet_get_quote",
+  allowedSurfaces: Array<"direct" | "avnu" | "starkzap">
+): void {
+  if (allowedSurfaces.includes(executionSurface)) {
+    return;
+  }
+  throw new Error(
+    `${toolName} is not supported with STARKNET_EXECUTION_SURFACE=${executionSurface}. ` +
+      `Supported surfaces: ${allowedSurfaces.join(", ")}`
+  );
 }
 
 function parseAddress(name: string, value: string): string {
@@ -1203,6 +1219,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "starknet_transfer": {
+        assertSurfaceSupported("starknet_transfer", ["direct"]);
+
         const { recipient, token, amount, gasfree = false, gasToken } = args as {
           recipient: string;
           token: string;
@@ -1239,6 +1257,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 token,
                 amount,
                 gasfree,
+                executionSurface,
               }, null, 2),
             },
           ],
@@ -1482,6 +1501,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "starknet_swap": {
+        assertSurfaceSupported("starknet_swap", ["direct", "avnu"]);
+
         const { sellToken, buyToken, amount, slippage = 0.01, gasfree = false, gasToken } = args as {
           sellToken: string;
           buyToken: string;
@@ -1548,6 +1569,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 buyAmountInUsd: bestQuote.buyAmountInUsd?.toFixed(2),
                 slippage,
                 gasfree,
+                executionSurface,
                 ...(swapPriceWarning ? { warning: swapPriceWarning } : {}),
               }, null, 2),
             },
@@ -1556,6 +1578,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "starknet_get_quote": {
+        assertSurfaceSupported("starknet_get_quote", ["direct", "avnu"]);
+
         const { sellToken, buyToken, amount } = args as {
           sellToken: string;
           buyToken: string;
@@ -1599,6 +1623,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 sellAmountInUsd: bestQuote.sellAmountInUsd?.toFixed(2),
                 buyAmountInUsd: bestQuote.buyAmountInUsd?.toFixed(2),
                 quoteId: bestQuote.quoteId,
+                executionSurface,
                 ...(quotePriceWarning ? { warning: quotePriceWarning } : {}),
               }, null, 2),
             },
