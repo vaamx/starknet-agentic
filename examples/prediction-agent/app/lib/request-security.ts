@@ -72,8 +72,8 @@ export function validateCsrfToken(
     return { ok: false, reason: "Missing CSRF token" };
   }
 
-  const a = Buffer.from(tokenFromCookie);
-  const b = Buffer.from(tokenFromHeader);
+  const a = Uint8Array.from(Buffer.from(tokenFromCookie));
+  const b = Uint8Array.from(Buffer.from(tokenFromHeader));
   if (a.length !== b.length || !timingSafeEqual(a, b)) {
     return { ok: false, reason: "Invalid CSRF token" };
   }

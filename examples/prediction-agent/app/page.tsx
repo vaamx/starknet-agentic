@@ -389,7 +389,7 @@ export default function Dashboard() {
       {showCreator && (
         <MarketCreator
           onClose={() => setShowCreator(false)}
-          onCreated={loadData}
+          onCreated={refreshData}
         />
       )}
 
@@ -419,18 +419,6 @@ export default function Dashboard() {
         />
       )}
 
-      {lifecycleAction && (
-        <MarketLifecycleModal
-          marketId={lifecycleAction.marketId}
-          question={
-            markets.find((m) => m.id === lifecycleAction.marketId)?.question ??
-            `Market #${lifecycleAction.marketId}`
-          }
-          action={lifecycleAction.action}
-          onClose={() => setLifecycleAction(null)}
-          onSuccess={loadData}
-        />
-      )}
     </div>
   );
 }

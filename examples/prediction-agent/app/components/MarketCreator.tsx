@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useAccount, useSendTransaction } from "@starknet-react/core";
 import { buildCreateMarketCalls } from "@/lib/contracts";
+import { reviewMarketQuestion } from "@/lib/market-quality";
 
 interface MarketCreatorProps {
   onClose: () => void;
@@ -20,6 +21,17 @@ export default function MarketCreator({ onClose }: MarketCreatorProps) {
     txHash?: string;
     error?: string;
   } | null>(null);
+
+  const parsedDays = Number.parseInt(days || "0", 10);
+  const parsedFeeBps = Number.parseInt(feeBps || "0", 10);
+  const validDays =
+    Number.isFinite(parsedDays) && parsedDays >= 1 && parsedDays <= 3650;
+  const validFee =
+    Number.isFinite(parsedFeeBps) && parsedFeeBps >= 0 && parsedFeeBps <= 1000;
+  const resolutionDate = validDays
+    ? new Date(Date.now() + parsedDays * 86_400_000)
+    : null;
+  const review = reviewMarketQuestion(question);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {

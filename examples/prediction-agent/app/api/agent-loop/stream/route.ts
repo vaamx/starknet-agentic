@@ -1,4 +1,7 @@
+import { NextRequest } from "next/server";
 import { agentLoop } from "@/lib/agent-loop";
+import { requireRole } from "@/lib/require-auth";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { getPersistedLoopActions } from "@/lib/state-store";
 
 /**

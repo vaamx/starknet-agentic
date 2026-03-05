@@ -21,7 +21,9 @@ export interface AuthUser {
 function resolveAuthSecret(): string {
   const secret = process.env.AUTH_SECRET?.trim();
   const isProduction = process.env.NODE_ENV === "production";
-  const isBuildMode = process.env.PREDICTION_AGENT_BUILD === "true";
+  const isBuildMode =
+    process.env.PREDICTION_AGENT_BUILD === "true" ||
+    process.env.NEXT_PHASE === "phase-production-build";
 
   if (!secret) {
     if (isProduction && !isBuildMode) {
@@ -87,7 +89,10 @@ function verifyPassword(password: string, stored: string): boolean {
   const [salt, digest] = stored.split(":");
   if (!salt || !digest) return false;
   const derived = scryptSync(password, salt, 64).toString("hex");
-  return timingSafeEqual(Buffer.from(digest), Buffer.from(derived));
+  const digestBytes = Uint8Array.from(Buffer.from(digest, "hex"));
+  const derivedBytes = Uint8Array.from(Buffer.from(derived, "hex"));
+  if (digestBytes.length !== derivedBytes.length) return false;
+  return timingSafeEqual(digestBytes, derivedBytes);
 }
 
 export function sessionCookieName(): string {

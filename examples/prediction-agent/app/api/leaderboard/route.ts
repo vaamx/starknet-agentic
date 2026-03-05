@@ -19,7 +19,7 @@ async function withTimeout<T>(
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const leaderboard = await withTimeout(getOnChainLeaderboard(), 15_000, []);
     return NextResponse.json({ leaderboard, stale: leaderboard.length === 0 });

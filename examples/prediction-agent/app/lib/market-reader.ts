@@ -419,10 +419,6 @@ export async function getMarketState(id: number, address: string): Promise<Marke
     }
   }
 
-  const numericStatus = Number(status);
-  const winningOutcome =
-    numericStatus === 2 ? Number(await market.get_winning_outcome()) : undefined;
-
   return {
     id,
     address,

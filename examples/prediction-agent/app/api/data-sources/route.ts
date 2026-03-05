@@ -4,6 +4,12 @@ import { quickResearch } from "@/lib/research-agent";
 import type { DataSourceName } from "@/lib/data-sources/index";
 import { categorizeMarket } from "@/lib/categories";
 import { config } from "@/lib/config";
+import { requireRole } from "@/lib/require-auth";
+import { checkRateLimit } from "@/lib/rate-limit";
+import {
+  getSourceReliabilityProfile,
+  type SourceReliabilityBacktestRow,
+} from "@/lib/ops-store";
 
 /**
  * Data Sources endpoint.
