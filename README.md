@@ -30,6 +30,12 @@ Snapshot as of 2026-02-10:
 | Onboarding examples | `examples/onboard-agent`, `crosschain-demo` | Working (with CI smoke tests) |
 | CI/CD | `.github/workflows/` | 11 jobs + daily health check |
 
+## Upstream Sync Notes
+
+Latest upstream intelligence and ecosystem updates are tracked in:
+
+- `docs/UPSTREAM_SYNC_2026-03-05.md`
+
 ## Architecture (Current)
 
 ```text
@@ -195,6 +201,7 @@ These projects are important dependencies or ecosystem foundations for this repo
 | [Lucid Agents](https://github.com/daydreamsai/lucid-agents) | Commerce + wallet interoperability target |
 | [OpenClaw / MoltBook](https://docs.openclaw.ai/) | Skill distribution and agent ecosystem |
 | [Cartridge Controller](https://docs.cartridge.gg/controller/getting-started) | Session-key wallet patterns on Starknet |
+| [Starkzap](https://github.com/keep-starknet-strange/starkzap) | DeFi execution surface under evaluation/integration |
 
 ## Contract Docs and Deployments
 
