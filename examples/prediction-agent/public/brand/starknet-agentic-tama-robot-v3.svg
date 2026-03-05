@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 34" role="img" aria-labelledby="title desc" style="image-rendering:pixelated">
+  <title id="title">HiveCaster Mascot v3</title>
+  <desc id="desc">Pixel robot tamagotchi v3 — joyful, glowing antenna, light on dark. Animated.</desc>
+
+  <!-- ═══ DARK BACKGROUND ═══ -->
+  <rect width="32" height="34" fill="#060e1a"/>
+
+  <!-- ═══ ANTENNA GLOW HALO (outermost → inner) ═══ -->
+  <rect x="12" y="0" width="8" height="5" fill="#64ffe8" opacity="0.04"/>
+  <rect x="13" y="0" width="6" height="4" fill="#64ffe8" opacity="0.07"/>
+  <rect x="14" y="0" width="4" height="4" fill="#64ffe8" opacity="0.12"/>
+
+  <g>
+    <animateTransform attributeName="transform" type="translate" values="0,0;0,-0.4;0,0" dur="2.8s" repeatCount="indefinite"/>
+
+    <!-- ═══ ANTENNA ═══ -->
+    <!-- glow bloom around ball -->
+    <rect x="14" y="0" width="4" height="3" fill="#64ffe8" opacity="0.15">
+      <animate attributeName="opacity" values="0.1;0.25;0.1" dur="1.6s" repeatCount="indefinite"/>
+    </rect>
+    <!-- ball -->
+    <rect x="15" y="1" width="2" height="2" fill="#64ffe8">
+      <animate attributeName="opacity" values="0.8;1;0.8" dur="1.6s" repeatCount="indefinite"/>
+    </rect>
+    <!-- bright core pixel -->
+    <rect x="15" y="1" width="1" height="1" fill="white" opacity="0.5">
+      <animate attributeName="opacity" values="0.3;0.6;0.3" dur="1.6s" repeatCount="indefinite"/>
+    </rect>
+    <!-- stem -->
+    <rect x="15" y="3" width="2" height="3" fill="#7ce8ff" opacity="0.45"/>
+    <!-- stem glow -->
+    <rect x="14" y="3" width="1" height="2" fill="#7ce8ff" opacity="0.08"/>
+    <rect x="17" y="3" width="1" height="2" fill="#7ce8ff" opacity="0.06"/>
+
+    <!-- ═══ SHELL — wider, brighter border ═══ -->
+    <!-- top edge -->
+    <rect x="5" y="7" width="22" height="1" fill="#9aeef8" opacity="0.85"/>
+    <!-- left wall -->
+    <rect x="4" y="8" width="1" height="17" fill="#9aeef8" opacity="0.8"/>
+    <!-- right wall -->
+    <rect x="27" y="8" width="1" height="17" fill="#9aeef8" opacity="0.75"/>
+    <!-- bottom edge -->
+    <rect x="5" y="25" width="22" height="1" fill="#9aeef8" opacity="0.7"/>
+    <!-- corners -->
+    <rect x="4" y="7" width="1" height="1" fill="#9aeef8" opacity="0.25"/>
+    <rect x="27" y="7" width="1" height="1" fill="#9aeef8" opacity="0.25"/>
+    <rect x="4" y="25" width="1" height="1" fill="#9aeef8" opacity="0.2"/>
+    <rect x="27" y="25" width="1" height="1" fill="#9aeef8" opacity="0.2"/>
+
+    <!-- shell outer glow -->
+    <rect x="3" y="8" width="1" height="17" fill="#7ce8ff" opacity="0.06"/>
+    <rect x="28" y="8" width="1" height="17" fill="#7ce8ff" opacity="0.04"/>
+    <rect x="5" y="6" width="22" height="1" fill="#7ce8ff" opacity="0.05"/>
+
+    <!-- shell fill -->
+    <rect x="5" y="8" width="22" height="17" fill="#0c2139"/>
+    <!-- top inner highlight -->
+    <rect x="5" y="8" width="22" height="1" fill="white" opacity="0.05"/>
+
+    <!-- ═══ SCREEN ═══ -->
+    <rect x="7" y="10" width="18" height="13" fill="#081b2e"/>
+    <!-- screen border -->
+    <rect x="7" y="10" width="18" height="1" fill="#7ce8ff" opacity="0.1"/>
+    <rect x="7" y="22" width="18" height="1" fill="#7ce8ff" opacity="0.06"/>
+    <rect x="7" y="11" width="1" height="11" fill="#7ce8ff" opacity="0.07"/>
+    <rect x="24" y="11" width="1" height="11" fill="#7ce8ff" opacity="0.05"/>
+
+    <!-- scanline -->
+    <rect x="7" y="11" width="18" height="1" fill="#7ce8ff" opacity="0.12">
+      <animate attributeName="y" values="11;22;11" dur="2.8s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.14;0.04;0.14" dur="2.8s" repeatCount="indefinite"/>
+    </rect>
+
+    <!-- ═══ EYEBROWS — friendly, raised outward (happy arch) ═══ -->
+    <!-- left brow — raised on outer edge -->
+    <rect x="9"  y="12" width="1" height="1" fill="#7ce8ff" opacity="0.35"/>
+    <rect x="10" y="11" width="3" height="1" fill="#7ce8ff" opacity="0.5"/>
+    <!-- right brow — mirror, raised on outer edge -->
+    <rect x="22" y="12" width="1" height="1" fill="#7ce8ff" opacity="0.35"/>
+    <rect x="19" y="11" width="3" height="1" fill="#7ce8ff" opacity="0.5"/>
+
+    <!-- ═══ EYES — 3×2, bright, friendly ═══ -->
+    <!-- left eye -->
+    <rect x="9" y="13" width="3" height="2" fill="#9aeef8">
+      <animate attributeName="height" values="2;0.3;2" keyTimes="0;0.44;0.46" dur="5.2s" repeatCount="indefinite"/>
+    </rect>
+    <rect x="9" y="13" width="2" height="1" fill="white" opacity="0.4"/>
+    <rect x="9" y="13" width="1" height="1" fill="white" opacity="0.25"/>
+
+    <!-- right eye -->
+    <rect x="20" y="13" width="3" height="2" fill="#9aeef8">
+      <animate attributeName="height" values="2;0.3;2" keyTimes="0;0.44;0.46" dur="5.2s" repeatCount="indefinite"/>
+    </rect>
+    <rect x="20" y="13" width="2" height="1" fill="white" opacity="0.4"/>
+    <rect x="20" y="13" width="1" height="1" fill="white" opacity="0.25"/>
+
+    <!-- ═══ NOSE SENSOR ═══ -->
+    <rect x="15" y="14" width="2" height="1" fill="#3bb8e8" opacity="0.2"/>
+
+    <!-- ═══ MOUTH — happy smile curving up ═══ -->
+    <!-- smile base -->
+    <rect x="12" y="17" width="8" height="1" fill="#7ce8ff" opacity="0.6"/>
+    <!-- smile upticks on both sides -->
+    <rect x="11" y="16" width="1" height="1" fill="#7ce8ff" opacity="0.4"/>
+    <rect x="20" y="16" width="1" height="1" fill="#7ce8ff" opacity="0.4"/>
+    <!-- smile cheek warmth -->
+    <rect x="9"  y="16" width="1" height="1" fill="#64ffe8" opacity="0.08"/>
+    <rect x="22" y="16" width="1" height="1" fill="#64ffe8" opacity="0.08"/>
+
+    <!-- ═══ CHEEK VENTS ═══ -->
+    <rect x="5" y="13" width="2" height="1" fill="#3bb8e8" opacity="0.12"/>
+    <rect x="5" y="15" width="2" height="1" fill="#3bb8e8" opacity="0.09"/>
+    <rect x="5" y="17" width="2" height="1" fill="#3bb8e8" opacity="0.07"/>
+    <rect x="25" y="13" width="2" height="1" fill="#3bb8e8" opacity="0.12"/>
+    <rect x="25" y="15" width="2" height="1" fill="#3bb8e8" opacity="0.09"/>
+    <rect x="25" y="17" width="2" height="1" fill="#3bb8e8" opacity="0.07"/>
+
+    <!-- ═══ CHIN PLATE ═══ -->
+    <rect x="10" y="20" width="12" height="1" fill="#7ce8ff" opacity="0.06"/>
+
+    <!-- ═══ SPARK LEDs — both bright ═══ -->
+    <rect x="25" y="8" width="2" height="2" fill="#64ffe8">
+      <animate attributeName="opacity" values="0.25;0.85;0.25" dur="1.6s" repeatCount="indefinite"/>
+    </rect>
+    <rect x="5" y="8" width="2" height="2" fill="#64ffe8">
+      <animate attributeName="opacity" values="0.15;0.5;0.15" dur="2s" begin="0.4s" repeatCount="indefinite"/>
+    </rect>
+
+    <!-- ═══ FEET ═══ -->
+    <rect x="7"  y="26" width="4" height="2" fill="#9aeef8" opacity="0.35"/>
+    <rect x="21" y="26" width="4" height="2" fill="#9aeef8" opacity="0.35"/>
+    <!-- grounding -->
+    <rect x="8"  y="28" width="2" height="1" fill="#7ce8ff" opacity="0.12"/>
+    <rect x="22" y="28" width="2" height="1" fill="#7ce8ff" opacity="0.12"/>
+
+    <!-- ═══ PANEL SEAMS ═══ -->
+    <rect x="15" y="8" width="2" height="1" fill="white" opacity="0.025"/>
+    <rect x="5"  y="21" width="22" height="1" fill="white" opacity="0.02"/>
+  </g>
+</svg>

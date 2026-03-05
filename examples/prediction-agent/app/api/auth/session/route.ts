@@ -1,16 +1,28 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getUserFromSessionToken, sessionCookieName } from "@/lib/auth";
+import { NextRequest } from "next/server";
+import {
+  isManualAuthConfigured,
+  readWalletSession,
+} from "@/lib/wallet-session";
+
+export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
-  const token = request.cookies.get(sessionCookieName())?.value;
-  if (!token) {
-    return NextResponse.json({ authenticated: false });
+  const configured = isManualAuthConfigured();
+  const session = readWalletSession(request);
+  if (!configured || !session) {
+    return Response.json({
+      ok: true,
+      configured,
+      authenticated: false,
+    });
   }
 
-  const user = getUserFromSessionToken(token);
-  if (!user) {
-    return NextResponse.json({ authenticated: false });
-  }
-
-  return NextResponse.json({ authenticated: true, user });
+  return Response.json({
+    ok: true,
+    configured: true,
+    authenticated: true,
+    walletAddress: session.walletAddress,
+    expiresAt: session.expiresAt,
+    scopes: session.scopes,
+  });
 }

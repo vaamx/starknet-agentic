@@ -12,16 +12,17 @@
   "workspaces": [
     "packages/*",
     "examples/*",
+    "services/*",
     "skills/*",
     "website"
   ],
   "scripts": {
     "build": "pnpm -r build",
-    "test": "pnpm -r test",
+    "test": "pnpm -r test && pnpm run test:integration",
+    "test:integration": "vitest run tests/integration",
     "lint": "pnpm -r lint",
-    "demo:hello-agent": "node examples/hello-agent/index.mjs",
-    "ci:version": "changeset version",
-    "ci:release": "pnpm build && changeset publish"
+    "lint:commits": "pnpm dlx @commitlint/cli@20 --config commitlint.config.cjs --last --verbose",
+    "demo:hello-agent": "node examples/hello-agent/index.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "2.29.8",
@@ -33,7 +34,7 @@
     "vitest": "^4.0.18"
   },
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=22.0.0"
   },
   "pnpm": {
     "overrides": {

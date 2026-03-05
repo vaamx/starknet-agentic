@@ -9,6 +9,7 @@ An MCP (Model Context Protocol) server that exposes Starknet blockchain operatio
 - **DeFi Operations**: Execute swaps via avnu aggregator with best-price routing
 - **Execution Surface Guardrails**: `STARKNET_EXECUTION_SURFACE` controls tool routing and blocks unsupported combinations
 - **Fee Estimation**: Estimate transaction costs before execution
+- **Mini-Pay Operations**: Payment links, invoices, and QR payload generation
 - **Multi-token Support**: ETH, STRK, USDC, USDT, and custom ERC20 tokens
 
 ## Installation
@@ -29,6 +30,7 @@ Direct signer mode (development/local only):
 STARKNET_RPC_URL=https://starknet-mainnet.g.alchemy.com/v2/YOUR_KEY
 STARKNET_ACCOUNT_ADDRESS=0x...
 STARKNET_EXECUTION_SURFACE=direct
+STARKNET_EXECUTION_PROFILE=hardened
 STARKNET_SIGNER_MODE=direct
 STARKNET_PRIVATE_KEY=0x...
 
@@ -42,6 +44,11 @@ AVNU_PAYMASTER_URL=https://starknet.paymaster.avnu.fi
 # Defaults to "sponsored" when AVNU_PAYMASTER_API_KEY is set; otherwise "default".
 # You can force "default" to avoid failures when your key is not sponsor-authorized.
 AVNU_PAYMASTER_FEE_MODE=default
+
+# Optional ERC-8004 registry integrations
+ERC8004_IDENTITY_REGISTRY_ADDRESS=0x...
+ERC8004_REPUTATION_REGISTRY_ADDRESS=0x...
+ERC8004_VALIDATION_REGISTRY_ADDRESS=0x...
 ```
 
 Proxy signer mode (recommended for production):
@@ -50,6 +57,7 @@ Proxy signer mode (recommended for production):
 STARKNET_RPC_URL=https://starknet-mainnet.g.alchemy.com/v2/YOUR_KEY
 STARKNET_ACCOUNT_ADDRESS=0x...
 STARKNET_EXECUTION_SURFACE=direct
+STARKNET_EXECUTION_PROFILE=hardened
 STARKNET_SIGNER_MODE=proxy
 KEYRING_PROXY_URL=https://signer.internal:8545
 KEYRING_HMAC_SECRET=replace-with-long-random-secret
@@ -69,6 +77,13 @@ KEYRING_CLIENT_ID=starknet-mcp-server
 - `avnu`: enables AVNU quote/swap path; transfer remains direct-only and is blocked otherwise.
 - `starkzap`: executes transfer/swap calls through Starkzap wallet execution path.
   Requirements: `STARKNET_SIGNER_MODE=direct`, `STARKNET_PRIVATE_KEY`, and `starkzap` dependency installed.
+
+`STARKNET_EXECUTION_PROFILE` values:
+- `hardened` (default): when `STARKNET_EXECUTION_SURFACE=starkzap`, only `starknet_transfer` and `starknet_swap` can execute through Starkzap.
+- `standard`: legacy behavior; all write tools that use account execution may run through Starkzap.
+
+Optional fallback:
+- `STARKNET_STARKZAP_FALLBACK_TO_DIRECT=true`: if Starkzap is unavailable (missing SDK or invalid Starkzap signer preconditions), transfer/swap execution falls back to direct account execution and emits structured fallback telemetry.
 
 Signer boundary contract:
 - OpenAPI: `spec/signer-api-v1.openapi.yaml`
@@ -217,6 +232,10 @@ Get swap quote without executing.
 }
 ```
 
+### `starknet_execution_surface_status`
+
+Report execution readiness and effective surface selection, including Starkzap probe status and fallback posture.
+
 ### `starknet_estimate_fee`
 
 Estimate transaction fee.
@@ -226,6 +245,130 @@ Estimate transaction fee.
   "contractAddress": "0x...",
   "entrypoint": "transfer",
   "calldata": ["0x...", "1000"]
+}
+```
+
+### `starknet_get_agent_info`
+
+Read consolidated ERC-8004 identity state (exists/owner/wallet/token URI + selected metadata keys).
+
+```typescript
+{
+  "agent_id": "1",
+  "metadata_keys": ["agentName", "status"] // optional
+}
+```
+
+### `starknet_update_agent_metadata`
+
+Alias for `starknet_set_agent_metadata`.
+
+```typescript
+{
+  "agent_id": "1",
+  "key": "status",
+  "value": "active",
+  "gasfree": false
+}
+```
+
+### `starknet_give_feedback`
+
+Write ERC-8004 feedback entry to ReputationRegistry.
+
+```typescript
+{
+  "agent_id": "1",
+  "value": "85",
+  "value_decimals": 2,
+  "tag1": "accuracy",
+  "tag2": "weekly",
+  "feedback_uri": "ipfs://feedback-1"
+}
+```
+
+### `starknet_get_reputation`
+
+Read aggregated reputation summary for an agent.
+
+```typescript
+{
+  "agent_id": "1",
+  "tag1": "accuracy", // optional
+  "tag2": "" // optional
+}
+```
+
+### `starknet_request_validation`
+
+Create an ERC-8004 validation request for a designated validator.
+
+```typescript
+{
+  "validator_address": "0x...",
+  "agent_id": "1",
+  "request_uri": "ipfs://validation-req",
+  "request_hash": "0" // optional
+}
+```
+
+### `starknet_create_payment_link`
+
+Create a Starknet payment link.
+
+```typescript
+{
+  "address": "0x...",
+  "amount": "1.5", // optional
+  "token": "USDC", // optional
+  "memo": "coffee" // optional
+}
+```
+
+### `starknet_parse_payment_link`
+
+Parse a Starknet payment link into normalized fields.
+
+```typescript
+{
+  "paymentLink": "starknet:0x...?amount=1.5&token=USDC&memo=coffee"
+}
+```
+
+### `starknet_create_invoice`
+
+Create a stateless invoice payload + payment link.
+
+```typescript
+{
+  "recipient": "0x...",
+  "amount": "10",
+  "token": "USDC",         // optional
+  "memo": "consulting",    // optional
+  "expiresInSeconds": 3600 // optional
+}
+```
+
+### `starknet_get_invoice_status`
+
+Check invoice status and optional transaction fulfillment.
+
+```typescript
+{
+  "invoiceId": "eyJ2IjoxLC4uLg",
+  "transactionHash": "0x..." // optional
+}
+```
+
+### `starknet_generate_qr`
+
+Generate QR-style SVG payloads from raw content or payment fields.
+
+```typescript
+{
+  "content": "starknet:0x...?amount=1&token=USDC", // optional if address is provided
+  "address": "0x...", // optional
+  "format": "data_url" // "data_url" | "svg"
 }
 ```
 

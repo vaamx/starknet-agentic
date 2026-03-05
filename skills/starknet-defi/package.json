@@ -16,11 +16,13 @@
   "scripts": {
     "check-price": "tsx scripts/check-price.ts",
     "swap-quote": "tsx scripts/swap-quote.ts",
-    "pool-info": "tsx scripts/pool-info.ts"
+    "pool-info": "tsx scripts/pool-info.ts",
+    "staking-info": "tsx scripts/staking-info.ts",
+    "dca-orders": "tsx scripts/dca-orders.ts"
   },
   "dependencies": {
     "@avnu/avnu-sdk": "^4.0.1",
-    "starknet": "^6.23.1",
+    "starknet": "^8.9.1",
     "dotenv": "^16.0.0"
   },
   "devDependencies": {

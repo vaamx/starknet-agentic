@@ -32,10 +32,28 @@ export interface SkillInfo {
   rawUrl: string;
 }
 
-const GITHUB_API_BASE = "https://api.github.com/repos/keep-starknet-strange/starknet-agentic/contents/skills";
 const GITHUB_RAW_BASE = "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills";
+const SKILL_REGISTRY_URL = "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/registry.json";
+/**
+ * GitHub Contents API base for downloading skill directory trees.
+ * Used by fetchGitHubDirectory() when a user installs a skill (not for listing).
+ * Rate-limited to 60 req/hr unauthenticated; skill listing uses registry.json instead.
+ */
+const GITHUB_API_BASE = "https://api.github.com/repos/keep-starknet-strange/starknet-agentic/contents/skills";
 
-export const AVAILABLE_SKILLS: SkillInfo[] = [
+/** Registry entry from skills/registry.json */
+interface RegistryEntry {
+  name: string;
+  description: string;
+  keywords: string[];
+  url: string;
+  hasScripts: boolean;
+  hasReferences: boolean;
+  userInvocable: boolean;
+}
+
+/** Hardcoded fallback if registry is unreachable (rate limit, network, etc.) */
+const FALLBACK_SKILLS: SkillInfo[] = [
   {
     id: "starknet-wallet",
     name: "starknet-wallet",
@@ -65,6 +83,51 @@ export const AVAILABLE_SKILLS: SkillInfo[] = [
     rawUrl: `${GITHUB_RAW_BASE}/starknet-anonymous-wallet/SKILL.md`,
   },
 ];
+
+/** Fetch and parse the skills registry JSON. Returns null on any error. */
+async function fetchSkillRegistry(): Promise<RegistryEntry[] | null> {
+  try {
+    const resp = await fetch(SKILL_REGISTRY_URL, {
+      signal: AbortSignal.timeout(5000),
+      headers: { "User-Agent": "create-starknet-agent" },
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json() as { version: string; skills: RegistryEntry[] };
+    if (!Array.isArray(data?.skills)) return null;
+    return data.skills;
+  } catch {
+    return null;
+  }
+}
+
+/** Convert a registry entry to a SkillInfo (used for display + install). */
+function registryToSkillInfo(entry: RegistryEntry): SkillInfo {
+  const recommended = ["starknet-wallet", "starknet-defi"].includes(entry.name);
+  return {
+    id: entry.name,
+    name: entry.name,
+    description: entry.description.length > 80
+      ? entry.description.slice(0, 77) + "..."
+      : entry.description,
+    recommended,
+    rawUrl: entry.url,
+  };
+}
+
+/**
+ * Get available skills. Tries the registry first; falls back to hardcoded list.
+ * Never throws — gracefully degrades.
+ */
+async function getAvailableSkills(): Promise<SkillInfo[]> {
+  const registry = await fetchSkillRegistry();
+  if (registry && registry.length > 0) {
+    return registry.map(registryToSkillInfo);
+  }
+  return FALLBACK_SKILLS;
+}
+
+/** @deprecated Use getAvailableSkills() instead. Kept for callers that need a sync fallback. */
+export const AVAILABLE_SKILLS: SkillInfo[] = FALLBACK_SKILLS;
 
 /**
  * Setup modes for non-standalone platforms
@@ -126,15 +189,16 @@ async function promptSetupMode(platform: DetectedPlatform): Promise<SetupMode> {
 }
 
 /**
- * Prompt for skills selection
+ * Prompt for skills selection. Loads from registry (with fallback).
  */
 async function promptSkills(preselect: boolean = true): Promise<string[]> {
+  const availableSkills = await getAvailableSkills();
   const response = await prompts(
     {
       type: "multiselect",
       name: "skills",
       message: "Select skills to install:",
-      choices: AVAILABLE_SKILLS.map((skill) => ({
+      choices: availableSkills.map((skill) => ({
         title: pc.cyan(skill.name) + pc.dim(` (${skill.description})`),
         value: skill.id,
         selected: preselect && skill.recommended,
@@ -400,16 +464,19 @@ async function downloadSkillDirectory(
 }
 
 /**
- * Fallback: fetch just the SKILL.md file
+ * Fallback: fetch just the SKILL.md file.
+ * Tries registry first, then falls back to hardcoded URL.
  */
 async function fetchSkillMdOnly(skillId: string): Promise<string | null> {
-  const skill = AVAILABLE_SKILLS.find((s) => s.id === skillId);
-  if (!skill) {
-    return null;
-  }
+  // Try registry for URL (gives us newer skills too)
+  const registry = await fetchSkillRegistry();
+  const registryEntry = registry?.find((e) => e.name === skillId);
+  const rawUrl = registryEntry?.url
+    ?? FALLBACK_SKILLS.find((s) => s.id === skillId)?.rawUrl
+    ?? `${GITHUB_RAW_BASE}/${skillId}/SKILL.md`;
 
   try {
-    const response = await fetch(skill.rawUrl);
+    const response = await fetch(rawUrl, { signal: AbortSignal.timeout(5000) });
     if (!response.ok) {
       return null;
     }

@@ -210,7 +210,7 @@ async function main() {
   console.log("Next steps:");
   console.log("  1. Fund the new account with ETH or STRK for gas");
   console.log("  2. Set up session keys for delegated operations");
-  console.log("  3. Publish capabilities via agent-passport");
+  console.log("  3. Publish Agent Passport metadata (caps + capability:<name> + passport:schema)");
   console.log(
     "  4. Connect to the MCP server for AI-agent operations"
   );

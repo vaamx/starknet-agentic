@@ -1,0 +1,6 @@
+.vercel
+
+# SQLite persistence
+data/*.db
+data/*.db-wal
+data/*.db-shm

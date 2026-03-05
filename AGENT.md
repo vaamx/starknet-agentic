@@ -58,13 +58,13 @@ Starknet Agentic implements all three layers with Starknet as the settlement and
 | Gap | Priority | Status |
 |-----|----------|--------|
 | Agent Account contract | HIGH | **TESTED** (110 tests) - needs Sepolia deployment, see `contracts/agent-account/` |
-| Starknet MCP server with DeFi | HIGH | **DONE** - 9 tools implemented including swap, quote |
+| Starknet MCP server with DeFi | HIGH | **DONE** - 23 tools implemented including identity/reputation/validation + mini-pay helpers |
 | Starknet wallet skill | HIGH | **DONE** - complete at `skills/starknet-wallet/` |
 | CLI scaffolding tool | HIGH | **DONE** - `packages/create-starknet-agent/` (npm publish pending) |
 | Agent onboarding E2E flow | HIGH | **DONE** - `examples/onboard-agent/` + `examples/crosschain-demo/` |
 | Huginn onboarding skill | MEDIUM | **DONE** - `skills/huginn-onboard/` |
 | A2A support for Starknet agents | MEDIUM | **DONE** - functional at `packages/starknet-a2a/` |
-| MCP identity tools | MEDIUM | **TODO** - register_agent, reputation, validation |
+| MCP identity tools | MEDIUM | **DONE** - register/info/metadata + reputation + validation request shipped |
 | Cross-chain ERC-8004 demo | MEDIUM | **DONE** - Base Sepolia ↔ Starknet flow at `examples/crosschain-demo/` |
 | Lucid Agents Starknet connector | LOW | **TODO** - deferred to v2.0 |
 | Daydreams DeFi extension | LOW | **TODO** - deferred to v2.0 |
@@ -114,16 +114,26 @@ The Starknet MCP server exposes these tools to any MCP-compatible agent:
 | `starknet_swap` | Execute token swaps via avnu aggregator | Implemented |
 | `starknet_get_quote` | Get swap quotes without executing | Implemented |
 | `starknet_estimate_fee` | Estimate transaction fees | Implemented |
+| `starknet_create_payment_link` | Create Starknet payment links | Implemented |
+| `starknet_parse_payment_link` | Parse Starknet payment links | Implemented |
+| `starknet_create_invoice` | Create stateless payment invoices | Implemented |
+| `starknet_get_invoice_status` | Check invoice status and transfer fulfillment | Implemented |
+| `starknet_generate_qr` | Generate QR-style payment payloads | Implemented |
+| `starknet_register_agent` | Register ERC-8004 agent identity | Implemented |
+| `starknet_get_agent_info` | Read consolidated ERC-8004 identity info | Implemented |
+| `starknet_set_agent_metadata` | Set ERC-8004 metadata | Implemented |
+| `starknet_update_agent_metadata` | Alias for metadata updates | Implemented |
+| `starknet_get_agent_metadata` | Read ERC-8004 metadata | Implemented |
+| `starknet_get_agent_passport` | Read Agent Passport metadata | Implemented |
+| `starknet_give_feedback` | Submit reputation feedback | Implemented |
+| `starknet_get_reputation` | Read reputation summary | Implemented |
+| `starknet_request_validation` | Create validation requests | Implemented |
 | `x402_starknet_sign_payment_required` | X-402 payment protocol signing | Implemented |
 
 ### Planned Tools (Nice to Have)
 
 | Tool | Description | Priority |
 |------|-------------|----------|
-| `starknet_register_agent` | Register agent identity on-chain (ERC-8004) | Medium |
-| `starknet_get_agent_info` | Query agent metadata and reputation | Medium |
-| `starknet_give_feedback` | Submit reputation feedback for an agent | Medium |
-| `starknet_request_validation` | Request third-party validation | Medium |
 | `starknet_get_nonce` | Get current nonce | Low |
 | `starknet_deploy_contract` | Deploy new contracts | Low |
 | `starknet_get_events` | Query on-chain events | Low |

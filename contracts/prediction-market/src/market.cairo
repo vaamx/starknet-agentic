@@ -1,5 +1,6 @@
 #[starknet::contract]
 pub mod PredictionMarket {
+    use core::num::traits::Zero;
     use openzeppelin::security::reentrancyguard::ReentrancyGuardComponent;
     use starknet::storage::*;
     use starknet::{ContractAddress, get_caller_address, get_block_timestamp};
@@ -28,10 +29,12 @@ pub mod PredictionMarket {
         oracle: ContractAddress,
         creator: ContractAddress,
         collateral_token: ContractAddress,
+        fee_recipient: ContractAddress,
         fee_bps: u16,
         status: u8,
         winning_outcome: u8,
         total_pool: u256,
+        fees_withdrawn: bool,
         // outcome_id => pool amount
         pools: Map<u8, u256>,
         // (user, outcome_id) => bet amount
@@ -48,6 +51,7 @@ pub mod PredictionMarket {
         BetPlaced: BetPlaced,
         MarketResolved: MarketResolved,
         Claimed: Claimed,
+        FeeWithdrawn: FeeWithdrawn,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -72,6 +76,13 @@ pub mod PredictionMarket {
         pub payout: u256,
     }
 
+    #[derive(Drop, starknet::Event)]
+    pub struct FeeWithdrawn {
+        #[key]
+        pub recipient: ContractAddress,
+        pub amount: u256,
+    }
+
     #[constructor]
     fn constructor(
         ref self: ContractState,
@@ -80,18 +91,22 @@ pub mod PredictionMarket {
         oracle: ContractAddress,
         creator: ContractAddress,
         collateral_token: ContractAddress,
+        fee_recipient: ContractAddress,
         fee_bps: u16,
     ) {
         assert(fee_bps <= 1000, 'fee_bps too high'); // max 10%
         assert(resolution_time > get_block_timestamp(), 'resolution_time in past');
+        assert(!fee_recipient.is_zero(), 'invalid fee recipient');
 
         self.question_hash.write(question_hash);
         self.resolution_time.write(resolution_time);
         self.oracle.write(oracle);
         self.creator.write(creator);
         self.collateral_token.write(collateral_token);
+        self.fee_recipient.write(fee_recipient);
         self.fee_bps.write(fee_bps);
         self.status.write(STATUS_OPEN);
+        self.fees_withdrawn.write(false);
     }
 
     #[abi(embed_v0)]
@@ -227,6 +242,41 @@ pub mod PredictionMarket {
                 self.collateral_token.read(),
                 self.fee_bps.read(),
             )
+        }
+
+        fn withdraw_fees(ref self: ContractState) -> u256 {
+            self.reentrancy_guard.start();
+
+            assert(self.status.read() == STATUS_RESOLVED, 'market not resolved');
+            assert(!self.fees_withdrawn.read(), 'fees already withdrawn');
+
+            let recipient = self.fee_recipient.read();
+            assert(get_caller_address() == recipient, 'only fee recipient');
+
+            let total = self.total_pool.read();
+            let fee_bps: u256 = self.fee_bps.read().into();
+            let fee_amount = (total * fee_bps) / 10000;
+
+            self.fees_withdrawn.write(true);
+
+            if fee_amount > 0 {
+                let token = IERC20Dispatcher {
+                    contract_address: self.collateral_token.read(),
+                };
+                let success = token.transfer(recipient, fee_amount);
+                assert(success, 'fee transfer failed');
+            }
+
+            self.emit(FeeWithdrawn { recipient, amount: fee_amount });
+            self.reentrancy_guard.end();
+            fee_amount
+        }
+
+        fn get_fee_state(self: @ContractState) -> (u256, bool, ContractAddress) {
+            let total = self.total_pool.read();
+            let fee_bps: u256 = self.fee_bps.read().into();
+            let fee_amount = (total * fee_bps) / 10000;
+            (fee_amount, self.fees_withdrawn.read(), self.fee_recipient.read())
         }
     }
 }

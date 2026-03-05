@@ -31,6 +31,12 @@ pub trait IPredictionMarket<TState> {
 
     /// Returns market metadata.
     fn get_market_info(self: @TState) -> (felt252, u64, ContractAddress, ContractAddress, u16);
+
+    /// Withdraw protocol fees after market resolution. Callable by fee recipient.
+    fn withdraw_fees(ref self: TState) -> u256;
+
+    /// Returns (current fee amount, fees_withdrawn, fee_recipient).
+    fn get_fee_state(self: @TState) -> (u256, bool, ContractAddress);
 }
 
 #[starknet::interface]
@@ -50,6 +56,12 @@ pub trait IMarketFactory<TState> {
 
     /// Get total number of markets created.
     fn get_market_count(self: @TState) -> u256;
+
+    /// Set the default fee recipient for newly created markets.
+    fn set_fee_recipient(ref self: TState, fee_recipient: ContractAddress);
+
+    /// Get default fee recipient for newly created markets.
+    fn get_fee_recipient(self: @TState) -> ContractAddress;
 }
 
 #[starknet::interface]
@@ -87,4 +99,35 @@ pub trait IERC20<TState> {
     ) -> bool;
     fn approve(ref self: TState, spender: ContractAddress, amount: u256) -> bool;
     fn balance_of(self: @TState, account: ContractAddress) -> u256;
+}
+
+#[starknet::interface]
+pub trait IRewardDistributor<TState> {
+    /// Publish a reward epoch merkle root and pool parameters.
+    fn publish_epoch(
+        ref self: TState,
+        epoch_id: u64,
+        merkle_root: felt252,
+        token: ContractAddress,
+        total_amount: u256,
+        metadata_hash: felt252,
+    );
+
+    /// Claim rewards for a given merkle leaf.
+    fn claim(
+        ref self: TState,
+        epoch_id: u64,
+        index: u64,
+        account: ContractAddress,
+        amount: u256,
+        proof: Span<felt252>,
+    );
+
+    /// Returns whether an index was claimed for an epoch.
+    fn is_claimed(self: @TState, epoch_id: u64, index: u64) -> bool;
+
+    /// Returns (published, merkle_root, token, total_amount, claimed_amount, metadata_hash).
+    fn get_epoch(
+        self: @TState, epoch_id: u64,
+    ) -> (bool, felt252, ContractAddress, u256, u256, felt252);
 }

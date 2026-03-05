@@ -1,30 +1,61 @@
 import { NextResponse } from "next/server";
-import { isAgentConfigured, getAgentAddress } from "@/lib/starknet-executor";
-import { getAgentIdentity, getDemoAgentIdentities } from "@/lib/agent-identity";
+import {
+  isAgentConfigured,
+  getAgentAddress,
+  getSignerMode,
+  getAllowlistedContracts,
+} from "@/lib/starknet-executor";
+import { getAgentIdentity } from "@/lib/agent-identity";
+import { hasSessionKeyConfigured } from "@/lib/session-policy";
 import { config } from "@/lib/config";
+import { ensureAgentSpawnerHydrated } from "@/lib/agent-persistence";
 
 export async function GET() {
-  const agentAddress = getAgentAddress();
-  const agentId = process.env.AGENT_ID ?? "1";
+  try {
+    await ensureAgentSpawnerHydrated();
+    const agentAddress = getAgentAddress();
+    const agentId = config.AGENT_ID;
+    const identity = await getAgentIdentity(agentId);
 
-  // Try to fetch on-chain identity, fall back to demo
-  let identity = await getAgentIdentity(agentId);
-  if (!identity && agentAddress) {
-    const demoIdentities = getDemoAgentIdentities();
-    identity = demoIdentities.get(agentAddress) ?? null;
+    return NextResponse.json({
+      ok: true,
+      agentConfigured: isAgentConfigured(),
+      agentAddress,
+      agentId,
+      identity,
+      signerMode: getSignerMode(),
+      sessionKeyConfigured: hasSessionKeyConfigured(),
+      allowlist: getAllowlistedContracts(),
+      allowlistAutoAdd: config.AGENT_ALLOWLIST_AUTO_ADD === "true",
+      contractsDeployed: process.env.MARKET_FACTORY_ADDRESS !== "0x0",
+      llmProvider: config.llmProvider,
+      llmForecastProvider: config.llmForecastProvider,
+      llmDebateProvider: config.llmDebateProvider,
+      llmResolutionProvider: config.llmResolutionProvider,
+      llmTriageProvider: config.llmTriageProvider,
+      llmConfigured: config.llmConfigured,
+      llmForecastConfigured: config.llmForecastConfigured,
+      llmDebateConfigured: config.llmDebateConfigured,
+      llmResolutionConfigured: config.llmResolutionConfigured,
+      llmTriageConfigured: config.llmTriageConfigured,
+      anthropicConfigured: !!process.env.ANTHROPIC_API_KEY,
+      xaiConfigured: !!process.env.XAI_API_KEY,
+      localLlmConfigured: !!config.ollamaBaseUrl && !!config.ollamaModel,
+      identityRegistryConfigured: !!process.env.IDENTITY_REGISTRY_ADDRESS,
+      reputationRegistryConfigured: !!process.env.REPUTATION_REGISTRY_ADDRESS,
+      defiEnabled: config.AGENT_DEFI_ENABLED === "true",
+      defiAutoTrade: config.AGENT_DEFI_AUTO_TRADE === "true",
+      debateEnabled: config.AGENT_DEBATE_ENABLED === "true",
+      autoResolveEnabled: config.agentAutoResolveEnabled,
+      serverTime: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: err?.message ?? "Failed to fetch agent status",
+      },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({
-    agentConfigured: isAgentConfigured(),
-    agentAddress,
-    agentId,
-    identity,
-    contractsDeployed: process.env.MARKET_FACTORY_ADDRESS !== "0x0",
-    anthropicConfigured: !!process.env.ANTHROPIC_API_KEY,
-    identityRegistryConfigured: !!process.env.IDENTITY_REGISTRY_ADDRESS,
-    reputationRegistryConfigured: !!process.env.REPUTATION_REGISTRY_ADDRESS,
-    executionSurface: config.EXECUTION_SURFACE,
-    loopExecuteBets: config.AGENT_LOOP_EXECUTE_BETS === "true",
-    loopMinConfidence: config.AGENT_LOOP_MIN_CONFIDENCE,
-  });
 }

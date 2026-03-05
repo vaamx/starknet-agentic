@@ -1,46 +1,89 @@
 import { NextRequest } from "next/server";
 import { forecastMarket, extractProbability } from "@/lib/agent-forecaster";
-import { getMarkets, getAgentPredictions, DEMO_QUESTIONS } from "@/lib/market-reader";
+import { agenticForecastMarket, type AgenticForecastEvent } from "@/lib/forecast-tools";
+import {
+  getMarketById,
+  getAgentPredictions,
+  resolveMarketQuestion,
+} from "@/lib/market-reader";
+import { AGENT_PERSONAS } from "@/lib/agent-personas";
 import { recordPrediction } from "@/lib/starknet-executor";
-import { requireRole } from "@/lib/require-auth";
-import { recordAudit, recordForecast, recordTradeExecution } from "@/lib/ops-store";
+import { logThoughtOnChain } from "@/lib/huginn-executor";
+import { requireX402 } from "@/lib/x402-middleware";
+import { config } from "@/lib/config";
+import { getLlmConfigurationError } from "@/lib/llm-provider";
+import { z } from "zod";
+import { enforceRateLimit, jsonError } from "@/lib/api-guard";
+
+export const maxDuration = 60;
+const predictBodySchema = z.object({
+  marketId: z.number().int().min(1),
+});
+
+function isStreamClosedError(err: unknown): boolean {
+  const message = String((err as any)?.message ?? err ?? "");
+  return (
+    message.includes("Controller is already closed") ||
+    message.includes("ReadableStream is already closed") ||
+    message.includes("Invalid state")
+  );
+}
 
 export async function POST(request: NextRequest) {
-  const context = requireRole(request, "analyst");
-  if (!context) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 403,
-      headers: { "Content-Type": "application/json" },
-    });
+  const rateLimited = await enforceRateLimit(request, "predict", {
+    windowMs: 60_000,
+    maxRequests: 30,
+  });
+  if (rateLimited) return rateLimited;
+
+  // Phase C: X-402 payment check — must happen BEFORE opening the SSE stream
+  const paymentResult = await requireX402(request, "predict", config.x402PricePredict);
+  if (paymentResult instanceof Response) return paymentResult; // HTTP 402
+
+  let marketId: number;
+  try {
+    const body = predictBodySchema.parse(await request.json());
+    marketId = body.marketId;
+  } catch (err: any) {
+    return jsonError("Invalid request body", 400, err?.issues ?? err?.message);
   }
 
-  const body = await request.json();
-  const marketId = body.marketId as number;
-
-  const markets = await getMarkets();
-  const market = markets.find((m) => m.id === marketId);
-
-  if (!market) {
-    return new Response(JSON.stringify({ error: "Market not found" }), {
-      status: 404,
-      headers: { "Content-Type": "application/json" },
-    });
+  if (!config.llmConfigured) {
+    return jsonError(getLlmConfigurationError(), 400);
   }
 
-  const predictions = await getAgentPredictions(marketId);
-  const question = DEMO_QUESTIONS[marketId] ?? `Market #${marketId}`;
-
-  const daysUntil = Math.max(
-    0,
-    Math.floor((market.resolutionTime - Date.now() / 1000) / 86400)
-  );
-
-  // Stream the reasoning via SSE
+  // Return the stream immediately, do all work inside
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const generator = forecastMarket(question, {
+        // Fetch market data inside the stream to avoid pre-stream timeout
+        const market = await getMarketById(marketId);
+
+        if (!market) {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "error", message: "Market not found" })}\n\n`
+            )
+          );
+          controller.close();
+          return;
+        }
+
+        const predictions = await getAgentPredictions(marketId);
+        const question = resolveMarketQuestion(marketId, market.questionHash);
+
+        const daysUntil = Math.max(
+          0,
+          Math.floor((market.resolutionTime - Date.now() / 1000) / 86400)
+        );
+
+        const alphaPrompt =
+          AGENT_PERSONAS.find((p) => p.id === "alpha")?.systemPrompt;
+
+        const useToolUse = process.env.AGENT_TOOL_USE_ENABLED !== "false";
+
+        const forecastContext = {
           currentMarketProb: market.impliedProbYes,
           totalPool: (market.totalPool / 10n ** 18n).toString(),
           agentPredictions: predictions.map((p) => ({
@@ -49,7 +92,12 @@ export async function POST(request: NextRequest) {
             brier: p.brierScore,
           })),
           timeUntilResolution: `${daysUntil} days`,
-        });
+          systemPrompt: alphaPrompt,
+        };
+
+        const generator = useToolUse
+          ? agenticForecastMarket(question, forecastContext)
+          : forecastMarket(question, forecastContext);
 
         let fullText = "";
         let result: any;
@@ -60,56 +108,96 @@ export async function POST(request: NextRequest) {
             result = value;
             break;
           }
-          fullText += value;
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ type: "text", content: value })}\n\n`)
-          );
+
+          if (useToolUse) {
+            const event = value as AgenticForecastEvent;
+            if (event.type === "reasoning_chunk") {
+              fullText += event.content;
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ type: "text", content: event.content })}\n\n`)
+              );
+            } else if (event.type === "tool_call") {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ type: "tool_call", toolName: event.toolName, toolUseId: event.toolUseId, input: event.input })}\n\n`)
+              );
+            } else if (event.type === "tool_result") {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({
+                    type: "tool_result",
+                    toolName: event.toolName,
+                    toolUseId: event.toolUseId,
+                    result: event.result,
+                    isError: event.isError,
+                    source: event.source,
+                    dataPoints: event.dataPoints,
+                  })}\n\n`
+                )
+              );
+            }
+          } else {
+            const chunk = value as string;
+            fullText += chunk;
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: "text", content: chunk })}\n\n`)
+            );
+          }
         }
 
-        const probability = result?.probability ?? extractProbability(fullText);
+        const probability =
+          result?.probability ?? extractProbability(fullText);
+        if (probability === null) {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "error", message: "Model output missing probability" })}\n\n`
+            )
+          );
+          controller.close();
+          return;
+        }
 
-        // Attempt to record prediction on-chain
-        const txResult = await recordPrediction(marketId, probability);
-        await recordForecast({
-          organizationId: context.membership.organizationId,
-          marketId,
-          userId: context.user.id,
-          agentId: "alpha",
-          probability,
-          modelName: "claude",
-          rationale: fullText.slice(0, 2000),
-        });
-        await recordTradeExecution({
-          organizationId: context.membership.organizationId,
-          marketId,
-          userId: context.user.id,
-          executionSurface: txResult.executionSurface,
-          txHash: txResult.txHash || undefined,
-          status: txResult.status,
-          errorCode: txResult.errorCode,
-          errorMessage: txResult.error,
-        });
-        await recordAudit({
-          organizationId: context.membership.organizationId,
-          userId: context.user.id,
-          action: "market.predict",
-          targetType: "market",
-          targetId: String(marketId),
-          metadata: {
-            probability,
-            txStatus: txResult.status,
-            executionSurface: txResult.executionSurface,
-          },
-        });
+        // Record prediction and log Huginn thought concurrently.
+        // logThoughtOnChain() never throws — errors surface as HuginnLogResult.status="error".
+        // recordPrediction() is safe to fire in parallel since it has its own error handling.
+        const [txSettled, huginnSettled] = await Promise.allSettled([
+          recordPrediction(marketId, probability),
+          logThoughtOnChain(fullText),
+        ]);
+
+        const txResult =
+          txSettled.status === "fulfilled" ? txSettled.value : null;
+        const huginnResult =
+          huginnSettled.status === "fulfilled" ? huginnSettled.value : null;
+
+        // SHA-256 fingerprint of the reasoning — present on skip and success.
+        const thoughtHash = huginnResult?.thoughtHash || undefined;
+        // Starknet tx hash of the log_thought() call — only on Huginn success.
+        const huginnTxHash =
+          huginnResult?.status === "success" ? huginnResult.txHash : undefined;
+
+        // Emit huginn_log before the final result so the UI can show it inline.
+        if (huginnResult?.status === "success") {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: "huginn_log",
+                thoughtHash,
+                huginnTxHash,
+              })}\n\n`
+            )
+          );
+        }
 
         controller.enqueue(
           encoder.encode(
             `data: ${JSON.stringify({
               type: "result",
               probability,
-              txHash: txResult.txHash,
-              txStatus: txResult.status,
-              txError: txResult.error,
+              txHash: txResult?.txHash,
+              txStatus: txResult?.status ?? "error",
+              txError: txResult?.error,
+              reasoningHash: thoughtHash,
+              huginnTxHash,
             })}\n\n`
           )
         );
@@ -117,12 +205,25 @@ export async function POST(request: NextRequest) {
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
       } catch (err: any) {
-        controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`
-          )
-        );
-        controller.close();
+        if (isStreamClosedError(err)) {
+          return;
+        }
+        const msg = err.message || String(err);
+        console.error("[predict] Error:", msg, err.stack);
+        try {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "error", message: msg })}\n\n`
+            )
+          );
+        } catch {
+          // Client likely disconnected; no-op.
+        }
+        try {
+          controller.close();
+        } catch {
+          // Stream may already be closed.
+        }
       }
     },
   });
@@ -132,6 +233,7 @@ export async function POST(request: NextRequest) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }

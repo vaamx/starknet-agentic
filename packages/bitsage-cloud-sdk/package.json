@@ -1,0 +1,21 @@
+{
+  "name": "@starknet-agentic/bitsage-cloud-sdk",
+  "version": "0.1.0",
+  "description": "SDK for BitsagE Cloud — STRK-native compute marketplace for sovereign agents",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts",
+    "dev": "tsup src/index.ts --format esm --watch"
+  },
+  "dependencies": {
+    "@starknet-agentic/x402-starknet": "workspace:*",
+    "starknet": "^9.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.0"
+  }
+}

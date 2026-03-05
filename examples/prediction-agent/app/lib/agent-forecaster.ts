@@ -1,4 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { config } from "./config";
+import {
+  completeText,
+  getLlmProviderForTask,
+  getLlmConfigurationError,
+  resolveLlmModel,
+} from "./llm-provider";
 
 const SYSTEM_PROMPT = `You are a calibrated superforecaster AI agent operating on Starknet.
 
@@ -27,6 +34,12 @@ export interface ForecastResult {
   probability: number;
 }
 
+function* chunkText(text: string, size = 120): Generator<string> {
+  for (let i = 0; i < text.length; i += size) {
+    yield text.slice(i, i + size);
+  }
+}
+
 /** Stream a forecast analysis from Claude. Yields reasoning text chunks. */
 export async function* forecastMarket(
   question: string,
@@ -36,21 +49,14 @@ export async function* forecastMarket(
     agentPredictions?: { agent: string; prob: number; brier: number }[];
     timeUntilResolution?: string;
     researchBrief?: string;
+    systemPrompt?: string;
+    model?: string;
   }
 ): AsyncGenerator<string, ForecastResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    // Yield a demo forecast when no API key
-    const demoText = generateDemoForecast(question, context);
-    for (const chunk of demoText.split(/(?<=\. )/)) {
-      yield chunk;
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    const prob = extractProbability(demoText);
-    return { reasoning: demoText, probability: prob };
+  const forecastProvider = getLlmProviderForTask("forecast");
+  if (!config.llmForecastConfigured) {
+    throw new Error(getLlmConfigurationError("forecast"));
   }
-
-  const client = new Anthropic({ apiKey });
 
   let contextStr = "";
   if (context.currentMarketProb !== undefined) {
@@ -75,32 +81,54 @@ export async function* forecastMarket(
   }
 
   const userMessage = `Analyze this prediction market question and provide your probability estimate:\n\n"${question}"${contextStr}${researchStr}`;
-
+  const model = resolveLlmModel("forecast", context.model);
   let fullText = "";
 
-  const stream = client.messages.stream({
-    model: "claude-sonnet-4-5-20250929",
-    max_tokens: 1024,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userMessage }],
-  });
+  if (forecastProvider === "anthropic") {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error(getLlmConfigurationError("forecast"));
+    }
+    const client = new Anthropic({ apiKey });
+    const stream = client.messages.stream({
+      model,
+      max_tokens: 1024,
+      system: context.systemPrompt ?? SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userMessage }],
+    });
 
-  for await (const event of stream) {
-    if (
-      event.type === "content_block_delta" &&
-      event.delta.type === "text_delta"
-    ) {
-      fullText += event.delta.text;
-      yield event.delta.text;
+    for await (const event of stream) {
+      if (
+        event.type === "content_block_delta" &&
+        event.delta.type === "text_delta"
+      ) {
+        fullText += event.delta.text;
+        yield event.delta.text;
+      }
+    }
+  } else {
+    fullText = await completeText({
+      task: "forecast",
+      model,
+      systemPrompt: context.systemPrompt ?? SYSTEM_PROMPT,
+      userMessage,
+      maxTokens: 1024,
+      enableXaiResearchTools: true,
+    });
+    for (const chunk of chunkText(fullText)) {
+      yield chunk;
     }
   }
 
   const probability = extractProbability(fullText);
+  if (probability === null) {
+    throw new Error("Model response missing probability");
+  }
   return { reasoning: fullText, probability };
 }
 
 /** Extract probability from Claude's response. */
-export function extractProbability(text: string): number {
+export function extractProbability(text: string): number | null {
   // Look for "**My estimate: XX%**" pattern
   const match = text.match(/\*\*My estimate:\s*(\d+(?:\.\d+)?)%\*\*/i);
   if (match) return parseFloat(match[1]) / 100;
@@ -112,38 +140,5 @@ export function extractProbability(text: string): number {
     return parseFloat(last) / 100;
   }
 
-  return 0.5; // default if no probability found
-}
-
-function generateDemoForecast(
-  question: string,
-  context: {
-    currentMarketProb?: number;
-    agentPredictions?: { agent: string; prob: number; brier: number }[];
-  }
-): string {
-  const marketProb = context.currentMarketProb ?? 0.5;
-  const isYesLeaning = marketProb > 0.5;
-
-  return `## Analysis: "${question}"
-
-### Base Rate
-Looking at historical data for similar crypto/blockchain predictions, events of this type occur approximately ${isYesLeaning ? "55-65%" : "30-45%"} of the time in comparable market conditions.
-
-### Inside View
-The current market is pricing this at ${(marketProb * 100).toFixed(1)}%. ${
-    isYesLeaning
-      ? "The bullish lean reflects recent momentum and positive sentiment in the ecosystem."
-      : "The bearish lean suggests significant headwinds and uncertainty around this outcome."
-  }
-
-### Key Factors
-- **Supporting evidence**: Recent network growth metrics and developer activity are ${isYesLeaning ? "strong" : "mixed"}
-- **Counterarguments**: ${isYesLeaning ? "Macro headwinds and regulatory uncertainty could dampen progress" : "Potential catalysts including upcoming protocol upgrades could shift momentum"}
-- **Information gaps**: Limited on-chain data for precise estimation, relying partly on qualitative assessment
-
-### Calibration Check
-${context.agentPredictions?.length ? `Other agents are predicting between ${Math.min(...context.agentPredictions.map((p) => p.prob * 100)).toFixed(0)}% and ${Math.max(...context.agentPredictions.map((p) => p.prob * 100)).toFixed(0)}%. ` : ""}My estimate accounts for both the base rate and specific factors, adjusted slightly toward the market consensus.
-
-**My estimate: ${Math.round(marketProb * 100 + (Math.random() - 0.5) * 10)}%**`;
+  return null;
 }

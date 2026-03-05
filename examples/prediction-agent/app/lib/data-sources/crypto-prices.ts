@@ -2,7 +2,7 @@
  * Crypto Prices Data Source — Fetches price data from CoinGecko.
  *
  * Uses the free CoinGecko API for current prices and trends.
- * Falls back to hardcoded recent prices when API is unavailable.
+ * Returns empty results when the API is unavailable.
  */
 
 import type { DataSourceResult, DataPoint } from "./index";
@@ -87,11 +87,15 @@ export async function fetchCryptoPrices(
       data,
       summary,
     };
-  } catch {
-    // Fall through to demo data
+  } catch (err: any) {
+    return {
+      source: "coingecko",
+      query: tokens.join(", "),
+      timestamp: Date.now(),
+      data: [],
+      summary: `No CoinGecko data available (${err?.message ?? "request failed"}).`,
+    };
   }
-
-  return getDemoCryptoPrices(tokens);
 }
 
 function detectCryptoTokens(question: string): string[] {
@@ -127,41 +131,4 @@ function formatLargeNumber(n: number): string {
   if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
   if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
   return n.toLocaleString("en-US");
-}
-
-function getDemoCryptoPrices(tokens: string[]): DataSourceResult {
-  const demoPrices: Record<string, { price: number; change: number; mcap: number }> = {
-    ethereum: { price: 3850, change: 2.4, mcap: 462e9 },
-    bitcoin: { price: 97200, change: 1.1, mcap: 1.91e12 },
-    starknet: { price: 1.24, change: -3.2, mcap: 1.1e9 },
-    solana: { price: 178, change: 4.7, mcap: 82e9 },
-    "polygon-ecosystem-token": { price: 0.42, change: -1.8, mcap: 4.2e9 },
-    "avalanche-2": { price: 36.5, change: 0.8, mcap: 14.8e9 },
-  };
-
-  const data: DataPoint[] = [];
-  for (const token of tokens) {
-    const info = demoPrices[token];
-    if (info) {
-      const changeStr = `${info.change >= 0 ? "+" : ""}${info.change.toFixed(2)}%`;
-      data.push({
-        label: `${token.charAt(0).toUpperCase() + token.slice(1)} Price`,
-        value: `$${formatPrice(info.price)} (${changeStr})`,
-        confidence: Math.abs(info.change) / 100,
-      });
-      data.push({
-        label: `${token.charAt(0).toUpperCase() + token.slice(1)} Market Cap`,
-        value: `$${formatLargeNumber(info.mcap)}`,
-      });
-    }
-  }
-
-  const tokenNames = tokens.map((t) => t.charAt(0).toUpperCase() + t.slice(1));
-  return {
-    source: "coingecko",
-    query: tokens.join(", "),
-    timestamp: Date.now(),
-    data,
-    summary: `[Demo] Simulated prices for ${tokenNames.join(", ")}. Based on recent market data.`,
-  };
 }

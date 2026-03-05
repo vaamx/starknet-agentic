@@ -1,44 +1,442 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { getMarkets, DEMO_QUESTIONS, setMarketQuestion } from "@/lib/market-reader";
+import {
+  getMarkets,
+  MARKET_QUESTIONS,
+  registerQuestion,
+  resolveMarketQuestion,
+  seedKnownQuestions,
+} from "@/lib/market-reader";
 import { createMarket, type ExecutionSurface } from "@/lib/starknet-executor";
+import { config } from "@/lib/config";
+import { getOnChainActivityCounts } from "@/lib/event-indexer";
+import {
+  getPersistedMarketSnapshots,
+  getPersistedLoopActions,
+  setPersistedMarketSnapshots,
+} from "@/lib/state-store";
+import { upsertMarkets, getAllMarkets } from "@/lib/market-db";
 import { requireRole } from "@/lib/require-auth";
 import { recordAudit, recordTradeExecution } from "@/lib/ops-store";
+import { reviewMarketQuestion } from "@/lib/market-quality";
+
+export const runtime = "nodejs";
+
+// Seed known question texts before any API calls
+seedKnownQuestions();
 
 const CreateMarketSchema = z.object({
   question: z.string().min(5).max(280),
   days: z.number().int().min(1).max(3650),
   feeBps: z.number().int().min(0).max(1000),
   oracle: z.string().regex(/^0x[0-9a-fA-F]+$/).optional(),
+  category: z
+    .enum(["crypto", "macro", "politics", "tech", "sports", "other"])
+    .optional(),
+  resolutionCriteria: z.string().min(12).max(600).optional(),
   executionSurface: z.enum(["direct", "starkzap", "avnu"]).optional(),
 });
 
 function hashQuestionToFelt(question: string): string {
-  const digest = createHash("sha256").update(question.trim()).digest("hex").slice(0, 62);
+  const digest = createHash("sha256")
+    .update(question.trim())
+    .digest("hex")
+    .slice(0, 62);
   return `0x${digest}`;
 }
 
-export async function GET(request: NextRequest) {
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallback: T
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
-    const context = requireRole(request, "viewer");
-    if (!context) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+type StatusFilter = "open" | "all" | "resolved";
+
+function parseStatusFilter(raw: string | null): StatusFilter {
+  if (raw === "all" || raw === "resolved") return raw;
+  return "open";
+}
+
+function parseLimit(raw: string | null): number {
+  const parsed = Number.parseInt(raw ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 20;
+  return Math.min(parsed, 200);
+}
+
+function applyMarketWindow<T extends { id: number; status: number; resolutionTime: number }>(
+  markets: T[],
+  statusFilter: StatusFilter,
+  limit: number
+): T[] {
+  const nowSec = Math.floor(Date.now() / 1000);
+  let filtered = markets;
+  if (statusFilter === "open") {
+    filtered = markets.filter((m) => m.status === 0 && m.resolutionTime > nowSec);
+  } else if (statusFilter === "resolved") {
+    filtered = markets.filter((m) => m.status === 2 || m.resolutionTime <= nowSec);
+  }
+
+  return filtered.sort((a, b) => b.id - a.id).slice(0, limit);
+}
+
+const LEGACY_TIME_HASH_SUFFIX_REGEX = /\s+\d{1,3}d\s+[0-9a-f]{4,8}\??$/i;
+const TRAILING_SHORT_HEX_SUFFIX_REGEX = /\s+[0-9a-f]{4,8}\??$/i;
+const TRAILING_FRAGMENT_SUFFIX_REGEX = /\s+(?:in|i|win|t|clo)\??$/i;
+const GENERIC_PREDICATE_END_SUFFIX_REGEX = /\b(?:win|lose|reach|hit|close|rise|fall)\?$/i;
+
+function normalizeQuestionKey(value: string): string {
+  const cleaned = value
+    .trim()
+    .replace(LEGACY_TIME_HASH_SUFFIX_REGEX, "")
+    .replace(TRAILING_SHORT_HEX_SUFFIX_REGEX, "")
+    .replace(/\bwin t\b/gi, "win")
+    .replace(TRAILING_FRAGMENT_SUFFIX_REGEX, "");
+
+  if (!cleaned) return "";
+
+  return cleaned
+    .toLowerCase()
+    .replace(/\bwill\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isMalformedQuestion(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) return true;
+  if (normalized.length < 15) return true;
+  if (normalized.startsWith("Market #")) return true;
+  if (/\bwin t\b/i.test(normalized)) return true;
+  if (LEGACY_TIME_HASH_SUFFIX_REGEX.test(normalized)) return true;
+  if (TRAILING_FRAGMENT_SUFFIX_REGEX.test(normalized)) return true;
+  if (GENERIC_PREDICATE_END_SUFFIX_REGEX.test(normalized)) return true;
+  if (
+    TRAILING_SHORT_HEX_SUFFIX_REGEX.test(normalized) &&
+    !/\b(19|20)\d{2}\b/.test(normalized)
+  ) {
+    return true;
+  }
+
+  return value
+    .replace(/\0/g, "")
+    .trim()
+    .length < 15;
+}
+
+function parsePool(value: string): bigint {
+  try {
+    return BigInt(value);
+  } catch {
+    return 0n;
+  }
+}
+
+function dedupeQuestionClones<
+  T extends { id: number; question: string; totalPool: string; tradeCount: number }
+>(markets: T[]): T[] {
+  const bestByQuestion = new Map<string, T>();
+
+  for (const market of markets) {
+    const key = normalizeQuestionKey(market.question);
+    if (!key) {
+      bestByQuestion.set(`__id__${market.id}`, market);
+      continue;
     }
 
-    const markets = await getMarkets();
+    const existing = bestByQuestion.get(key);
+    if (!existing) {
+      bestByQuestion.set(key, market);
+      continue;
+    }
 
-    const enriched = markets.map((m) => ({
+    const existingScore = [
+      existing.tradeCount,
+      parsePool(existing.totalPool),
+      existing.id,
+    ] as const;
+    const incomingScore = [
+      market.tradeCount,
+      parsePool(market.totalPool),
+      market.id,
+    ] as const;
+
+    const incomingBetter =
+      incomingScore[0] > existingScore[0] ||
+      (incomingScore[0] === existingScore[0] &&
+        incomingScore[1] > existingScore[1]) ||
+      (incomingScore[0] === existingScore[0] &&
+        incomingScore[1] === existingScore[1] &&
+        incomingScore[2] > existingScore[2]);
+
+    if (incomingBetter) {
+      bestByQuestion.set(key, market);
+    }
+  }
+
+  return Array.from(bestByQuestion.values()).sort((a, b) => b.id - a.id);
+}
+
+/**
+ * Filter out junk/empty markets:
+ * - Open markets with zero pool + zero trades
+ * - Resolved markets with zero pool + zero trades
+ * - Garbled short labels / unresolved "Market #id" placeholders
+ */
+function filterEmptyMarkets<
+  T extends {
+    id: number;
+    totalPool: string;
+    status: number;
+    question: string;
+    tradeCount: number;
+    resolutionTime: number;
+  }
+>(
+  markets: T[],
+  options?: { keepRecentMarketIds?: Set<number> }
+): T[] {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const keepRecentMarketIds = options?.keepRecentMarketIds ?? new Set<number>();
+
+  return markets.filter((m) => {
+    const hasPool = m.totalPool !== "0";
+    const hasTrades = m.tradeCount > 0;
+    const isOpen = m.status === 0 && m.resolutionTime > nowSec;
+    const keepRecent = keepRecentMarketIds.has(m.id);
+
+    // Drop malformed/junk labels even if they are "recent".
+    if (isMalformedQuestion(m.question)) return false;
+
+    // Filter legacy truncated labels that end mid-phrase and have no activity.
+    const truncatedLegacy =
+      !hasTrades &&
+      m.question.length >= 24 &&
+      m.question.length <= 31 &&
+      !/[?)]$/.test(m.question) &&
+      /( in| i| win| t)$/i.test(m.question);
+    if (truncatedLegacy) return false;
+
+    // Keep freshly created open markets even before first bet lands.
+    if (!hasPool && !hasTrades) {
+      if (keepRecent) return true;
+      if (isOpen && m.question.length >= 20 && /[?)]$/.test(m.question)) {
+        return true;
+      }
+      return false;
+    }
+
+    // Drop only clearly synthetic/truncated seeded markets with no trades.
+    if (hasPool && !hasTrades && /^will\s+/i.test(m.question) && !/[?)]$/.test(m.question)) {
+      const likelySynthetic =
+        m.question.length <= 24 ||
+        /( in| i| win| t| clo| 30d| [0-9a-f]{4})$/i.test(m.question);
+      if (likelySynthetic && !keepRecent) return false;
+    }
+
+    return true;
+  });
+}
+
+export async function GET(request: NextRequest) {
+  const statusFilter = parseStatusFilter(request.nextUrl.searchParams.get("status"));
+  const limit = parseLimit(request.nextUrl.searchParams.get("limit"));
+  const hideEmpty = request.nextUrl.searchParams.get("hideEmpty") !== "false";
+  const factoryAddress = config.MARKET_FACTORY_ADDRESS ?? "0x0";
+  const factoryConfigured = factoryAddress !== "0x0" && factoryAddress !== "";
+  const [cachedSnapshots, cachedActions] = await Promise.all([
+    getPersistedMarketSnapshots(500),
+    getPersistedLoopActions(500),
+  ]);
+  for (const snapshot of cachedSnapshots) {
+    if (snapshot.question) {
+      registerQuestion(snapshot.id, snapshot.question);
+    }
+  }
+  for (const action of cachedActions) {
+    if (
+      action.type === "market_creation" &&
+      typeof action.marketId === "number" &&
+      Number.isFinite(action.marketId) &&
+      action.question
+    ) {
+      registerQuestion(action.marketId, action.question);
+    }
+  }
+  const keepRecentMarketIds = new Set<number>(
+    cachedActions
+      .filter(
+        (action) =>
+          action.type === "market_creation" &&
+          typeof action.marketId === "number" &&
+          Number.isFinite(action.marketId) &&
+          Date.now() - action.timestamp <= 7 * 24 * 60 * 60 * 1000
+      )
+      .map((action) => action.marketId as number)
+  );
+
+  try {
+    const markets = await withTimeout(getMarkets(), 7_000, []);
+    if (factoryConfigured && cachedSnapshots.length > 0 && markets.length === 0) {
+      throw new Error("On-chain market fetch returned empty set");
+    }
+
+    const addresses = markets
+      .map((m) => m.address)
+      .filter((a) => a !== "0x0" && !a.startsWith("0xpending"));
+    const tradeCounts =
+      addresses.length > 0
+        ? await withTimeout(getOnChainActivityCounts(addresses), 1_500, {})
+        : {};
+
+    const allEnriched = markets.map((m) => ({
       ...m,
-      question: DEMO_QUESTIONS[m.id] ?? `Market #${m.id}`,
+      question: resolveMarketQuestion(m.id, m.questionHash),
       totalPool: m.totalPool.toString(),
       yesPool: m.yesPool.toString(),
       noPool: m.noPool.toString(),
+      tradeCount: tradeCounts[m.address] ?? 0,
     }));
 
-    return NextResponse.json({ markets: enriched });
+    // Merge seeded DB markets (e.g. sports games) that aren't on-chain yet
+    const onChainIds = new Set(allEnriched.map((m) => m.id));
+    let dbSeeded: typeof allEnriched = [];
+    try {
+      const dbAll = getAllMarkets();
+      dbSeeded = dbAll
+        .filter((s) => !onChainIds.has(s.id) && s.totalPool !== "0")
+        .map((s) => ({
+          id: s.id,
+          address: s.address ?? "0x0",
+          questionHash: s.questionHash ?? "0x0",
+          question: s.question,
+          resolutionTime: s.resolutionTime,
+          oracle: s.oracle ?? "0x0",
+          collateralToken: s.collateralToken ?? "0x0",
+          feeBps: s.feeBps ?? 0,
+          status: s.status ?? 0,
+          totalPool: s.totalPool,
+          yesPool: s.yesPool,
+          noPool: s.noPool,
+          impliedProbYes: s.impliedProbYes,
+          impliedProbNo: s.impliedProbNo,
+          winningOutcome: s.winningOutcome,
+          tradeCount: s.tradeCount ?? 0,
+        }));
+    } catch { /* SQLite unavailable */ }
+    const merged = [...allEnriched, ...dbSeeded];
+
+    const filtered = hideEmpty
+      ? filterEmptyMarkets(merged, { keepRecentMarketIds })
+      : merged;
+    const deduped = dedupeQuestionClones(filtered);
+    const enriched = applyMarketWindow(deduped, statusFilter, limit);
+
+    const fullSnapshot = markets.map((m) => ({
+      ...m,
+      question: resolveMarketQuestion(m.id, m.questionHash),
+      totalPool: m.totalPool.toString(),
+      yesPool: m.yesPool.toString(),
+      noPool: m.noPool.toString(),
+      tradeCount: tradeCounts[m.address] ?? 0,
+    }));
+    const persistedSnapshots = fullSnapshot.map((m) => ({
+      id: m.id,
+      address: m.address,
+      questionHash: m.questionHash,
+      question: m.question,
+      resolutionTime: m.resolutionTime,
+      oracle: m.oracle,
+      collateralToken: m.collateralToken,
+      feeBps: m.feeBps,
+      status: m.status,
+      totalPool: m.totalPool,
+      yesPool: m.yesPool,
+      noPool: m.noPool,
+      impliedProbYes: m.impliedProbYes,
+      impliedProbNo: m.impliedProbNo,
+      winningOutcome: m.winningOutcome,
+      tradeCount: m.tradeCount,
+      updatedAt: Date.now(),
+    }));
+    await setPersistedMarketSnapshots(persistedSnapshots);
+
+    // Write-through to SQLite
+    try { upsertMarkets(persistedSnapshots); } catch { /* best-effort */ }
+
+    return NextResponse.json({
+      markets: enriched,
+      factoryConfigured,
+      factoryAddress,
+      stale: false,
+      source: "onchain",
+    });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    // Try SQLite as first fallback tier
+    let dbSnapshots: typeof cachedSnapshots = [];
+    try { dbSnapshots = getAllMarkets(); } catch { /* SQLite unavailable */ }
+
+    const fallback = dbSnapshots.length > 0
+      ? dbSnapshots
+      : cachedSnapshots;
+    const fallbackSource = dbSnapshots.length > 0 ? "db" : "cache";
+
+    if (fallback.length > 0) {
+      const fallbackEnriched = fallback.map((snapshot) => ({
+        id: snapshot.id,
+        address: snapshot.address,
+        questionHash: snapshot.questionHash,
+        question: snapshot.question || resolveMarketQuestion(snapshot.id, snapshot.questionHash),
+        resolutionTime: snapshot.resolutionTime,
+        oracle: snapshot.oracle,
+        collateralToken: snapshot.collateralToken,
+        feeBps: snapshot.feeBps,
+        status: snapshot.status,
+        totalPool: snapshot.totalPool,
+        yesPool: snapshot.yesPool,
+        noPool: snapshot.noPool,
+        impliedProbYes: snapshot.impliedProbYes,
+        impliedProbNo: snapshot.impliedProbNo,
+        winningOutcome: snapshot.winningOutcome,
+        tradeCount: snapshot.tradeCount ?? 0,
+      }));
+      const fallbackFiltered = hideEmpty
+        ? filterEmptyMarkets(fallbackEnriched, { keepRecentMarketIds })
+        : fallbackEnriched;
+      const fallbackDeduped = dedupeQuestionClones(fallbackFiltered);
+      const markets = applyMarketWindow(fallbackDeduped, statusFilter, limit);
+      return NextResponse.json({
+        markets,
+        factoryConfigured,
+        factoryAddress,
+        stale: true,
+        source: fallbackSource,
+        warning: err?.message ?? "on-chain fetch failed",
+      });
+    }
+
+    return NextResponse.json(
+      {
+        error: err?.message ?? "Failed to load markets",
+        factoryConfigured,
+        factoryAddress,
+      },
+      { status: 500 }
+    );
   }
 }
 
@@ -51,10 +449,24 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const parsed = CreateMarketSchema.parse(body);
+    const quality = reviewMarketQuestion(parsed.question);
+
+    if (quality.issues.length > 0 || quality.score < 60) {
+      return NextResponse.json(
+        {
+          error: "Market question quality check failed",
+          issues: quality.issues,
+          warnings: quality.warnings,
+          qualityScore: quality.score,
+        },
+        { status: 400 }
+      );
+    }
 
     const now = Math.floor(Date.now() / 1000);
     const resolutionTime = now + parsed.days * 86400;
-    const questionHash = hashQuestionToFelt(parsed.question);
+    const normalizedQuestion = quality.normalizedQuestion;
+    const questionHash = hashQuestionToFelt(normalizedQuestion);
     const fallbackOracle = process.env.MARKET_ORACLE_ADDRESS ?? process.env.AGENT_ADDRESS;
     const oracle = parsed.oracle ?? fallbackOracle;
 
@@ -62,6 +474,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "No oracle address provided. Set MARKET_ORACLE_ADDRESS or AGENT_ADDRESS." },
         { status: 400 }
+      );
+    }
+
+    const existingMarketQuestions = new Set(
+      Object.values(MARKET_QUESTIONS).map((q) => q.trim().toLowerCase())
+    );
+    if (existingMarketQuestions.has(normalizedQuestion.toLowerCase())) {
+      return NextResponse.json(
+        {
+          error: "A similar market question already exists",
+          qualityScore: quality.score,
+        },
+        { status: 409 }
+      );
+    }
+
+    const existingMarkets = await getMarkets();
+    if (
+      existingMarkets.some(
+        (market) => market.questionHash.toLowerCase() === questionHash.toLowerCase()
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error: "Duplicate market hash detected for this question",
+          qualityScore: quality.score,
+        },
+        { status: 409 }
       );
     }
 
@@ -111,7 +551,7 @@ export async function POST(request: NextRequest) {
       );
 
     if (createdMarket) {
-      setMarketQuestion(createdMarket.id, parsed.question);
+      registerQuestion(createdMarket.id, normalizedQuestion);
       await recordAudit({
         organizationId: context.membership.organizationId,
         userId: context.user.id,
@@ -119,7 +559,11 @@ export async function POST(request: NextRequest) {
         targetType: "market",
         targetId: String(createdMarket.id),
         metadata: {
-          question: parsed.question,
+          question: normalizedQuestion,
+          category: parsed.category ?? quality.categoryHint,
+          resolutionCriteria: parsed.resolutionCriteria ?? null,
+          qualityScore: quality.score,
+          warnings: quality.warnings,
           feeBps: parsed.feeBps,
           executionSurface: tx.executionSurface,
           txHash: tx.txHash,
@@ -132,12 +576,17 @@ export async function POST(request: NextRequest) {
       market: createdMarket
         ? {
             ...createdMarket,
-            question: parsed.question.trim(),
+            question: normalizedQuestion,
             totalPool: createdMarket.totalPool.toString(),
             yesPool: createdMarket.yesPool.toString(),
             noPool: createdMarket.noPool.toString(),
           }
         : null,
+      marketQuality: {
+        score: quality.score,
+        warnings: quality.warnings,
+        categoryHint: quality.categoryHint,
+      },
     });
   } catch (err: any) {
     if (err instanceof z.ZodError) {

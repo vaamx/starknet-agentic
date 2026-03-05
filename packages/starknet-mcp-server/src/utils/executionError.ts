@@ -28,6 +28,10 @@ export function normalizeExecutionError(
     return { code: "UNSUPPORTED_SURFACE", surface: executionSurface };
   }
 
+  if (msg.includes("blocked when starknet_execution_profile")) {
+    return { code: "UNSUPPORTED_SURFACE", surface: executionSurface };
+  }
+
   if (msg.includes("requires starknet_signer_mode=direct")) {
     return { code: "UNSUPPORTED_SURFACE", surface: executionSurface };
   }

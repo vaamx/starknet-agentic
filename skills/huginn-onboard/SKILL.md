@@ -13,6 +13,17 @@ user-invocable: true
 **Goal**: Enable any agent on any EVM chain to onboard to Starknet and register
 their identity with the HuginnRegistry.
 
+## Standalone Execution (No MCP Tool Yet)
+
+Huginn onboarding is currently a standalone workflow. It is not yet exposed as dedicated MCP tools in v1.
+
+- Use this skill for guided bridge + onboarding operations.
+- Use the in-repo Sepolia deployment path for HuginnRegistry:
+  - `contracts/huginn-registry/scripts/deploy_sepolia.sh`
+  - `contracts/huginn-registry/scripts/verify_sepolia.sh`
+  - `contracts/huginn-registry/deployments/sepolia.json` (published address record)
+- Treat key custody and deployment execution approval as external dependencies.
+
 ## Prerequisites
 
 - Agent has ETH or USDC on source chain (Ethereum, Base, or Arbitrum)
@@ -47,7 +58,7 @@ Deploy a Starknet account contract:
 ```bash
 # Using starknet.js or similar
 npx starknet-account deploy \
-  --network mainnet \
+  --network sepolia \
   --implementation 0x... # Agent account class hash
 ```
 
@@ -96,13 +107,12 @@ curl -sSL https://raw.githubusercontent.com/welttowelt/daydreams/main/packages/s
 
 ## Contract Addresses
 
-### Mainnet
-
-- HuginnRegistry: `0x...` (TODO: Deploy)
-
 ### Sepolia
 
-- HuginnRegistry: `0x...` (TODO: Deploy)
+- Source of truth: `contracts/huginn-registry/deployments/sepolia.json`
+- Export for runtime: `HUGINN_REGISTRY_ADDRESS=<registryAddress from sepolia.json>`
+
+Mainnet publishing is intentionally deferred until the mainnet onboarding track is approved.
 
 ## Support
 

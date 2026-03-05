@@ -20,15 +20,15 @@ npm install starknet@^8.9.1 @avnu/avnu-sdk@^4.0.1
 
 Environment variables:
 ```
-STARKNET_RPC_URL=https://starknet-mainnet.g.alchemy.com/v2/YOUR_KEY
+STARKNET_RPC_URL=https://starknet-sepolia.public.blastapi.io
 STARKNET_ACCOUNT_ADDRESS=0x...
 STARKNET_PRIVATE_KEY=0x...
-AVNU_BASE_URL=https://starknet.api.avnu.fi (optional)
-AVNU_PAYMASTER_URL=https://starknet.paymaster.avnu.fi (optional)
+AVNU_BASE_URL=https://sepolia.api.avnu.fi (optional)
+AVNU_PAYMASTER_URL=https://sepolia.paymaster.avnu.fi (optional)
 AVNU_PAYMASTER_API_KEY=your_key (optional, for free gas)
 ```
 
-## Available MCP Tools
+## MCP Tools Used
 
 The Starknet MCP Server provides these tools for wallet operations:
 
@@ -359,10 +359,9 @@ import { getQuotes, executeSwap } from "@avnu/avnu-sdk";
 import { PaymasterRpc } from "starknet";
 
 // SDK v4: Use PaymasterRpc from starknet.js
-// Mainnet: https://starknet.paymaster.avnu.fi
 // Sepolia: https://sepolia.paymaster.avnu.fi
 const paymaster = new PaymasterRpc({
-  nodeUrl: process.env.AVNU_PAYMASTER_URL || "https://starknet.paymaster.avnu.fi",
+  nodeUrl: process.env.AVNU_PAYMASTER_URL || "https://sepolia.paymaster.avnu.fi",
 });
 
 // Any swap can be made gasless by adding paymaster option
@@ -427,8 +426,8 @@ Reference implementation: [Cartridge Controller](https://docs.cartridge.gg/contr
 | `STARKNET_RPC_URL` | Starknet JSON-RPC endpoint | Required |
 | `STARKNET_ACCOUNT_ADDRESS` | Agent's account address | Required |
 | `STARKNET_PRIVATE_KEY` | Agent's signing key | Required |
-| `AVNU_BASE_URL` | avnu API base URL | `https://starknet.api.avnu.fi` |
-| `AVNU_PAYMASTER_URL` | avnu paymaster URL | `https://starknet.paymaster.avnu.fi` |
+| `AVNU_BASE_URL` | avnu API base URL | `https://sepolia.api.avnu.fi` |
+| `AVNU_PAYMASTER_URL` | avnu paymaster URL | `https://sepolia.paymaster.avnu.fi` |
 
 ## Error Handling
 

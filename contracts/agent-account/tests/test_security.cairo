@@ -190,6 +190,8 @@ fn spending_policy(limit: u256) -> SessionPolicy {
         spending_limit: limit,
         spending_token: token_addr(),
         allowed_contract: token_addr(),
+        max_calls_per_tx: 0,
+        spending_period_secs: 0,
     }
 }
 
@@ -201,6 +203,8 @@ fn any_contract_policy(limit: u256) -> SessionPolicy {
         spending_limit: limit,
         spending_token: token_addr(),
         allowed_contract: zero_addr(),
+        max_calls_per_tx: 0,
+        spending_period_secs: 0,
     }
 }
 
@@ -360,6 +364,8 @@ fn test_fuzz_session_key_valid_signature(secret: felt252) {
             spending_limit: 1,
             spending_token: token_addr(),
             allowed_contract: zero_addr(),
+            max_calls_per_tx: 0,
+            spending_period_secs: 0,
         },
     );
 
@@ -408,6 +414,8 @@ fn test_fuzz_wrong_signer_always_fails(wrong_secret: felt252) {
             spending_limit: 1,
             spending_token: token_addr(),
             allowed_contract: zero_addr(),
+            max_calls_per_tx: 0,
+            spending_period_secs: 0,
         },
     );
 
@@ -439,6 +447,8 @@ fn test_fuzz_timestamp_at_valid_after_boundary(offset: u64) {
         spending_limit: 1_000_000,
         spending_token: token_addr(),
         allowed_contract: zero_addr(),
+        max_calls_per_tx: 0,
+        spending_period_secs: 0,
     };
     register_key(agent, addr, session_kp.public_key, policy);
 
@@ -474,6 +484,8 @@ fn test_timestamp_exact_boundaries() {
         spending_limit: 100,
         spending_token: token_addr(),
         allowed_contract: zero_addr(),
+        max_calls_per_tx: 0,
+        spending_period_secs: 0,
     };
     register_key(agent, addr, session_kp.public_key, policy);
 
@@ -676,6 +688,8 @@ fn test_validate_declare_session_key_panics() {
             spending_limit: 100,
             spending_token: token_addr(),
             allowed_contract: zero_addr(),
+            max_calls_per_tx: 0,
+            spending_period_secs: 0,
         },
     );
 
@@ -748,6 +762,8 @@ fn test_non_transfer_call_not_tracked_as_spending() {
         spending_limit: 0, // zero limit — any tracked selector would panic
         spending_token: zero_addr(),
         allowed_contract: addr, // allow calling the account itself
+        max_calls_per_tx: 0,
+        spending_period_secs: 0,
     };
     register_key(agent, addr, session_kp.public_key, policy);
 
@@ -811,6 +827,8 @@ fn test_transfer_from_snake_is_blocked_for_session_keys() {
         spending_limit: 0,
         spending_token: zero_addr(),
         allowed_contract: mock_token,
+        max_calls_per_tx: 0,
+        spending_period_secs: 0,
     };
     register_key(agent, addr, session_kp.public_key, policy);
 
@@ -836,6 +854,8 @@ fn test_transfer_from_camel_is_blocked_for_session_keys() {
         spending_limit: 0,
         spending_token: zero_addr(),
         allowed_contract: mock_token,
+        max_calls_per_tx: 0,
+        spending_period_secs: 0,
     };
     register_key(agent, addr, session_kp.public_key, policy);
 
@@ -973,6 +993,8 @@ fn test_is_valid_signature_rejects_3_element_sig() {
             spending_limit: 100,
             spending_token: token_addr(),
             allowed_contract: zero_addr(),
+            max_calls_per_tx: 0,
+            spending_period_secs: 0,
         },
     );
 
@@ -1024,6 +1046,8 @@ fn test_validate_deploy_session_key_panics() {
             spending_limit: 100,
             spending_token: token_addr(),
             allowed_contract: zero_addr(),
+            max_calls_per_tx: 0,
+            spending_period_secs: 0,
         },
     );
 
