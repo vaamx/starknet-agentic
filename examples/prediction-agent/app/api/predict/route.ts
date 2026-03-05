@@ -2,8 +2,18 @@ import { NextRequest } from "next/server";
 import { forecastMarket, extractProbability } from "@/lib/agent-forecaster";
 import { getMarkets, getAgentPredictions, DEMO_QUESTIONS } from "@/lib/market-reader";
 import { recordPrediction } from "@/lib/starknet-executor";
+import { requireRole } from "@/lib/require-auth";
+import { recordAudit, recordForecast, recordTradeExecution } from "@/lib/ops-store";
 
 export async function POST(request: NextRequest) {
+  const context = requireRole(request, "analyst");
+  if (!context) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const body = await request.json();
   const marketId = body.marketId as number;
 
@@ -60,6 +70,37 @@ export async function POST(request: NextRequest) {
 
         // Attempt to record prediction on-chain
         const txResult = await recordPrediction(marketId, probability);
+        await recordForecast({
+          organizationId: context.membership.organizationId,
+          marketId,
+          userId: context.user.id,
+          agentId: "alpha",
+          probability,
+          modelName: "claude",
+          rationale: fullText.slice(0, 2000),
+        });
+        await recordTradeExecution({
+          organizationId: context.membership.organizationId,
+          marketId,
+          userId: context.user.id,
+          executionSurface: txResult.executionSurface,
+          txHash: txResult.txHash || undefined,
+          status: txResult.status,
+          errorCode: txResult.errorCode,
+          errorMessage: txResult.error,
+        });
+        await recordAudit({
+          organizationId: context.membership.organizationId,
+          userId: context.user.id,
+          action: "market.predict",
+          targetType: "market",
+          targetId: String(marketId),
+          metadata: {
+            probability,
+            txStatus: txResult.status,
+            executionSurface: txResult.executionSurface,
+          },
+        });
 
         controller.enqueue(
           encoder.encode(

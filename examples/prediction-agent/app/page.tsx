@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import MarketCard from "./components/MarketCard";
 import AgentLeaderboard from "./components/AgentLeaderboard";
 import BetForm from "./components/BetForm";
@@ -11,6 +11,8 @@ import AgentActivityFeed from "./components/AgentActivityFeed";
 import AgentSpawnerForm from "./components/AgentSpawnerForm";
 import AnalyzeModal from "./components/AnalyzeModal";
 import WalletConnect from "./components/WalletConnect";
+import MarketLifecycleModal from "./components/MarketLifecycleModal";
+import QuantAnalyticsPanel from "./components/QuantAnalyticsPanel";
 
 interface Market {
   id: number;
@@ -25,6 +27,7 @@ interface Market {
   resolutionTime: number;
   feeBps: number;
   collateralToken: string;
+  winningOutcome?: number;
 }
 
 interface LeaderboardEntry {
@@ -49,6 +52,60 @@ interface AgentPrediction {
   predictionCount: number;
 }
 
+interface SessionUser {
+  id: string;
+  email: string;
+  name: string;
+}
+
+interface SessionContext {
+  user: SessionUser;
+  organization: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+  role: "owner" | "admin" | "analyst" | "viewer";
+}
+
+interface QuantAnalytics {
+  calibration: Array<{
+    binStart: number;
+    binEnd: number;
+    avgPredicted: number;
+    observedRate: number;
+    count: number;
+  }>;
+  brierTimeline: Array<{
+    day: string;
+    brier: number;
+    count: number;
+  }>;
+  sourceAttribution: Array<{
+    source: string;
+    count: number;
+  }>;
+  strategy: {
+    totalExecutions: number;
+    successRate: number;
+    deployedCapitalStrk: number;
+    realizedPnlStrk: number;
+    bySurface: Array<{
+      executionSurface: string;
+      executions: number;
+      successRate: number;
+    }>;
+  };
+}
+
+interface ModelCalibrationComparisonRow {
+  modelName: string;
+  agentId: string;
+  forecasts: number;
+  brier: number;
+  calibrationGap: number;
+}
+
 export default function Dashboard() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -59,43 +116,92 @@ export default function Dashboard() {
   const [betMarketId, setBetMarketId] = useState<number | null>(null);
   const [showCreator, setShowCreator] = useState(false);
   const [showSpawner, setShowSpawner] = useState(false);
+  const [lifecycleAction, setLifecycleAction] = useState<{
+    marketId: number;
+    action: "resolve" | "finalize" | "claim";
+  } | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [autonomousMode, setAutonomousMode] = useState(false);
   const [loopToggling, setLoopToggling] = useState(false);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [sessionContext, setSessionContext] = useState<SessionContext | null>(null);
+  const [analytics, setAnalytics] = useState<QuantAnalytics | null>(null);
+  const [calibrationByModel, setCalibrationByModel] = useState<
+    ModelCalibrationComparisonRow[]
+  >([]);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [marketsRes, leaderboardRes] = await Promise.all([
+        fetch("/api/markets"),
+        fetch("/api/leaderboard"),
+      ]);
+
+      if (marketsRes.status === 401 || leaderboardRes.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+
+      const marketsData = await marketsRes.json();
+      const leaderboardData = await leaderboardRes.json();
+
+      setMarkets(marketsData.markets ?? []);
+      setLeaderboard(leaderboardData.leaderboard ?? []);
+
+      const predsMap: Record<number, AgentPrediction[]> = {};
+      for (const market of marketsData.markets ?? []) {
+        try {
+          const res = await fetch(`/api/markets/${market.id}`);
+          const data = await res.json();
+          predsMap[market.id] = data.predictions ?? [];
+        } catch {
+          predsMap[market.id] = [];
+        }
+      }
+      setPredictions(predsMap);
+    } catch (err) {
+      console.error("Failed to load data:", err);
+    }
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    async function loadData() {
-      try {
-        const [marketsRes, leaderboardRes] = await Promise.all([
-          fetch("/api/markets"),
-          fetch("/api/leaderboard"),
-        ]);
-
-        const marketsData = await marketsRes.json();
-        const leaderboardData = await leaderboardRes.json();
-
-        setMarkets(marketsData.markets ?? []);
-        setLeaderboard(leaderboardData.leaderboard ?? []);
-
-        const predsMap: Record<number, AgentPrediction[]> = {};
-        for (const market of marketsData.markets ?? []) {
-          try {
-            const res = await fetch(`/api/markets/${market.id}`);
-            const data = await res.json();
-            predsMap[market.id] = data.predictions ?? [];
-          } catch {
-            predsMap[market.id] = [];
-          }
-        }
-        setPredictions(predsMap);
-      } catch (err) {
-        console.error("Failed to load data:", err);
-      }
-      setLoading(false);
-    }
-
     loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    fetch("/api/me/context")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.user) {
+          setSessionUser(data.user);
+          setSessionContext(data);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/analytics/overview")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.analytics) {
+          setAnalytics(data.analytics);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/analytics/calibration-models")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data?.rows)) {
+          setCalibrationByModel(data.rows);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // Check loop status on mount
@@ -125,6 +231,14 @@ export default function Dashboard() {
       console.error("Failed to toggle loop:", err);
     }
     setLoopToggling(false);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      window.location.href = "/login";
+    }
   };
 
   const analyzeMarket = markets.find((m) => m.id === analyzeMarketId);
@@ -188,6 +302,25 @@ export default function Dashboard() {
 
             {/* Wallet */}
             <WalletConnect />
+
+            {sessionUser && (
+              <div className="hidden lg:flex items-center gap-2 border-2 border-black bg-white px-2.5 py-1.5">
+                <span className="text-[11px] font-mono text-gray-500">
+                  {sessionUser.name}
+                </span>
+                {sessionContext && (
+                  <span className="text-[10px] font-mono text-gray-400">
+                    {sessionContext.organization.name} ({sessionContext.role})
+                  </span>
+                )}
+                <button
+                  onClick={handleLogout}
+                  className="text-[10px] font-bold uppercase tracking-wide text-neo-pink hover:underline"
+                >
+                  Logout
+                </button>
+              </div>
+            )}
 
             {/* Network indicator */}
             <div className="neo-badge bg-cream text-[10px] py-0.5 gap-1.5">
@@ -297,6 +430,15 @@ export default function Dashboard() {
                       predictions={marketPreds}
                       onAnalyze={(id) => setAnalyzeMarketId(id)}
                       onBet={(id) => setBetMarketId(id)}
+                      onResolve={(id) =>
+                        setLifecycleAction({ marketId: id, action: "resolve" })
+                      }
+                      onFinalize={(id) =>
+                        setLifecycleAction({ marketId: id, action: "finalize" })
+                      }
+                      onClaim={(id) =>
+                        setLifecycleAction({ marketId: id, action: "claim" })
+                      }
                     />
                   </div>
                 );
@@ -330,6 +472,14 @@ export default function Dashboard() {
 
         {/* ═══ Agent Activity Feed ═══ */}
         <div className="mt-6">
+          <QuantAnalyticsPanel
+            analytics={analytics}
+            calibrationByModel={calibrationByModel}
+          />
+        </div>
+
+        {/* ═══ Agent Activity Feed ═══ */}
+        <div className="mt-6">
           <AgentActivityFeed isLoopRunning={autonomousMode} />
         </div>
 
@@ -353,7 +503,10 @@ export default function Dashboard() {
       )}
 
       {showCreator && (
-        <MarketCreator onClose={() => setShowCreator(false)} />
+        <MarketCreator
+          onClose={() => setShowCreator(false)}
+          onCreated={loadData}
+        />
       )}
 
       {betMarket && (
@@ -374,6 +527,19 @@ export default function Dashboard() {
           marketId={analyzeMarket.id}
           question={analyzeMarket.question}
           onClose={() => setAnalyzeMarketId(null)}
+        />
+      )}
+
+      {lifecycleAction && (
+        <MarketLifecycleModal
+          marketId={lifecycleAction.marketId}
+          question={
+            markets.find((m) => m.id === lifecycleAction.marketId)?.question ??
+            `Market #${lifecycleAction.marketId}`
+          }
+          action={lifecycleAction.action}
+          onClose={() => setLifecycleAction(null)}
+          onSuccess={loadData}
         />
       )}
     </div>

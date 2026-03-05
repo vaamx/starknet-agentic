@@ -1,4 +1,6 @@
 import { RpcProvider, Contract } from "starknet";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { config } from "./config";
 import { fromScaled, averageBrier } from "./accuracy";
 
@@ -159,6 +161,12 @@ export interface LeaderboardEntry {
   rank: number;
 }
 
+const QUESTIONS_FILE_PATH = path.join(
+  process.cwd(),
+  ".data",
+  "prediction-agent-market-questions.json"
+);
+
 /** Get all markets from the factory. */
 export async function getMarkets(): Promise<MarketState[]> {
   if (config.MARKET_FACTORY_ADDRESS === "0x0") return getDemoMarkets();
@@ -187,6 +195,10 @@ export async function getMarketState(id: number, address: string): Promise<Marke
     market.get_market_info(),
   ]);
 
+  const numericStatus = Number(status);
+  const winningOutcome =
+    numericStatus === 2 ? Number(await market.get_winning_outcome()) : undefined;
+
   return {
     id,
     address,
@@ -195,12 +207,13 @@ export async function getMarketState(id: number, address: string): Promise<Marke
     oracle: info[2].toString(),
     collateralToken: info[3].toString(),
     feeBps: Number(info[4]),
-    status: Number(status),
+    status: numericStatus,
     totalPool: BigInt(totalPool.toString()),
     yesPool: BigInt(probs[1]?.[1]?.toString() ?? "0"),
     noPool: BigInt(probs[0]?.[1]?.toString() ?? "0"),
     impliedProbYes: fromScaled(BigInt(probs[1]?.[1]?.toString() ?? "500000000000000000")),
     impliedProbNo: fromScaled(BigInt(probs[0]?.[1]?.toString() ?? "500000000000000000")),
+    winningOutcome,
   };
 }
 
@@ -235,6 +248,14 @@ export async function getWeightedProbability(marketId: number): Promise<number> 
   const tracker = new Contract(ACCURACY_ABI as any, config.ACCURACY_TRACKER_ADDRESS, provider);
   const result = await tracker.get_weighted_probability(marketId);
   return fromScaled(BigInt(result.toString()));
+}
+
+export async function isMarketFinalized(marketId: number): Promise<boolean> {
+  if (config.ACCURACY_TRACKER_ADDRESS === "0x0") return false;
+
+  const tracker = new Contract(ACCURACY_ABI as any, config.ACCURACY_TRACKER_ADDRESS, provider);
+  const result = await tracker.is_finalized(marketId);
+  return Boolean(result);
 }
 
 // ============ Demo Data (when contracts not deployed) ============
@@ -448,3 +469,43 @@ export const DEMO_QUESTIONS: Record<number, string> = {
   8: "Will total DeFi TVL exceed $250B by mid-2026?",
   9: "Will any G7 country launch a retail CBDC in 2026?",
 };
+
+function loadPersistedQuestions() {
+  try {
+    if (!existsSync(QUESTIONS_FILE_PATH)) return;
+    const raw = readFileSync(QUESTIONS_FILE_PATH, "utf8");
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    for (const [k, v] of Object.entries(parsed)) {
+      const marketId = Number(k);
+      if (!Number.isNaN(marketId) && typeof v === "string" && v.trim()) {
+        DEMO_QUESTIONS[marketId] = v.trim();
+      }
+    }
+  } catch {
+    // Ignore bad file state and continue with in-repo defaults.
+  }
+}
+
+function persistQuestions() {
+  try {
+    const dir = path.dirname(QUESTIONS_FILE_PATH);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+
+    writeFileSync(
+      QUESTIONS_FILE_PATH,
+      JSON.stringify(DEMO_QUESTIONS, null, 2),
+      "utf8"
+    );
+  } catch {
+    // Non-fatal: app can still run with in-memory questions.
+  }
+}
+
+export function setMarketQuestion(marketId: number, question: string) {
+  DEMO_QUESTIONS[marketId] = question.trim();
+  persistQuestions();
+}
+
+loadPersistedQuestions();

@@ -1,0 +1,154 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String       @id
+  email        String       @unique
+  name         String
+  passwordHash String       @map("password_hash")
+  createdAt    Int          @map("created_at")
+  updatedAt    Int          @map("updated_at")
+  sessions     Session[]
+  memberships  Membership[]
+  forecasts    Forecast[]
+  executions   TradeExecution[]
+  audits       AuditLog[]
+  ownedOrgs    Organization[] @relation("OrgOwner")
+
+  @@map("users")
+}
+
+model Session {
+  id        String  @id
+  userId    String  @map("user_id")
+  tokenHash String  @unique @map("token_hash")
+  createdAt Int     @map("created_at")
+  expiresAt Int     @map("expires_at")
+  revokedAt Int?    @map("revoked_at")
+  ipAddress String? @map("ip_address")
+  userAgent String? @map("user_agent")
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Organization {
+  id          String       @id
+  name        String
+  slug        String       @unique
+  ownerUserId String       @map("owner_user_id")
+  createdAt   Int          @map("created_at")
+  updatedAt   Int          @map("updated_at")
+  owner       User         @relation("OrgOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  memberships Membership[]
+  forecasts   Forecast[]
+  artifacts   ResearchArtifact[]
+  executions  TradeExecution[]
+  audits      AuditLog[]
+  outcomes    MarketOutcome[]
+
+  @@map("organizations")
+}
+
+model Membership {
+  id             String       @id
+  organizationId String       @map("organization_id")
+  userId         String       @map("user_id")
+  role           String
+  createdAt      Int          @map("created_at")
+  updatedAt      Int          @map("updated_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@map("memberships")
+}
+
+model Forecast {
+  id           String        @id
+  orgId        String?       @map("org_id")
+  marketId     Int           @map("market_id")
+  userId       String?       @map("user_id")
+  agentId      String?       @map("agent_id")
+  probability  Float
+  confidence   Float?
+  rationale    String?
+  modelName    String?       @map("model_name")
+  createdAt    Int           @map("created_at")
+  organization Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, createdAt])
+  @@map("forecasts")
+}
+
+model ResearchArtifact {
+  id           String        @id
+  orgId        String?       @map("org_id")
+  marketId     Int?          @map("market_id")
+  sourceType   String        @map("source_type")
+  sourceUrl    String?       @map("source_url")
+  title        String?
+  summary      String?
+  payloadJson  String?       @map("payload_json")
+  createdAt    Int           @map("created_at")
+  organization Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt])
+  @@map("research_artifacts")
+}
+
+model TradeExecution {
+  id               String        @id
+  orgId            String?       @map("org_id")
+  marketId         Int           @map("market_id")
+  userId           String?       @map("user_id")
+  executionSurface String        @map("execution_surface")
+  txHash           String?       @map("tx_hash")
+  status           String
+  errorCode        String?       @map("error_code")
+  errorMessage     String?       @map("error_message")
+  notionalStrk     Float?        @map("notional_strk")
+  realizedPnlStrk  Float?        @map("realized_pnl_strk")
+  createdAt        Int           @map("created_at")
+  organization     Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user             User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, createdAt])
+  @@map("trade_executions")
+}
+
+model AuditLog {
+  id           String        @id
+  orgId        String?       @map("org_id")
+  userId       String?       @map("user_id")
+  action       String
+  targetType   String?       @map("target_type")
+  targetId     String?       @map("target_id")
+  metadataJson String?       @map("metadata_json")
+  createdAt    Int           @map("created_at")
+  organization Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, createdAt])
+  @@map("audit_logs")
+}
+
+model MarketOutcome {
+  id           String       @id
+  orgId        String       @map("org_id")
+  marketId     Int          @map("market_id")
+  outcome      Int
+  finalizedAt  Int          @map("finalized_at")
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, marketId])
+  @@index([orgId, marketId])
+  @@map("market_outcomes")
+}
