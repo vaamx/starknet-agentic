@@ -350,6 +350,25 @@ Features that enhance the platform but are not required for v1.0 release.
 
 ---
 
+### 2.6 Starkzap Execution Surface Integration
+
+**Description**: Add Starkzap as a first-class DeFi execution surface while keeping authorization and policy enforcement in starknet-agentic contracts and session key controls.
+
+**Requirements**:
+- [ ] Define execution-surface abstraction (`starkzap` | `avnu` | direct invoke) in MCP layer
+- [ ] Implement Starkzap-backed transfer/swap adapter behind feature flag
+- [ ] Preserve AVNU path as default until parity checks pass
+- [ ] Add provider parity tests (quote/execution/error mapping)
+- [ ] Add reproducibility harness for Sepolia adversarial proof flows
+- [ ] Document execution vs authorization separation in SPECIFICATION and GETTING_STARTED
+
+**Implementation Notes**:
+- Upstream report indicates Starkzap was used in an adversarial Sepolia demo where oversized spend and forbidden selectors were blocked by policy controls.
+- Track source links and verification notes in `docs/UPSTREAM_SYNC_2026-03-05.md`.
+- Integrate incrementally: adapter + tests first, default switch only after stability and security review.
+
+---
+
 # Phase 3: Future
 
 Long-term features and ecosystem expansion planned for v2.0+.
@@ -532,4 +551,4 @@ Long-term features and ecosystem expansion planned for v2.0+.
 - `[x]` Complete
 - `[~]` In progress
 
-*Last updated: 2026-02-11*
+*Last updated: 2026-03-05*
