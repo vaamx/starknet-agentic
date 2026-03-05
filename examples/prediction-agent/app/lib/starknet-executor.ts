@@ -8,6 +8,7 @@ export type TxErrorCode =
   | "NO_ACCOUNT"
   | "TRACKER_NOT_DEPLOYED"
   | "UNSUPPORTED_SURFACE"
+  | "PROVIDER_UNAVAILABLE"
   | "EXECUTION_FAILED";
 
 export interface TxResult {
@@ -42,6 +43,29 @@ function unsupportedSurfaceResult(
     errorCode: "UNSUPPORTED_SURFACE",
     error: `${operation} is not yet implemented for execution surface "${executionSurface}".`,
   };
+}
+
+async function loadStarkzapSdk(): Promise<any> {
+  try {
+    // Avoid static import so prediction-agent can run without hard requiring starkzap.
+    const dynamicImport = new Function(
+      "moduleName",
+      "return import(moduleName)"
+    ) as (moduleName: string) => Promise<any>;
+    return await dynamicImport("starkzap");
+  } catch {
+    throw new Error(
+      'Starkzap SDK is unavailable. Install it in examples/prediction-agent (e.g. `npm i starkzap`) and retry.'
+    );
+  }
+}
+
+function resolveStarkzapChainId(chainIdEnum: Record<string, unknown>): unknown {
+  const chain = config.STARKNET_CHAIN_ID.toUpperCase();
+  if (chain.includes("SEPOLIA")) {
+    return chainIdEnum.SEPOLIA ?? chainIdEnum.SN_SEPOLIA;
+  }
+  return chainIdEnum.MAINNET ?? chainIdEnum.SN_MAIN;
 }
 
 async function placeBetDirect(
@@ -95,6 +119,109 @@ async function placeBetDirect(
       executionSurface: "direct",
       errorCode: "EXECUTION_FAILED",
       error: err?.message ?? "Execution failed",
+    };
+  }
+}
+
+async function placeBetStarkzap(
+  marketAddress: string,
+  outcome: 0 | 1,
+  amount: bigint,
+  collateralToken: string
+): Promise<TxResult> {
+  if (!config.AGENT_PRIVATE_KEY) {
+    return {
+      txHash: "",
+      status: "error",
+      executionSurface: "starkzap",
+      errorCode: "NO_ACCOUNT",
+      error: "No agent private key configured",
+    };
+  }
+
+  try {
+    const sdkModule = await loadStarkzapSdk();
+    const StarkSDK = sdkModule.StarkSDK;
+    const StarkSigner = sdkModule.StarkSigner;
+    const ChainId = sdkModule.ChainId;
+    if (!StarkSDK || !StarkSigner || !ChainId) {
+      throw new Error("Incomplete Starkzap SDK exports (StarkSDK/StarkSigner/ChainId)");
+    }
+
+    const chainId = resolveStarkzapChainId(ChainId as Record<string, unknown>);
+    const sdk = new StarkSDK({
+      rpcUrl: config.STARKNET_RPC_URL,
+      chainId,
+    });
+
+    const wallet = await sdk.connectWallet({
+      account: { signer: new StarkSigner(config.AGENT_PRIVATE_KEY) },
+      feeMode: "user_pays",
+    });
+
+    await wallet.ensureReady({ deploy: "if_needed" });
+
+    const approveTx = {
+      contractAddress: collateralToken,
+      entrypoint: "approve",
+      calldata: CallData.compile({
+        spender: marketAddress,
+        amount: { low: amount, high: 0n },
+      }),
+    };
+
+    const betTx = {
+      contractAddress: marketAddress,
+      entrypoint: "bet",
+      calldata: CallData.compile({
+        outcome,
+        amount: { low: amount, high: 0n },
+      }),
+    };
+
+    const calls = [approveTx, betTx];
+
+    if (typeof wallet.preflight === "function") {
+      const preflight = await wallet.preflight({
+        calls,
+        feeMode: "user_pays",
+      });
+      if (preflight && preflight.ok === false) {
+        throw new Error(`starkzap preflight failed: ${preflight.reason ?? "unknown"}`);
+      }
+    }
+
+    const execution = await wallet.execute(calls, { feeMode: "user_pays" });
+    if (execution && typeof execution.wait === "function") {
+      await execution.wait();
+    }
+
+    const txHash =
+      execution?.transactionHash ??
+      execution?.transaction_hash ??
+      execution?.hash ??
+      "";
+
+    if (!txHash) {
+      throw new Error("starkzap execute returned no transaction hash");
+    }
+
+    return {
+      txHash,
+      status: "success",
+      executionSurface: "starkzap",
+    };
+  } catch (err: any) {
+    const message = err?.message ?? "Execution failed";
+    const providerUnavailable = /unavailable|install it|cannot find module|incomplete starkzap/i.test(
+      message
+    );
+    return {
+      txHash: "",
+      status: "error",
+      executionSurface: "starkzap",
+      errorCode: providerUnavailable ? "PROVIDER_UNAVAILABLE" : "EXECUTION_FAILED",
+      error: message,
     };
   }
 }
@@ -204,6 +331,9 @@ export async function placeBet(
   if (surface === "direct") {
     return placeBetDirect(marketAddress, outcome, amount, collateralToken);
   }
+  if (surface === "starkzap") {
+    return placeBetStarkzap(marketAddress, outcome, amount, collateralToken);
+  }
   return unsupportedSurfaceResult(surface, "placeBet");
 }
 
@@ -237,4 +367,3 @@ export function isAgentConfigured(): boolean {
 export function getAgentAddress(): string | null {
   return config.AGENT_ADDRESS ?? null;
 }
-

@@ -64,6 +64,11 @@ KEYRING_CLIENT_ID=starknet-mcp-server
 # KEYRING_SESSION_VALIDITY_SECONDS=300
 ```
 
+`STARKNET_EXECUTION_SURFACE` values:
+- `direct` (default): direct account execution for transfers/swaps.
+- `avnu`: enables AVNU quote/swap path; transfer remains direct-only and is blocked otherwise.
+- `starkzap`: reserved Starkzap surface; unsupported tools fail closed with `UNSUPPORTED_SURFACE`.
+
 Signer boundary contract:
 - OpenAPI: `spec/signer-api-v1.openapi.yaml`
 - JSON Schema: `spec/signer-api-v1.schema.json`

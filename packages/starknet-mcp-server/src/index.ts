@@ -74,6 +74,7 @@ import {
 import { z } from "zod";
 import { createStarknetPaymentSignatureHeader } from "@starknet-agentic/x402-starknet";
 import { formatAmount, formatQuoteFields, formatErrorMessage } from "./utils/formatter.js";
+import { normalizeExecutionError } from "./utils/executionError.js";
 import { PolicyGuard, loadPolicyConfig } from "./middleware/policyGuard.js";
 import { KeyringProxySigner } from "./helpers/keyringProxySigner.js";
 import { parseDecimalToBigInt } from "./helpers/parseDecimal.js";
@@ -1145,13 +1146,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   // Preflight policy check (defense-in-depth, before any tool execution)
   const policyResult = policyGuard.evaluate(name, args as Record<string, unknown>);
   if (!policyResult.allowed) {
+    const policyMessage = `Policy violation: ${policyResult.reason}`;
+    const normalized = normalizeExecutionError(executionSurface, policyMessage);
     return {
       content: [
         {
           type: "text",
           text: JSON.stringify({
             error: true,
-            message: `Policy violation: ${policyResult.reason}`,
+            code: normalized.code,
+            surface: normalized.surface,
+            message: policyMessage,
             tool: name,
           }, null, 2),
         },
@@ -2395,6 +2400,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const userMessage = formatErrorMessage(errorMessage);
+    const normalized = normalizeExecutionError(executionSurface, errorMessage);
 
     // Log the full error to stderr for operators; never expose to the agent.
     log({ level: "error", event: "tool.error", tool: name, details: { error: errorMessage } });
@@ -2405,6 +2411,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           type: "text",
           text: JSON.stringify({
             error: true,
+            code: normalized.code,
+            surface: normalized.surface,
             message: userMessage,
             tool: name,
           }, null, 2),
