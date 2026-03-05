@@ -67,7 +67,8 @@ KEYRING_CLIENT_ID=starknet-mcp-server
 `STARKNET_EXECUTION_SURFACE` values:
 - `direct` (default): direct account execution for transfers/swaps.
 - `avnu`: enables AVNU quote/swap path; transfer remains direct-only and is blocked otherwise.
-- `starkzap`: reserved Starkzap surface; unsupported tools fail closed with `UNSUPPORTED_SURFACE`.
+- `starkzap`: executes transfer/swap calls through Starkzap wallet execution path.
+  Requirements: `STARKNET_SIGNER_MODE=direct`, `STARKNET_PRIVATE_KEY`, and `starkzap` dependency installed.
 
 Signer boundary contract:
 - OpenAPI: `spec/signer-api-v1.openapi.yaml`
