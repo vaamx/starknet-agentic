@@ -6,6 +6,8 @@
  */
 
 import { getMarkets, DEMO_QUESTIONS, type MarketState } from "./market-reader";
+import { config } from "./config";
+import { placeBet } from "./starknet-executor";
 import {
   researchAndForecast,
   type MarketContext,
@@ -243,7 +245,8 @@ class AgentLoop {
 
     // Decide whether to bet
     const confidence = Math.abs(probability - 0.5) * 2; // 0..1
-    const shouldBet = confidence > 0.15;
+    const shouldBet = confidence >= config.AGENT_LOOP_MIN_CONFIDENCE;
+    const executeBets = config.AGENT_LOOP_EXECUTE_BETS === "true";
 
     if (shouldBet && spawned) {
       const budget = spawned.budget;
@@ -257,26 +260,61 @@ class AgentLoop {
 
         if (betSize > 0n) {
           const outcome = probability > 0.5 ? "YES" : "NO";
+          const outcomeValue: 0 | 1 = probability > 0.5 ? 1 : 0;
           const betDisplay = `${Number(betSize / 10n ** 14n) / 10000} STRK`;
 
-          // In demo mode just log the intent
-          this.emit(
-            this.createAction({
-              agentId,
-              agentName,
-              type: "bet",
-              marketId: target.id,
-              question,
-              probability,
-              betAmount: betDisplay,
-              betOutcome: outcome,
-              detail: `Bet ${betDisplay} on ${outcome} for "${question}" (confidence: ${(confidence * 100).toFixed(0)}%)`,
-            })
-          );
+          if (executeBets) {
+            const tx = await placeBet(
+              target.address,
+              outcomeValue,
+              betSize,
+              target.collateralToken
+            );
 
-          // Update spent budget
-          spawned.budget.spent += betSize;
-          spawned.stats.bets++;
+            if (tx.status === "success") {
+              this.emit(
+                this.createAction({
+                  agentId,
+                  agentName,
+                  type: "bet",
+                  marketId: target.id,
+                  question,
+                  probability,
+                  betAmount: betDisplay,
+                  betOutcome: outcome,
+                  detail: `Executed ${tx.executionSurface} bet ${betDisplay} on ${outcome} (tx: ${tx.txHash.slice(0, 12)}...)`,
+                })
+              );
+
+              spawned.budget.spent += betSize;
+              spawned.stats.bets++;
+            } else {
+              this.emit(
+                this.createAction({
+                  agentId,
+                  agentName,
+                  type: "error",
+                  marketId: target.id,
+                  question,
+                  detail: `Bet execution failed (${tx.executionSurface}${tx.errorCode ? `/${tx.errorCode}` : ""}): ${tx.error ?? "unknown error"}`,
+                })
+              );
+            }
+          } else {
+            this.emit(
+              this.createAction({
+                agentId,
+                agentName,
+                type: "bet",
+                marketId: target.id,
+                question,
+                probability,
+                betAmount: betDisplay,
+                betOutcome: outcome,
+                detail: `Simulated bet ${betDisplay} on ${outcome} (set AGENT_LOOP_EXECUTE_BETS=true for on-chain execution)`,
+              })
+            );
+          }
         }
       }
     } else if (shouldBet) {

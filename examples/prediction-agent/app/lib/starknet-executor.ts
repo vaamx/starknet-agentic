@@ -1,23 +1,50 @@
-import { Account, RpcProvider, Contract, CallData } from "starknet";
+import { Account, RpcProvider, CallData } from "starknet";
 import { config } from "./config";
 import { toScaled } from "./accuracy";
 
+export type ExecutionSurface = "direct" | "starkzap" | "avnu";
+
+export type TxErrorCode =
+  | "NO_ACCOUNT"
+  | "TRACKER_NOT_DEPLOYED"
+  | "UNSUPPORTED_SURFACE"
+  | "EXECUTION_FAILED";
+
+export interface TxResult {
+  txHash: string;
+  status: "success" | "error";
+  executionSurface: ExecutionSurface;
+  errorCode?: TxErrorCode;
+  error?: string;
+}
+
 const provider = new RpcProvider({ nodeUrl: config.STARKNET_RPC_URL });
 
-/** Get an account instance for transaction signing. */
+function resolveExecutionSurface(
+  executionSurface?: ExecutionSurface
+): ExecutionSurface {
+  return executionSurface ?? config.EXECUTION_SURFACE;
+}
+
 function getAccount(): Account | null {
   if (!config.AGENT_PRIVATE_KEY || !config.AGENT_ADDRESS) return null;
   return new Account(provider, config.AGENT_ADDRESS, config.AGENT_PRIVATE_KEY);
 }
 
-export interface TxResult {
-  txHash: string;
-  status: "success" | "error";
-  error?: string;
+function unsupportedSurfaceResult(
+  executionSurface: ExecutionSurface,
+  operation: "placeBet" | "recordPrediction" | "claimWinnings"
+): TxResult {
+  return {
+    txHash: "",
+    status: "error",
+    executionSurface,
+    errorCode: "UNSUPPORTED_SURFACE",
+    error: `${operation} is not yet implemented for execution surface "${executionSurface}".`,
+  };
 }
 
-/** Place a bet on a prediction market. */
-export async function placeBet(
+async function placeBetDirect(
   marketAddress: string,
   outcome: 0 | 1,
   amount: bigint,
@@ -25,11 +52,16 @@ export async function placeBet(
 ): Promise<TxResult> {
   const account = getAccount();
   if (!account) {
-    return { txHash: "", status: "error", error: "No agent account configured" };
+    return {
+      txHash: "",
+      status: "error",
+      executionSurface: "direct",
+      errorCode: "NO_ACCOUNT",
+      error: "No agent account configured",
+    };
   }
 
   try {
-    // Approve collateral spend
     const approveTx = {
       contractAddress: collateralToken,
       entrypoint: "approve",
@@ -39,7 +71,6 @@ export async function placeBet(
       }),
     };
 
-    // Place the bet
     const betTx = {
       contractAddress: marketAddress,
       entrypoint: "bet",
@@ -52,30 +83,50 @@ export async function placeBet(
     const result = await account.execute([approveTx, betTx]);
     await provider.waitForTransaction(result.transaction_hash);
 
-    return { txHash: result.transaction_hash, status: "success" };
+    return {
+      txHash: result.transaction_hash,
+      status: "success",
+      executionSurface: "direct",
+    };
   } catch (err: any) {
-    return { txHash: "", status: "error", error: err.message };
+    return {
+      txHash: "",
+      status: "error",
+      executionSurface: "direct",
+      errorCode: "EXECUTION_FAILED",
+      error: err?.message ?? "Execution failed",
+    };
   }
 }
 
-/** Record an agent prediction on the accuracy tracker. */
-export async function recordPrediction(
+async function recordPredictionDirect(
   marketId: number,
   probability: number
 ): Promise<TxResult> {
   const account = getAccount();
   if (!account) {
-    return { txHash: "", status: "error", error: "No agent account configured" };
+    return {
+      txHash: "",
+      status: "error",
+      executionSurface: "direct",
+      errorCode: "NO_ACCOUNT",
+      error: "No agent account configured",
+    };
   }
 
   const trackerAddress = config.ACCURACY_TRACKER_ADDRESS;
   if (trackerAddress === "0x0") {
-    return { txHash: "", status: "error", error: "Accuracy tracker not deployed" };
+    return {
+      txHash: "",
+      status: "error",
+      executionSurface: "direct",
+      errorCode: "TRACKER_NOT_DEPLOYED",
+      error: "Accuracy tracker not deployed",
+    };
   }
 
   try {
     const scaledProb = toScaled(probability);
-
     const tx = {
       contractAddress: trackerAddress,
       entrypoint: "record_prediction",
@@ -88,17 +139,32 @@ export async function recordPrediction(
     const result = await account.execute([tx]);
     await provider.waitForTransaction(result.transaction_hash);
 
-    return { txHash: result.transaction_hash, status: "success" };
+    return {
+      txHash: result.transaction_hash,
+      status: "success",
+      executionSurface: "direct",
+    };
   } catch (err: any) {
-    return { txHash: "", status: "error", error: err.message };
+    return {
+      txHash: "",
+      status: "error",
+      executionSurface: "direct",
+      errorCode: "EXECUTION_FAILED",
+      error: err?.message ?? "Execution failed",
+    };
   }
 }
 
-/** Claim winnings from a resolved market. */
-export async function claimWinnings(marketAddress: string): Promise<TxResult> {
+async function claimWinningsDirect(marketAddress: string): Promise<TxResult> {
   const account = getAccount();
   if (!account) {
-    return { txHash: "", status: "error", error: "No agent account configured" };
+    return {
+      txHash: "",
+      status: "error",
+      executionSurface: "direct",
+      errorCode: "NO_ACCOUNT",
+      error: "No agent account configured",
+    };
   }
 
   try {
@@ -111,18 +177,64 @@ export async function claimWinnings(marketAddress: string): Promise<TxResult> {
     const result = await account.execute([tx]);
     await provider.waitForTransaction(result.transaction_hash);
 
-    return { txHash: result.transaction_hash, status: "success" };
+    return {
+      txHash: result.transaction_hash,
+      status: "success",
+      executionSurface: "direct",
+    };
   } catch (err: any) {
-    return { txHash: "", status: "error", error: err.message };
+    return {
+      txHash: "",
+      status: "error",
+      executionSurface: "direct",
+      errorCode: "EXECUTION_FAILED",
+      error: err?.message ?? "Execution failed",
+    };
   }
 }
 
-/** Check if the agent has an account configured. */
+export async function placeBet(
+  marketAddress: string,
+  outcome: 0 | 1,
+  amount: bigint,
+  collateralToken: string,
+  executionSurface?: ExecutionSurface
+): Promise<TxResult> {
+  const surface = resolveExecutionSurface(executionSurface);
+  if (surface === "direct") {
+    return placeBetDirect(marketAddress, outcome, amount, collateralToken);
+  }
+  return unsupportedSurfaceResult(surface, "placeBet");
+}
+
+export async function recordPrediction(
+  marketId: number,
+  probability: number,
+  executionSurface?: ExecutionSurface
+): Promise<TxResult> {
+  const surface = resolveExecutionSurface(executionSurface);
+  if (surface === "direct") {
+    return recordPredictionDirect(marketId, probability);
+  }
+  return unsupportedSurfaceResult(surface, "recordPrediction");
+}
+
+export async function claimWinnings(
+  marketAddress: string,
+  executionSurface?: ExecutionSurface
+): Promise<TxResult> {
+  const surface = resolveExecutionSurface(executionSurface);
+  if (surface === "direct") {
+    return claimWinningsDirect(marketAddress);
+  }
+  return unsupportedSurfaceResult(surface, "claimWinnings");
+}
+
 export function isAgentConfigured(): boolean {
   return !!(config.AGENT_PRIVATE_KEY && config.AGENT_ADDRESS);
 }
 
-/** Get the agent's address. */
 export function getAgentAddress(): string | null {
   return config.AGENT_ADDRESS ?? null;
 }
+

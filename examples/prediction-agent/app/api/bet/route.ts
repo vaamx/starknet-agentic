@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { placeBet } from "@/lib/starknet-executor";
+import { placeBet, type ExecutionSurface } from "@/lib/starknet-executor";
 import { getMarkets } from "@/lib/market-reader";
 
 const BetSchema = z.object({
   marketId: z.number().int().min(0),
   outcome: z.union([z.literal(0), z.literal(1)]),
   amount: z.string(), // bigint as string
+  executionSurface: z.enum(["direct", "starkzap", "avnu"]).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -29,7 +30,8 @@ export async function POST(request: NextRequest) {
       market.address,
       parsed.outcome as 0 | 1,
       BigInt(parsed.amount),
-      market.collateralToken
+      market.collateralToken,
+      parsed.executionSurface as ExecutionSurface | undefined
     );
 
     return NextResponse.json(result);
