@@ -1,6 +1,7 @@
-type MarketDataSource = "onchain" | "cache" | "unknown";
+import TamagotchiSVG from "../TamagotchiSVG";
+import type { TamagotchiMood } from "../TamagotchiSVG";
 
-type TamagotchiMood = "hyped" | "focus" | "idle" | "alert" | "offline";
+type MarketDataSource = "onchain" | "cache" | "unknown";
 
 interface TamagotchiBadgeProps {
   autonomousMode: boolean;
@@ -8,6 +9,7 @@ interface TamagotchiBadgeProps {
   marketDataStale: boolean;
   activeAgents: number;
   nextTickIn: number | null;
+  size?: number;
 }
 
 function resolveMood({
@@ -38,24 +40,12 @@ const MOOD_LABEL: Record<TamagotchiMood, string> = {
 export default function TamagotchiBadge(props: TamagotchiBadgeProps) {
   const mood = resolveMood(props);
   const autonomousLabel = props.autonomousMode ? "Autonomous" : "Manual";
-  const ariaLabel = `HiveCaster mascot. Mood ${MOOD_LABEL[mood]}. ${autonomousLabel} mode.`;
 
   return (
-    <div
-      className={`tama-badge tama-${mood}`}
-      role="img"
-      aria-label={ariaLabel}
-      title={`${MOOD_LABEL[mood]} · ${autonomousLabel}`}
-    >
-      <span className="tama-antenna" aria-hidden="true" />
-      <span className="tama-shell">
-        <span className="tama-screen">
-          <span className="tama-eye tama-eye-left" />
-          <span className="tama-eye tama-eye-right" />
-          <span className="tama-mouth" />
-          <span className="tama-spark" />
-        </span>
-      </span>
-    </div>
+    <TamagotchiSVG
+      mood={mood}
+      size={props.size ?? 32}
+      className={`tama-badge-wrap`}
+    />
   );
 }

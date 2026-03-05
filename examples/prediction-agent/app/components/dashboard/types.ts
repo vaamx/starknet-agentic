@@ -104,6 +104,96 @@ export interface LatestAgentTake {
   timestamp: number;
 }
 
+export interface NetworkContractEntry {
+  id: string;
+  name: string;
+  role: string;
+  network: string;
+  address: string;
+  configured: boolean;
+  sourceEnv?: string;
+  explorerUrl: string | null;
+}
+
+export interface NetworkContractsSnapshot {
+  ok: boolean;
+  protocol: string;
+  version: string;
+  generatedAt: string;
+  network: {
+    chainId: string;
+    slug: "mainnet" | "sepolia";
+    explorer: {
+      name: string;
+      baseUrl: string;
+      addressPathTemplate: string;
+      txPathTemplate: string;
+    };
+  };
+  contracts: NetworkContractEntry[];
+  wallets: {
+    ownerAgentWallet: {
+      address: string;
+      configured: boolean;
+      explorerUrl: string | null;
+    };
+  };
+  docs: {
+    skill: string;
+    openapi: string;
+    swagger: string;
+    stateMachine: string;
+    stateMachineSchema: string;
+    wellKnownAgent: string;
+    wellKnownAgentCard: string;
+  };
+  auth: {
+    challengeActions: string[];
+    manualSessionScopes: string[];
+  };
+  count: number;
+  configuredCount: number;
+}
+
+export interface NetworkLifecycleState {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface NetworkLifecycleTransition {
+  from: string;
+  event: string;
+  to: string;
+  guards?: string[];
+  sideEffects?: string[];
+}
+
+export interface NetworkLifecycleMachine {
+  id: string;
+  title: string;
+  initialState: string;
+  terminalStates?: string[];
+  states: NetworkLifecycleState[];
+  transitions: NetworkLifecycleTransition[];
+}
+
+export interface NetworkStateMachineSnapshot {
+  ok: boolean;
+  protocol: string;
+  version: string;
+  generatedAt: string;
+  docs: {
+    skill: string;
+    openapi: string;
+    contracts: string;
+    schema: string;
+  };
+  machines: NetworkLifecycleMachine[];
+  count: number;
+  schemaUrl: string;
+}
+
 export type SortMode = "volume" | "ending" | "disagreement" | "engagement";
 
 export interface CategoryTab {

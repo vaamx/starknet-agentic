@@ -1,0 +1,298 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 500" style="image-rendering:pixelated">
+  <defs>
+    <pattern id="dots" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+      <rect x="9" y="9" width="2" height="2" fill="white" opacity="0.025"/>
+    </pattern>
+    <pattern id="grid" x="0" y="0" width="60" height="60" patternUnits="userSpaceOnUse">
+      <rect x="0" y="0" width="60" height="1" fill="white" opacity="0.012"/>
+      <rect x="0" y="0" width="1" height="60" fill="white" opacity="0.012"/>
+    </pattern>
+    <symbol id="bot" viewBox="0 0 24 28">
+      <rect x="11" y="0" width="2" height="2" fill="#7ce8ff" opacity="0.9"/>
+      <rect x="11" y="2" width="2" height="3" fill="#7ce8ff" opacity="0.6"/>
+      <rect x="5" y="6" width="14" height="1" fill="#7ce8ff" opacity="0.8"/>
+      <rect x="4" y="7" width="1" height="16" fill="#7ce8ff" opacity="0.8"/>
+      <rect x="19" y="7" width="1" height="16" fill="#7ce8ff" opacity="0.8"/>
+      <rect x="5" y="23" width="14" height="1" fill="#7ce8ff" opacity="0.8"/>
+      <rect x="4" y="6" width="1" height="1" fill="#7ce8ff" opacity="0.3"/>
+      <rect x="19" y="6" width="1" height="1" fill="#7ce8ff" opacity="0.3"/>
+      <rect x="4" y="23" width="1" height="1" fill="#7ce8ff" opacity="0.3"/>
+      <rect x="19" y="23" width="1" height="1" fill="#7ce8ff" opacity="0.3"/>
+      <rect x="5" y="7" width="14" height="16" fill="#071a2e"/>
+      <rect x="5" y="7" width="14" height="1" fill="white" opacity="0.06"/>
+      <rect x="7" y="9" width="10" height="12" fill="#082238"/>
+      <rect x="7" y="9" width="10" height="1" fill="#7ce8ff" opacity="0.15"/>
+      <rect x="9" y="12" width="2" height="2" fill="#7ce8ff"/>
+      <rect x="13" y="12" width="2" height="2" fill="#7ce8ff"/>
+      <rect x="9" y="12" width="1" height="1" fill="white" opacity="0.3"/>
+      <rect x="13" y="12" width="1" height="1" fill="white" opacity="0.3"/>
+      <rect x="10" y="16" width="4" height="1" fill="#7ce8ff" opacity="0.7"/>
+      <rect x="5" y="14" width="2" height="1" fill="#3bb8e8" opacity="0.2"/>
+      <rect x="17" y="14" width="2" height="1" fill="#3bb8e8" opacity="0.2"/>
+      <rect x="18" y="7" width="2" height="2" fill="#7ce8ff" opacity="0.7"/>
+      <rect x="6" y="24" width="3" height="2" fill="#7ce8ff" opacity="0.5"/>
+      <rect x="15" y="24" width="3" height="2" fill="#7ce8ff" opacity="0.5"/>
+      <rect x="7" y="26" width="1" height="1" fill="#3bb8e8" opacity="0.2"/>
+      <rect x="16" y="26" width="1" height="1" fill="#3bb8e8" opacity="0.2"/>
+    </symbol>
+    <!-- Isometric cube (8×10 pixel block) -->
+    <symbol id="iso-cube" viewBox="0 0 12 14">
+      <!-- top face -->
+      <polygon points="6,0 12,3 6,6 0,3" fill="#7ce8ff" opacity="0.15"/>
+      <!-- left face -->
+      <polygon points="0,3 6,6 6,14 0,11" fill="#3bb8e8" opacity="0.1"/>
+      <!-- right face -->
+      <polygon points="12,3 6,6 6,14 12,11" fill="#0a2640" opacity="0.3"/>
+      <!-- top edge highlight -->
+      <line x1="0" y1="3" x2="6" y2="0" stroke="white" stroke-width="0.5" opacity="0.08"/>
+      <line x1="6" y1="0" x2="12" y2="3" stroke="white" stroke-width="0.5" opacity="0.06"/>
+    </symbol>
+    <!-- White isometric cube -->
+    <symbol id="iso-cube-w" viewBox="0 0 12 14">
+      <polygon points="6,0 12,3 6,6 0,3" fill="white" opacity="0.08"/>
+      <polygon points="0,3 6,6 6,14 0,11" fill="white" opacity="0.04"/>
+      <polygon points="12,3 6,6 6,14 12,11" fill="white" opacity="0.02"/>
+    </symbol>
+  </defs>
+
+  <!-- ═══ BACKGROUND ═══ -->
+  <rect width="1500" height="500" fill="#060e1a"/>
+  <!-- subtle lighter band across center -->
+  <rect x="0" y="120" width="1500" height="260" fill="#0a1628" opacity="0.4"/>
+  <rect x="0" y="180" width="1500" height="140" fill="#0c1e35" opacity="0.2"/>
+  <!-- dot grid -->
+  <rect width="1500" height="500" fill="url(#dots)"/>
+  <!-- structural grid -->
+  <rect width="1500" height="500" fill="url(#grid)"/>
+
+  <!-- ═══ CIRCUIT NETWORK — dense horizontal highways ═══ -->
+  <!-- primary lines -->
+  <rect x="0" y="130" width="1500" height="2" fill="#7ce8ff" opacity="0.04"/>
+  <rect x="0" y="250" width="1500" height="2" fill="white" opacity="0.02"/>
+  <rect x="0" y="310" width="1500" height="2" fill="#7ce8ff" opacity="0.05"/>
+  <rect x="0" y="370" width="1500" height="2" fill="#7ce8ff" opacity="0.03"/>
+
+  <!-- vertical trunks -->
+  <rect x="120" y="0" width="2" height="500" fill="#7ce8ff" opacity="0.03"/>
+  <rect x="380" y="0" width="2" height="500" fill="#7ce8ff" opacity="0.04"/>
+  <rect x="640" y="0" width="2" height="500" fill="white" opacity="0.015"/>
+  <rect x="1100" y="0" width="2" height="500" fill="white" opacity="0.015"/>
+  <rect x="1380" y="0" width="2" height="500" fill="#7ce8ff" opacity="0.03"/>
+
+  <!-- ═══ CIRCUIT JUNCTIONS (node squares at intersections) ═══ -->
+  <!-- white nodes -->
+  <rect x="117" y="128" width="8" height="8" fill="white" opacity="0.06"/>
+  <rect x="377" y="308" width="8" height="8" fill="white" opacity="0.05"/>
+  <rect x="637" y="248" width="8" height="8" fill="white" opacity="0.04"/>
+  <rect x="1097" y="128" width="8" height="8" fill="white" opacity="0.04"/>
+  <rect x="1377" y="308" width="8" height="8" fill="white" opacity="0.05"/>
+  <!-- cyan nodes -->
+  <rect x="117" y="308" width="8" height="8" fill="#64ffe8" opacity="0.08"/>
+  <rect x="377" y="128" width="8" height="8" fill="#64ffe8" opacity="0.06"/>
+  <rect x="1377" y="128" width="8" height="8" fill="#64ffe8" opacity="0.06"/>
+  <rect x="1097" y="368" width="8" height="8" fill="#64ffe8" opacity="0.05"/>
+
+  <!-- ═══ CIRCUIT BRANCHES (L-shapes from junctions) ═══ -->
+  <!-- branch: top-left junction right -->
+  <rect x="125" y="131" width="50" height="2" fill="#7ce8ff" opacity="0.04"/>
+  <rect x="173" y="131" width="2" height="30" fill="#7ce8ff" opacity="0.03"/>
+  <!-- branch: left junction down-right -->
+  <rect x="125" y="311" width="40" height="2" fill="#2af2d2" opacity="0.06"/>
+  <rect x="163" y="313" width="2" height="55" fill="#2af2d2" opacity="0.04"/>
+  <rect x="163" y="366" width="20" height="2" fill="#2af2d2" opacity="0.03"/>
+  <!-- branch: right cluster -->
+  <rect x="1300" y="131" width="78" height="2" fill="#7ce8ff" opacity="0.04"/>
+  <rect x="1300" y="131" width="2" height="40" fill="#7ce8ff" opacity="0.03"/>
+  <rect x="1300" y="169" width="30" height="2" fill="#7ce8ff" opacity="0.025"/>
+  <!-- branch: bottom-right -->
+  <rect x="1340" y="311" width="38" height="2" fill="#2af2d2" opacity="0.05"/>
+  <rect x="1340" y="280" width="2" height="32" fill="#2af2d2" opacity="0.04"/>
+  <!-- cross-links -->
+  <rect x="640" y="250" width="460" height="1" fill="white" opacity="0.01"/>
+
+  <!-- ═══ DATA PACKETS (small pixel blocks moving along circuits) ═══ -->
+  <rect x="200" y="129" width="6" height="4" fill="#64ffe8" opacity="0.1"/>
+  <rect x="300" y="309" width="6" height="4" fill="#2af2d2" opacity="0.08"/>
+  <rect x="500" y="129" width="4" height="4" fill="white" opacity="0.06"/>
+  <rect x="1200" y="309" width="6" height="4" fill="#64ffe8" opacity="0.08"/>
+  <rect x="1250" y="129" width="4" height="4" fill="white" opacity="0.05"/>
+  <rect x="900" y="369" width="6" height="4" fill="#3bb8e8" opacity="0.06"/>
+  <rect x="450" y="369" width="4" height="4" fill="#7ce8ff" opacity="0.05"/>
+
+  <!-- ═══ ISOMETRIC CUBES (scattered depth elements) ═══ -->
+  <!-- left field -->
+  <use href="#iso-cube" x="55"  y="70"  width="24" height="28"/>
+  <use href="#iso-cube" x="70"  y="84"  width="24" height="28"/>
+  <use href="#iso-cube" x="40"  y="84"  width="24" height="28"/>
+  <use href="#iso-cube-w" x="140" y="380" width="20" height="24"/>
+  <use href="#iso-cube" x="155" y="394" width="20" height="24"/>
+  <use href="#iso-cube-w" x="240" y="420" width="16" height="19"/>
+  <!-- right field -->
+  <use href="#iso-cube" x="1360" y="80"  width="24" height="28"/>
+  <use href="#iso-cube" x="1375" y="94"  width="24" height="28"/>
+  <use href="#iso-cube-w" x="1345" y="94"  width="24" height="28"/>
+  <use href="#iso-cube" x="1420" y="390" width="20" height="24"/>
+  <use href="#iso-cube-w" x="1280" y="410" width="18" height="21"/>
+  <use href="#iso-cube" x="1295" y="424" width="18" height="21"/>
+  <!-- center-bottom scatter -->
+  <use href="#iso-cube-w" x="700" y="410" width="14" height="16"/>
+  <use href="#iso-cube" x="710" y="420" width="14" height="16"/>
+  <use href="#iso-cube-w" x="850" y="430" width="12" height="14"/>
+
+  <!-- ═══ GHOST BOTS (network agents in background) ═══ -->
+  <g opacity="0.3"><use href="#bot" x="50"   y="170" width="36" height="42"/></g>
+  <g opacity="0.2"><use href="#bot" x="190"  y="330" width="28" height="33"/></g>
+  <g opacity="0.25"><use href="#bot" x="260"  y="80"  width="30" height="35"/></g>
+  <g opacity="0.2"><use href="#bot" x="310"  y="400" width="24" height="28"/></g>
+  <g opacity="0.3"><use href="#bot" x="1310" y="165" width="34" height="40"/></g>
+  <g opacity="0.2"><use href="#bot" x="1410" y="340" width="28" height="33"/></g>
+  <g opacity="0.2"><use href="#bot" x="1200" y="400" width="26" height="30"/></g>
+  <g opacity="0.15"><use href="#bot" x="1240" y="60"  width="24" height="28"/></g>
+
+  <!-- ═══ NETWORK LINKS (connecting ghost bots with pixel-stepped lines) ═══ -->
+  <!-- horizontal pixel links at circuit level -->
+  <rect x="86"  y="191" width="174" height="2" fill="#7ce8ff" opacity="0.025"/>
+  <rect x="86"  y="250" width="290" height="1" fill="white" opacity="0.015"/>
+  <rect x="1246" y="250" width="100" height="1" fill="white" opacity="0.015"/>
+  <rect x="1344" y="185" width="40"  height="2" fill="#7ce8ff" opacity="0.025"/>
+
+  <!-- ═══ SIGNAL WAVES (broadcast from main bot) ═══ -->
+  <!-- left broadcast -->
+  <rect x="378" y="220" width="8" height="2" fill="#64ffe8" opacity="0.15"/>
+  <rect x="370" y="232" width="8" height="2" fill="#64ffe8" opacity="0.1"/>
+  <rect x="364" y="244" width="8" height="2" fill="#64ffe8" opacity="0.07"/>
+  <rect x="358" y="256" width="8" height="2" fill="white" opacity="0.04"/>
+  <!-- right broadcast -->
+  <rect x="618" y="220" width="8" height="2" fill="#64ffe8" opacity="0.15"/>
+  <rect x="626" y="232" width="8" height="2" fill="#64ffe8" opacity="0.1"/>
+  <rect x="632" y="244" width="8" height="2" fill="#64ffe8" opacity="0.07"/>
+  <rect x="638" y="256" width="8" height="2" fill="white" opacity="0.04"/>
+
+  <!-- ═══ MAIN ROBOT (center-left, hero size) ═══ -->
+  <use href="#bot" x="415" y="130" width="175" height="204"/>
+
+  <!-- ═══ COMPANION BOTS (flanking hero) ═══ -->
+  <g opacity="0.5"><use href="#bot" x="315" y="210" width="72" height="84"/></g>
+  <g opacity="0.4"><use href="#bot" x="1100" y="175" width="80" height="93"/></g>
+
+  <!-- ═══ TITLE: HIVECASTER (pixel art text) ═══ -->
+  <g transform="translate(660, 165)" fill="#7ce8ff">
+    <!-- H -->
+    <rect x="0" y="0" width="10" height="60" opacity="0.95"/>
+    <rect x="40" y="0" width="10" height="60" opacity="0.95"/>
+    <rect x="10" y="24" width="30" height="12" opacity="0.9"/>
+    <!-- I -->
+    <rect x="72" y="0" width="36" height="10" opacity="0.9"/>
+    <rect x="82" y="10" width="16" height="40" opacity="0.95"/>
+    <rect x="72" y="50" width="36" height="10" opacity="0.9"/>
+    <!-- V -->
+    <rect x="130" y="0" width="10" height="42" opacity="0.95"/>
+    <rect x="170" y="0" width="10" height="42" opacity="0.95"/>
+    <rect x="138" y="36" width="10" height="14" opacity="0.9"/>
+    <rect x="162" y="36" width="10" height="14" opacity="0.9"/>
+    <rect x="148" y="46" width="14" height="14" opacity="0.95"/>
+    <!-- E -->
+    <rect x="202" y="0" width="10" height="60" opacity="0.95"/>
+    <rect x="212" y="0" width="36" height="10" opacity="0.9"/>
+    <rect x="212" y="24" width="28" height="12" opacity="0.85"/>
+    <rect x="212" y="50" width="36" height="10" opacity="0.9"/>
+    <!-- C -->
+    <rect x="270" y="0" width="10" height="60" opacity="0.95"/>
+    <rect x="280" y="0" width="36" height="10" opacity="0.9"/>
+    <rect x="280" y="50" width="36" height="10" opacity="0.9"/>
+    <!-- A -->
+    <rect x="338" y="0" width="10" height="60" opacity="0.95"/>
+    <rect x="378" y="0" width="10" height="60" opacity="0.95"/>
+    <rect x="348" y="0" width="30" height="10" opacity="0.9"/>
+    <rect x="348" y="24" width="30" height="12" opacity="0.85"/>
+    <!-- S -->
+    <rect x="410" y="0" width="46" height="10" opacity="0.9"/>
+    <rect x="410" y="10" width="10" height="16" opacity="0.95"/>
+    <rect x="410" y="24" width="46" height="12" opacity="0.9"/>
+    <rect x="446" y="36" width="10" height="14" opacity="0.95"/>
+    <rect x="410" y="50" width="46" height="10" opacity="0.9"/>
+    <!-- T -->
+    <rect x="478" y="0" width="46" height="10" opacity="0.9"/>
+    <rect x="494" y="10" width="14" height="50" opacity="0.95"/>
+    <!-- E -->
+    <rect x="546" y="0" width="10" height="60" opacity="0.95"/>
+    <rect x="556" y="0" width="36" height="10" opacity="0.9"/>
+    <rect x="556" y="24" width="28" height="12" opacity="0.85"/>
+    <rect x="556" y="50" width="36" height="10" opacity="0.9"/>
+    <!-- R -->
+    <rect x="614" y="0" width="10" height="60" opacity="0.95"/>
+    <rect x="624" y="0" width="30" height="10" opacity="0.9"/>
+    <rect x="654" y="10" width="10" height="16" opacity="0.95"/>
+    <rect x="624" y="24" width="30" height="12" opacity="0.9"/>
+    <rect x="644" y="36" width="10" height="10" opacity="0.9"/>
+    <rect x="654" y="44" width="10" height="16" opacity="0.95"/>
+  </g>
+
+  <!-- Title top-edge white highlight -->
+  <rect x="660" y="164" width="340" height="2" fill="white" opacity="0.06"/>
+  <rect x="660" y="164" width="120" height="2" fill="white" opacity="0.08"/>
+
+  <!-- ═══ SUBTITLE ═══ -->
+  <text x="662" y="268" font-family="'Courier New','Consolas',monospace" font-size="20" font-weight="bold" letter-spacing="3" fill="white" opacity="0.85">Agentic Prediction Markets</text>
+  <text x="662" y="293" font-family="'Courier New','Consolas',monospace" font-size="14" letter-spacing="2" fill="white" opacity="0.7">Superforecasting Agents · Humans in the Loop</text>
+
+  <!-- Subtitle underline -->
+  <rect x="662" y="276" width="280" height="2" fill="white" opacity="0.15"/>
+  <rect x="662" y="276" width="80"  height="2" fill="white" opacity="0.35"/>
+
+  <!-- ═══ TAGLINE BAR ═══ -->
+  <rect x="660" y="318" width="560" height="1" fill="white" opacity="0.1"/>
+  <text x="662" y="342" font-family="'Courier New','Consolas',monospace" font-size="12" letter-spacing="8" fill="white" opacity="0.45">PREDICT  ·  TRADE  ·  REPLICATE  ·  AUTOMATE</text>
+
+  <!-- ═══ FLOATING DATA BLOCKS (white and cyan pixel fragments) ═══ -->
+  <!-- left -->
+  <rect x="60"  y="60"  width="14" height="4" fill="white" opacity="0.04"/>
+  <rect x="60"  y="68"  width="8"  height="4" fill="white" opacity="0.025"/>
+  <rect x="160" y="440" width="16" height="4" fill="white" opacity="0.03"/>
+  <rect x="160" y="448" width="10" height="4" fill="#7ce8ff" opacity="0.03"/>
+  <rect x="100" y="420" width="4"  height="12" fill="white" opacity="0.025"/>
+  <!-- center -->
+  <rect x="650" y="380" width="20" height="4" fill="white" opacity="0.025"/>
+  <rect x="650" y="388" width="14" height="4" fill="#7ce8ff" opacity="0.02"/>
+  <rect x="900" y="60"  width="12" height="4" fill="white" opacity="0.03"/>
+  <rect x="900" y="68"  width="8"  height="4" fill="white" opacity="0.02"/>
+  <rect x="1050" y="430" width="14" height="4" fill="white" opacity="0.025"/>
+  <!-- right -->
+  <rect x="1400" y="60"  width="14" height="4" fill="white" opacity="0.04"/>
+  <rect x="1400" y="68"  width="8"  height="4" fill="white" opacity="0.025"/>
+  <rect x="1450" y="440" width="10" height="4" fill="#7ce8ff" opacity="0.025"/>
+  <rect x="1300" y="440" width="4"  height="12" fill="white" opacity="0.02"/>
+
+  <!-- ═══ DIAGONAL PIXEL STREAMS ═══ -->
+  <!-- top-left -->
+  <rect x="180" y="50"  width="4" height="4" fill="white" opacity="0.04"/>
+  <rect x="188" y="58"  width="4" height="4" fill="#64ffe8" opacity="0.03"/>
+  <rect x="196" y="66"  width="4" height="4" fill="white" opacity="0.02"/>
+  <!-- bottom-right -->
+  <rect x="1300" y="420" width="4" height="4" fill="white" opacity="0.04"/>
+  <rect x="1308" y="428" width="4" height="4" fill="#64ffe8" opacity="0.03"/>
+  <rect x="1316" y="436" width="4" height="4" fill="white" opacity="0.02"/>
+  <!-- top-right -->
+  <rect x="1250" y="40"  width="4" height="4" fill="#64ffe8" opacity="0.03"/>
+  <rect x="1258" y="48"  width="4" height="4" fill="white" opacity="0.025"/>
+
+  <!-- ═══ CORNER BRACKETS ═══ -->
+  <!-- top-left -->
+  <rect x="20" y="20" width="50" height="2" fill="white" opacity="0.06"/>
+  <rect x="20" y="20" width="2"  height="50" fill="white" opacity="0.06"/>
+  <!-- top-right -->
+  <rect x="1430" y="20" width="50" height="2" fill="white" opacity="0.06"/>
+  <rect x="1478" y="20" width="2"  height="50" fill="white" opacity="0.06"/>
+  <!-- bottom-left -->
+  <rect x="20" y="478" width="50" height="2" fill="white" opacity="0.04"/>
+  <rect x="20" y="430" width="2"  height="50" fill="white" opacity="0.04"/>
+  <!-- bottom-right -->
+  <rect x="1430" y="478" width="50" height="2" fill="white" opacity="0.04"/>
+  <rect x="1478" y="430" width="2"  height="50" fill="white" opacity="0.04"/>
+
+  <!-- ═══ STARKNET IDENTITY — bottom-right ═══ -->
+  <text x="1380" y="478" font-family="'Courier New','Consolas',monospace" font-size="10" letter-spacing="3" fill="white" opacity="0.12">STARKNET</text>
+
+  <!-- ═══ SCANLINE OVERLAY ═══ -->
+  <rect x="0" y="0" width="1500" height="500" fill="url(#dots)" opacity="0.2"/>
+</svg>

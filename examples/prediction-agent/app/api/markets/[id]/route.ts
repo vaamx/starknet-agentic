@@ -12,6 +12,15 @@ import {
   getPersistedLoopActions,
   getPersistedMarketSnapshots,
 } from "@/lib/state-store";
+import {
+  getMarketByIdFromDb,
+  getPredictionsFromDb,
+  getWeightedProbFromDb,
+  getLatestAgentTakeFromDb,
+  upsertPredictions,
+  upsertWeightedProb,
+  upsertAgentTake,
+} from "@/lib/market-db";
 
 export const runtime = "nodejs";
 
@@ -39,9 +48,9 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+  const marketId = parseInt(id, 10);
   try {
-    const { id } = await params;
-    const marketId = parseInt(id, 10);
 
     const [cachedSnapshots, cachedActions] = await Promise.all([
       getPersistedMarketSnapshots(500),
@@ -66,6 +75,25 @@ export async function GET(
     const market = await withTimeout(getMarketById(marketId), 3_000, null);
 
     if (!market) {
+      // Try SQLite before returning 404
+      try {
+        const dbMarket = getMarketByIdFromDb(marketId);
+        if (dbMarket) {
+          return NextResponse.json({
+            market: {
+              ...dbMarket,
+              totalPool: dbMarket.totalPool,
+              yesPool: dbMarket.yesPool,
+              noPool: dbMarket.noPool,
+            },
+            predictions: getPredictionsFromDb(marketId),
+            weightedProbability: getWeightedProbFromDb(marketId),
+            latestAgentTake: getLatestAgentTakeFromDb(marketId),
+            stale: true,
+            source: "db",
+          });
+        }
+      } catch { /* SQLite unavailable */ }
       return NextResponse.json({ error: "Market not found" }, { status: 404 });
     }
 
@@ -135,6 +163,21 @@ export async function GET(
         }
       : null;
 
+    // Write-through to SQLite
+    try {
+      if (predictions.length > 0) upsertPredictions(marketId, predictions);
+      if (weightedProb !== null) upsertWeightedProb(marketId, weightedProb);
+      if (latestAgentTake) {
+        upsertAgentTake({
+          marketId,
+          agentName: latestAgentTake.agentName,
+          probability: latestAgentTake.probability,
+          reasoning: latestAgentTake.reasoning ?? "",
+          timestamp: latestAgentTake.timestamp,
+        });
+      }
+    } catch { /* best-effort */ }
+
     return NextResponse.json({
       market: {
         ...market,
@@ -148,6 +191,26 @@ export async function GET(
       latestAgentTake,
     });
   } catch (err: any) {
+    // Try SQLite fallback before 500
+    try {
+      const dbMarket = getMarketByIdFromDb(marketId);
+      if (dbMarket) {
+        return NextResponse.json({
+          market: {
+            ...dbMarket,
+            totalPool: dbMarket.totalPool,
+            yesPool: dbMarket.yesPool,
+            noPool: dbMarket.noPool,
+          },
+          predictions: getPredictionsFromDb(marketId),
+          weightedProbability: getWeightedProbFromDb(marketId),
+          latestAgentTake: getLatestAgentTakeFromDb(marketId),
+          stale: true,
+          source: "db",
+          warning: err?.message ?? "on-chain fetch failed",
+        });
+      }
+    } catch { /* SQLite also unavailable */ }
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
