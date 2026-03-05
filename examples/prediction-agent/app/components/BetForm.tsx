@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { computePayout } from "@/lib/accuracy";
+import { postJsonWithCsrf } from "@/lib/secure-fetch";
 
 interface BetFormProps {
   marketId: number;
@@ -87,14 +88,10 @@ export default function BetForm({
     setResult(null);
 
     try {
-      const resp = await fetch("/api/bet", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          marketId,
-          outcome,
-          amount: amountBigInt.toString(),
-        }),
+      const resp = await postJsonWithCsrf("/api/bet", {
+        marketId,
+        outcome,
+        amount: amountBigInt.toString(),
       });
       const data = await resp.json();
       setResult(data);

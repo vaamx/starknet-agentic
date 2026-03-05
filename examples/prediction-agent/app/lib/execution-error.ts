@@ -66,6 +66,14 @@ export function normalizeExecutionError(
     };
   }
 
+  if (lower.includes("blocked when execution_profile")) {
+    return {
+      code: "UNSUPPORTED_SURFACE",
+      message,
+      executionSurface,
+    };
+  }
+
   return {
     code: "EXECUTION_FAILED",
     message,

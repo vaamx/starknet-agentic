@@ -145,14 +145,20 @@ export function getPersonaIds(): string[] {
 export function simulatePersonaForecast(
   persona: AgentPersona,
   baseMarketProb: number,
-  question: string
+  question: string,
+  context?: {
+    sourceQuality?: number;
+  }
 ): { probability: number; reasoning: string } {
+  const sourceQuality = clampUnit(context?.sourceQuality ?? 0.65);
+
   // Generate a persona-flavored probability
-  const noise = (Math.random() - 0.5) * 0.15;
+  const noise = seededNoise(`${persona.id}:${question}`) * 0.14;
   const biasedProb = baseMarketProb + persona.biasFactor + noise;
   // Apply confidence: higher confidence = further from 50%
   const adjusted = 0.5 + (biasedProb - 0.5) * persona.confidence;
-  const probability = Math.max(0.03, Math.min(0.97, adjusted));
+  const qualityTilt = (sourceQuality - 0.5) * 0.08;
+  const probability = Math.max(0.03, Math.min(0.97, adjusted + qualityTilt));
 
   const pct = Math.round(probability * 100);
   const direction = probability > 0.5 ? "YES" : "NO";
@@ -189,8 +195,26 @@ The current market is pricing this at ${(baseMarketProb * 100).toFixed(1)}%. Aft
       : "maintaining appropriate uncertainty"
   }
 - ${persona.biasFactor > 0 ? "My slightly optimistic prior reflects long-term adoption trends" : persona.biasFactor < 0 ? "My conservative bias accounts for tail risks" : "I'm maintaining a neutral prior, adjusting purely on evidence"}
+- Research quality score: ${(sourceQuality * 100).toFixed(0)}%
 
 **My estimate: ${pct}%**`;
 
   return { probability, reasoning };
+}
+
+function seededNoise(seed: string): number {
+  const h = simpleHash(seed);
+  return ((h % 10_000) / 10_000 - 0.5) * 2;
+}
+
+function simpleHash(s: string): number {
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    hash = (hash * 31 + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function clampUnit(value: number): number {
+  return Math.max(0, Math.min(1, value));
 }

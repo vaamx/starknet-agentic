@@ -17,6 +17,31 @@ interface QuantAnalytics {
     source: string;
     count: number;
   }>;
+  sourceReliability: Array<{
+    source: string;
+    samples: number;
+    markets: number;
+    avgBrier: number;
+    calibrationBias: number;
+    reliabilityScore: number;
+    confidence: number;
+  }>;
+  agentCalibration: Array<{
+    agentId: string;
+    samples: number;
+    avgBrier: number;
+    calibrationBias: number;
+    reliabilityScore: number;
+    confidence: number;
+    memoryStrength: number;
+  }>;
+  forecastQuality: {
+    avgBrier: number;
+    avgLogLoss: number;
+    sharpness: number;
+    calibrationGap: number;
+    brierSkillScore: number;
+  };
   strategy: {
     totalExecutions: number;
     successRate: number;
@@ -45,6 +70,16 @@ export default function QuantAnalyticsPanel({
   analytics,
   calibrationByModel,
 }: QuantAnalyticsPanelProps) {
+  const forecastQuality = analytics?.forecastQuality ?? {
+    avgBrier: 0,
+    avgLogLoss: 0,
+    sharpness: 0,
+    calibrationGap: 0,
+    brierSkillScore: 0,
+  };
+  const sourceReliability = analytics?.sourceReliability ?? [];
+  const agentCalibration = analytics?.agentCalibration ?? [];
+
   return (
     <section className="neo-card p-5">
       <div className="flex items-center justify-between mb-4">
@@ -91,6 +126,32 @@ export default function QuantAnalyticsPanel({
               label="Realized PnL"
               value={`${analytics.strategy.realizedPnlStrk.toFixed(2)} STRK`}
               accent={analytics.strategy.realizedPnlStrk >= 0 ? "green" : "pink"}
+            />
+          </div>
+
+          <div className="grid md:grid-cols-5 gap-3">
+            <Metric
+              label="Avg Brier"
+              value={forecastQuality.avgBrier.toFixed(3)}
+              accent={forecastQuality.avgBrier <= 0.2 ? "green" : "pink"}
+            />
+            <Metric
+              label="Log Loss"
+              value={forecastQuality.avgLogLoss.toFixed(3)}
+            />
+            <Metric
+              label="Sharpness"
+              value={`${Math.round(forecastQuality.sharpness * 100)}%`}
+            />
+            <Metric
+              label="Cal Gap"
+              value={forecastQuality.calibrationGap.toFixed(3)}
+              accent={forecastQuality.calibrationGap <= 0.08 ? "green" : "pink"}
+            />
+            <Metric
+              label="Brier Skill"
+              value={`${(forecastQuality.brierSkillScore * 100).toFixed(1)}%`}
+              accent={forecastQuality.brierSkillScore >= 0 ? "green" : "pink"}
             />
           </div>
 
@@ -187,6 +248,73 @@ export default function QuantAnalyticsPanel({
                       <span className="font-mono">
                         {row.executions} / {Math.round(row.successRate * 100)}%
                       </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-4">
+            <div className="border-2 border-black p-3">
+              <h3 className="text-xs font-bold uppercase tracking-wide mb-2">
+                Source Reliability Backtesting
+              </h3>
+              <div className="space-y-2">
+                {sourceReliability.length === 0 ? (
+                  <p className="text-xs text-gray-500">
+                    No source backtesting yet.
+                  </p>
+                ) : (
+                  sourceReliability.map((row) => (
+                    <div
+                      key={row.source}
+                      className="border border-black/10 p-2 bg-gray-50"
+                    >
+                      <div className="flex items-center justify-between text-[11px] font-mono">
+                        <span className="font-bold">{row.source}</span>
+                        <span>{Math.round(row.reliabilityScore * 100)}%</span>
+                      </div>
+                      <div className="mt-1 h-1.5 border border-black/20 bg-white">
+                        <div
+                          className="h-full bg-neo-blue/70"
+                          style={{
+                            width: `${Math.round(row.reliabilityScore * 100)}%`,
+                          }}
+                        />
+                      </div>
+                      <div className="mt-1 text-[10px] font-mono text-gray-500 flex justify-between">
+                        <span>n={row.samples}</span>
+                        <span>m={row.markets}</span>
+                        <span>brier {row.avgBrier.toFixed(3)}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="border-2 border-black p-3">
+              <h3 className="text-xs font-bold uppercase tracking-wide mb-2">
+                Agent Calibration Memory
+              </h3>
+              <div className="space-y-2">
+                {agentCalibration.length === 0 ? (
+                  <p className="text-xs text-gray-500">
+                    No calibration memory yet.
+                  </p>
+                ) : (
+                  agentCalibration.map((row) => (
+                    <div key={row.agentId} className="text-xs font-mono border border-black/10 p-2 bg-gray-50">
+                      <div className="flex items-center justify-between">
+                        <span>{row.agentId}</span>
+                        <span>{Math.round(row.memoryStrength * 100)}%</span>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between text-[10px] text-gray-500">
+                        <span>n={row.samples}</span>
+                        <span>brier {row.avgBrier.toFixed(3)}</span>
+                        <span>bias {(row.calibrationBias * 100).toFixed(1)}pt</span>
+                      </div>
                     </div>
                   ))
                 )}

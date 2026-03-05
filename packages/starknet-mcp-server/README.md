@@ -29,6 +29,7 @@ Direct signer mode (development/local only):
 STARKNET_RPC_URL=https://starknet-mainnet.g.alchemy.com/v2/YOUR_KEY
 STARKNET_ACCOUNT_ADDRESS=0x...
 STARKNET_EXECUTION_SURFACE=direct
+STARKNET_EXECUTION_PROFILE=hardened
 STARKNET_SIGNER_MODE=direct
 STARKNET_PRIVATE_KEY=0x...
 
@@ -50,6 +51,7 @@ Proxy signer mode (recommended for production):
 STARKNET_RPC_URL=https://starknet-mainnet.g.alchemy.com/v2/YOUR_KEY
 STARKNET_ACCOUNT_ADDRESS=0x...
 STARKNET_EXECUTION_SURFACE=direct
+STARKNET_EXECUTION_PROFILE=hardened
 STARKNET_SIGNER_MODE=proxy
 KEYRING_PROXY_URL=https://signer.internal:8545
 KEYRING_HMAC_SECRET=replace-with-long-random-secret
@@ -69,6 +71,13 @@ KEYRING_CLIENT_ID=starknet-mcp-server
 - `avnu`: enables AVNU quote/swap path; transfer remains direct-only and is blocked otherwise.
 - `starkzap`: executes transfer/swap calls through Starkzap wallet execution path.
   Requirements: `STARKNET_SIGNER_MODE=direct`, `STARKNET_PRIVATE_KEY`, and `starkzap` dependency installed.
+
+`STARKNET_EXECUTION_PROFILE` values:
+- `hardened` (default): when `STARKNET_EXECUTION_SURFACE=starkzap`, only `starknet_transfer` and `starknet_swap` can execute through Starkzap.
+- `standard`: legacy behavior; all write tools that use account execution may run through Starkzap.
+
+Optional fallback:
+- `STARKNET_STARKZAP_FALLBACK_TO_DIRECT=true`: if Starkzap is unavailable (missing SDK or invalid Starkzap signer preconditions), transfer/swap execution falls back to direct account execution and emits structured fallback telemetry.
 
 Signer boundary contract:
 - OpenAPI: `spec/signer-api-v1.openapi.yaml`
@@ -216,6 +225,10 @@ Get swap quote without executing.
   "amount": "1.0"
 }
 ```
+
+### `starknet_execution_surface_status`
+
+Report execution readiness and effective surface selection, including Starkzap probe status and fallback posture.
 
 ### `starknet_estimate_fee`
 

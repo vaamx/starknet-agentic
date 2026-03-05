@@ -13,6 +13,7 @@ import AnalyzeModal from "./components/AnalyzeModal";
 import WalletConnect from "./components/WalletConnect";
 import MarketLifecycleModal from "./components/MarketLifecycleModal";
 import QuantAnalyticsPanel from "./components/QuantAnalyticsPanel";
+import { fetchWithCsrf, postJsonWithCsrf } from "./lib/secure-fetch";
 
 interface Market {
   id: number;
@@ -85,6 +86,31 @@ interface QuantAnalytics {
     source: string;
     count: number;
   }>;
+  sourceReliability: Array<{
+    source: string;
+    samples: number;
+    markets: number;
+    avgBrier: number;
+    calibrationBias: number;
+    reliabilityScore: number;
+    confidence: number;
+  }>;
+  agentCalibration: Array<{
+    agentId: string;
+    samples: number;
+    avgBrier: number;
+    calibrationBias: number;
+    reliabilityScore: number;
+    confidence: number;
+    memoryStrength: number;
+  }>;
+  forecastQuality: {
+    avgBrier: number;
+    avgLogLoss: number;
+    sharpness: number;
+    calibrationGap: number;
+    brierSkillScore: number;
+  };
   strategy: {
     totalExecutions: number;
     successRate: number;
@@ -218,10 +244,9 @@ export default function Dashboard() {
     setLoopToggling(true);
     try {
       const action = autonomousMode ? "stop" : "start";
-      const res = await fetch("/api/agent-loop", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, intervalMs: 60_000 }), // 1 min for demo
+      const res = await postJsonWithCsrf("/api/agent-loop", {
+        action,
+        intervalMs: 60_000,
       });
       const data = await res.json();
       if (data.ok) {
@@ -235,7 +260,9 @@ export default function Dashboard() {
 
   const handleLogout = async () => {
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      await fetchWithCsrf("/api/auth/logout", {
+        method: "POST",
+      });
     } finally {
       window.location.href = "/login";
     }

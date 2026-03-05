@@ -10,6 +10,7 @@ import type { MembershipRole } from "./rbac";
 
 const COOKIE_NAME = "hc_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const DEV_FALLBACK_AUTH_SECRET = "dev-only-secret-change-me";
 
 export interface AuthUser {
   id: string;
@@ -17,9 +18,30 @@ export interface AuthUser {
   name: string;
 }
 
-function authSecret(): string {
-  return process.env.AUTH_SECRET ?? "dev-only-secret-change-me";
+function resolveAuthSecret(): string {
+  const secret = process.env.AUTH_SECRET?.trim();
+  const isProduction = process.env.NODE_ENV === "production";
+  const isBuildMode = process.env.PREDICTION_AGENT_BUILD === "true";
+
+  if (!secret) {
+    if (isProduction && !isBuildMode) {
+      throw new Error("AUTH_SECRET is required in production");
+    }
+    return DEV_FALLBACK_AUTH_SECRET;
+  }
+
+  if (isProduction && !isBuildMode && secret === DEV_FALLBACK_AUTH_SECRET) {
+    throw new Error("AUTH_SECRET must not use the development fallback value in production");
+  }
+
+  if (isProduction && !isBuildMode && secret.length < 32) {
+    throw new Error("AUTH_SECRET must be at least 32 characters");
+  }
+
+  return secret;
 }
+
+const AUTH_SECRET = resolveAuthSecret();
 
 function makeId(prefix: string): string {
   return `${prefix}_${randomBytes(12).toString("hex")}`;
@@ -52,7 +74,7 @@ function sha256(value: string): string {
 }
 
 function signEmail(email: string): string {
-  return createHmac("sha256", authSecret()).update(email).digest("hex");
+  return createHmac("sha256", AUTH_SECRET).update(email).digest("hex");
 }
 
 export function hashPassword(password: string): string {
@@ -76,11 +98,26 @@ export function createSessionToken(): string {
   return randomBytes(32).toString("hex");
 }
 
+export function validatePasswordStrength(password: string): string | null {
+  if (password.length < 12) return "Password must be at least 12 characters";
+  if (password.length > 200) return "Password must be at most 200 characters";
+  if (!/[a-z]/.test(password)) return "Password must include a lowercase letter";
+  if (!/[A-Z]/.test(password)) return "Password must include an uppercase letter";
+  if (!/[0-9]/.test(password)) return "Password must include a number";
+  if (!/[^A-Za-z0-9]/.test(password)) return "Password must include a symbol";
+  return null;
+}
+
 export function createUser(params: {
   email: string;
   password: string;
   name: string;
 }): AuthUser {
+  const passwordIssue = validatePasswordStrength(params.password);
+  if (passwordIssue) {
+    throw new Error(passwordIssue);
+  }
+
   const email = params.email.trim().toLowerCase();
   const existing = db
     .prepare("SELECT id FROM users WHERE email = ? LIMIT 1")
@@ -182,6 +219,22 @@ export function createSession(params: {
   );
 
   return { token, expiresAt };
+}
+
+export function rotateSession(params: {
+  userId: string;
+  previousToken?: string;
+  ipAddress?: string;
+  userAgent?: string;
+}): { token: string; expiresAt: number } {
+  if (params.previousToken) {
+    revokeSessionByToken(params.previousToken);
+  }
+  return createSession({
+    userId: params.userId,
+    ipAddress: params.ipAddress,
+    userAgent: params.userAgent,
+  });
 }
 
 export function getUserFromSessionToken(token: string): AuthUser | null {

@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
-import { isAgentConfigured, getAgentAddress } from "@/lib/starknet-executor";
+import {
+  getAgentAddress,
+  getExecutionSurfaceStatus,
+  isAgentConfigured,
+} from "@/lib/starknet-executor";
 import { getAgentIdentity, getDemoAgentIdentities } from "@/lib/agent-identity";
 import { config } from "@/lib/config";
 
 export async function GET() {
   const agentAddress = getAgentAddress();
   const agentId = process.env.AGENT_ID ?? "1";
+  const executionStatus = await getExecutionSurfaceStatus();
 
   // Try to fetch on-chain identity, fall back to demo
   let identity = await getAgentIdentity(agentId);
@@ -24,6 +29,8 @@ export async function GET() {
     identityRegistryConfigured: !!process.env.IDENTITY_REGISTRY_ADDRESS,
     reputationRegistryConfigured: !!process.env.REPUTATION_REGISTRY_ADDRESS,
     executionSurface: config.EXECUTION_SURFACE,
+    executionProfile: config.EXECUTION_PROFILE,
+    executionStatus,
     loopExecuteBets: config.AGENT_LOOP_EXECUTE_BETS === "true",
     loopMinConfidence: config.AGENT_LOOP_MIN_CONFIDENCE,
   });

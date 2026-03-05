@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ensureCsrfToken } from "@/lib/client-csrf";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -10,16 +11,27 @@ export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    ensureCsrfToken()
+      .then(setCsrfToken)
+      .catch(() => setError("Security initialization failed. Refresh and retry."));
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
+      const token = csrfToken ?? (await ensureCsrfToken());
       const response = await fetch("/api/auth/signup", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": token,
+        },
         body: JSON.stringify({ name, email, password }),
       });
       const data = await response.json();
@@ -78,14 +90,14 @@ export default function SignupPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="neo-input w-full"
-              minLength={10}
+              minLength={12}
               required
             />
           </div>
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !csrfToken}
             className="neo-btn-primary w-full text-sm py-2.5 disabled:opacity-40"
           >
             {loading ? "Creating account..." : "Sign Up"}

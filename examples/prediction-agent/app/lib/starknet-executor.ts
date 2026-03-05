@@ -20,9 +20,27 @@ export interface TxResult {
   txHash: string;
   status: "success" | "error";
   executionSurface: ExecutionSurface;
+  configuredSurface?: ExecutionSurface;
+  fallbackFrom?: ExecutionSurface;
+  fallbackReason?: string;
   errorCode?: TxErrorCode;
   error?: string;
 }
+
+type ExecutionProfile = "standard" | "hardened";
+type StarkzapOperation =
+  | "placeBet"
+  | "recordPrediction"
+  | "claimWinnings"
+  | "createMarket"
+  | "resolveMarket"
+  | "finalizeMarket";
+
+const STARKZAP_ALLOWED_IN_HARDENED = new Set<StarkzapOperation>([
+  "placeBet",
+  "recordPrediction",
+  "claimWinnings",
+]);
 
 const provider = new RpcProvider({ nodeUrl: config.STARKNET_RPC_URL });
 
@@ -30,6 +48,34 @@ function resolveExecutionSurface(
   executionSurface?: ExecutionSurface
 ): ExecutionSurface {
   return executionSurface ?? config.EXECUTION_SURFACE;
+}
+
+function starkzapFallbackEnabled(): boolean {
+  return config.STARKZAP_FALLBACK_TO_DIRECT === "true";
+}
+
+function resolveExecutionProfile(): ExecutionProfile {
+  return config.EXECUTION_PROFILE;
+}
+
+function starkzapOperationAllowed(operation: StarkzapOperation): boolean {
+  const profile = resolveExecutionProfile();
+  if (profile === "standard") return true;
+  return STARKZAP_ALLOWED_IN_HARDENED.has(operation);
+}
+
+function isProviderUnavailableError(rawError: unknown): boolean {
+  const message =
+    typeof rawError === "string"
+      ? rawError
+      : (rawError as any)?.message ?? "";
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("starkzap sdk is unavailable") ||
+    lower.includes("cannot find module") ||
+    lower.includes("incomplete starkzap") ||
+    lower.includes("install it")
+  );
 }
 
 function getAccount(): Account | null {
@@ -54,6 +100,29 @@ function unsupportedSurfaceResult(
     errorCode: "UNSUPPORTED_SURFACE",
     error: `${operation} is not yet implemented for execution surface "${executionSurface}".`,
   };
+}
+
+function blockedByExecutionProfileResult(operation: StarkzapOperation): TxResult {
+  const profile = resolveExecutionProfile();
+  return {
+    txHash: "",
+    status: "error",
+    executionSurface: "starkzap",
+    configuredSurface: "starkzap",
+    errorCode: "UNSUPPORTED_SURFACE",
+    error:
+      `${operation} is blocked when EXECUTION_PROFILE=${profile} and EXECUTION_SURFACE=starkzap. ` +
+      'Use EXECUTION_SURFACE="direct" for this operation or set EXECUTION_PROFILE="standard".',
+  };
+}
+
+function guardStarkzapOperation(
+  surface: ExecutionSurface,
+  operation: StarkzapOperation
+): TxResult | null {
+  if (surface !== "starkzap") return null;
+  if (starkzapOperationAllowed(operation)) return null;
+  return blockedByExecutionProfileResult(operation);
 }
 
 async function loadStarkzapSdk(): Promise<any> {
@@ -169,7 +238,10 @@ async function placeBetStarkzap(
     }),
   };
 
-  return executeStarkzap([approveTx, betTx]);
+  return executeStarkzap([approveTx, betTx], {
+    operation: "placeBet",
+    allowFallbackToDirect: true,
+  });
 }
 
 async function executeStarkzap(
@@ -177,7 +249,11 @@ async function executeStarkzap(
     contractAddress: string;
     entrypoint: string;
     calldata: ReturnType<typeof CallData.compile> | string[];
-  }>
+  }>,
+  options: {
+    operation: StarkzapOperation;
+    allowFallbackToDirect?: boolean;
+  }
 ): Promise<TxResult> {
   if (!config.AGENT_PRIVATE_KEY) {
     return {
@@ -240,13 +316,29 @@ async function executeStarkzap(
       txHash,
       status: "success",
       executionSurface: "starkzap",
+      configuredSurface: "starkzap",
     };
   } catch (err: any) {
     const normalized = normalizeExecutionError("starkzap", err);
+    if (
+      options.allowFallbackToDirect &&
+      starkzapFallbackEnabled() &&
+      isProviderUnavailableError(err)
+    ) {
+      const fallback = await executeDirect(calls);
+      return {
+        ...fallback,
+        configuredSurface: "starkzap",
+        fallbackFrom: "starkzap",
+        fallbackReason: normalized.message,
+      };
+    }
+
     return {
       txHash: "",
       status: "error",
       executionSurface: "starkzap",
+      configuredSurface: "starkzap",
       errorCode: normalized.code,
       error: normalized.message,
     };
@@ -306,7 +398,10 @@ async function recordPredictionStarkzap(
     }),
   };
 
-  return executeStarkzap([tx]);
+  return executeStarkzap([tx], {
+    operation: "recordPrediction",
+    allowFallbackToDirect: true,
+  });
 }
 
 async function claimWinningsDirect(marketAddress: string): Promise<TxResult> {
@@ -324,7 +419,10 @@ async function claimWinningsStarkzap(marketAddress: string): Promise<TxResult> {
     entrypoint: "claim",
     calldata: [],
   };
-  return executeStarkzap([tx]);
+  return executeStarkzap([tx], {
+    operation: "claimWinnings",
+    allowFallbackToDirect: true,
+  });
 }
 
 export async function createMarket(
@@ -358,11 +456,14 @@ export async function createMarket(
   };
 
   const surface = resolveExecutionSurface(executionSurface);
+  const policyViolation = guardStarkzapOperation(surface, "createMarket");
+  if (policyViolation) return policyViolation;
+
   if (surface === "direct") {
     return executeDirect([tx]);
   }
   if (surface === "starkzap") {
-    return executeStarkzap([tx]);
+    return executeStarkzap([tx], { operation: "createMarket" });
   }
   return unsupportedSurfaceResult(surface, "createMarket");
 }
@@ -381,11 +482,14 @@ export async function resolveMarket(
   };
 
   const surface = resolveExecutionSurface(executionSurface);
+  const policyViolation = guardStarkzapOperation(surface, "resolveMarket");
+  if (policyViolation) return policyViolation;
+
   if (surface === "direct") {
     return executeDirect([tx]);
   }
   if (surface === "starkzap") {
-    return executeStarkzap([tx]);
+    return executeStarkzap([tx], { operation: "resolveMarket" });
   }
   return unsupportedSurfaceResult(surface, "resolveMarket");
 }
@@ -416,11 +520,14 @@ export async function finalizeMarket(
   };
 
   const surface = resolveExecutionSurface(executionSurface);
+  const policyViolation = guardStarkzapOperation(surface, "finalizeMarket");
+  if (policyViolation) return policyViolation;
+
   if (surface === "direct") {
     return executeDirect([tx]);
   }
   if (surface === "starkzap") {
-    return executeStarkzap([tx]);
+    return executeStarkzap([tx], { operation: "finalizeMarket" });
   }
   return unsupportedSurfaceResult(surface, "finalizeMarket");
 }
@@ -433,6 +540,9 @@ export async function placeBet(
   executionSurface?: ExecutionSurface
 ): Promise<TxResult> {
   const surface = resolveExecutionSurface(executionSurface);
+  const policyViolation = guardStarkzapOperation(surface, "placeBet");
+  if (policyViolation) return policyViolation;
+
   if (surface === "direct") {
     return placeBetDirect(marketAddress, outcome, amount, collateralToken);
   }
@@ -448,6 +558,9 @@ export async function recordPrediction(
   executionSurface?: ExecutionSurface
 ): Promise<TxResult> {
   const surface = resolveExecutionSurface(executionSurface);
+  const policyViolation = guardStarkzapOperation(surface, "recordPrediction");
+  if (policyViolation) return policyViolation;
+
   if (surface === "direct") {
     return recordPredictionDirect(marketId, probability);
   }
@@ -462,6 +575,9 @@ export async function claimWinnings(
   executionSurface?: ExecutionSurface
 ): Promise<TxResult> {
   const surface = resolveExecutionSurface(executionSurface);
+  const policyViolation = guardStarkzapOperation(surface, "claimWinnings");
+  if (policyViolation) return policyViolation;
+
   if (surface === "direct") {
     return claimWinningsDirect(marketAddress);
   }
@@ -477,4 +593,73 @@ export function isAgentConfigured(): boolean {
 
 export function getAgentAddress(): string | null {
   return config.AGENT_ADDRESS ?? null;
+}
+
+export interface ExecutionSurfaceStatus {
+  configuredSurface: ExecutionSurface;
+  effectiveSurface: ExecutionSurface;
+  executionProfile: ExecutionProfile;
+  fallbackToDirectEnabled: boolean;
+  signerReady: boolean;
+  starkzapAvailable: boolean;
+  starkzapReason?: string;
+  starkzapPolicy?: {
+    allowedOperations: StarkzapOperation[] | "all";
+    blockedOperations: StarkzapOperation[];
+  };
+}
+
+export async function getExecutionSurfaceStatus(): Promise<ExecutionSurfaceStatus> {
+  const configuredSurface = resolveExecutionSurface();
+  const executionProfile = resolveExecutionProfile();
+  const fallbackToDirectEnabled = starkzapFallbackEnabled();
+  const signerReady = isAgentConfigured();
+  let starkzapAvailable = true;
+  let starkzapReason: string | undefined;
+
+  if (configuredSurface === "starkzap" || fallbackToDirectEnabled) {
+    try {
+      const sdk = await loadStarkzapSdk();
+      if (!sdk?.StarkSDK || !sdk?.StarkSigner || !sdk?.ChainId) {
+        starkzapAvailable = false;
+        starkzapReason = "Incomplete Starkzap SDK exports (StarkSDK/StarkSigner/ChainId)";
+      }
+    } catch (err: any) {
+      starkzapAvailable = false;
+      starkzapReason =
+        err?.message ??
+        'Starkzap SDK is unavailable. Install it in examples/prediction-agent.';
+    }
+  }
+
+  const effectiveSurface =
+    configuredSurface === "starkzap" && !starkzapAvailable && fallbackToDirectEnabled
+      ? "direct"
+      : configuredSurface;
+  const blockedOperations =
+    configuredSurface === "starkzap" && executionProfile === "hardened"
+      ? ([
+          "placeBet",
+          "recordPrediction",
+          "claimWinnings",
+          "createMarket",
+          "resolveMarket",
+          "finalizeMarket",
+        ] as StarkzapOperation[]).filter((op) => !starkzapOperationAllowed(op))
+      : [];
+
+  return {
+    configuredSurface,
+    effectiveSurface,
+    executionProfile,
+    fallbackToDirectEnabled,
+    signerReady,
+    starkzapAvailable,
+    starkzapPolicy: {
+      allowedOperations:
+        executionProfile === "hardened" ? [...STARKZAP_ALLOWED_IN_HARDENED] : "all",
+      blockedOperations,
+    },
+    ...(starkzapReason ? { starkzapReason } : {}),
+  };
 }

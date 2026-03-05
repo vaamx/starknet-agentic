@@ -4,6 +4,8 @@ const envSchema = z.object({
   STARKNET_RPC_URL: z.string().url().default("https://starknet-sepolia.public.blastapi.io"),
   STARKNET_CHAIN_ID: z.string().default("SN_SEPOLIA"),
   EXECUTION_SURFACE: z.enum(["direct", "starkzap", "avnu"]).default("direct"),
+  EXECUTION_PROFILE: z.enum(["standard", "hardened"]).default("hardened"),
+  STARKZAP_FALLBACK_TO_DIRECT: z.enum(["true", "false"]).default("false"),
   AGENT_PRIVATE_KEY: z.string().optional(),
   AGENT_ADDRESS: z.string().optional(),
   MARKET_FACTORY_ADDRESS: z.string().default("0x0"),
