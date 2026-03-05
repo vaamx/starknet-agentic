@@ -1,0 +1,25 @@
+"use client";
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.DocsContentWrapper = DocsContentWrapper;
+const react_1 = require("react");
+const docs_1 = require("@/components/docs");
+function DocsContentWrapper({ children }) {
+    const [tocItems, setTocItems] = (0, react_1.useState)([]);
+    (0, react_1.useEffect)(() => {
+        // Extract headings after content is rendered
+        const headings = (0, docs_1.extractHeadingsFromDOM)();
+        setTocItems(headings);
+    }, []);
+    return (<div className="flex">
+      {/* Main content */}
+      <div className="flex-1 min-w-0">{children}</div>
+
+      {/* Table of contents - desktop only */}
+      {tocItems.length > 0 && (<aside className="hidden xl:block w-56 shrink-0 pl-8 pr-4">
+          <div className="sticky top-24">
+            <docs_1.DocsTableOfContents items={tocItems}/>
+          </div>
+        </aside>)}
+    </div>);
+}

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { placeBet, type ExecutionSurface } from "@/lib/starknet-executor";
 import { getMarkets } from "@/lib/market-reader";
+import { requireRole } from "@/lib/require-auth";
+import { recordAudit, recordTradeExecution } from "@/lib/ops-store";
 
 const BetSchema = z.object({
   marketId: z.number().int().min(0),
@@ -12,6 +14,11 @@ const BetSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    const context = requireRole(request, "analyst");
+    if (!context) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const body = await request.json();
     const parsed = BetSchema.parse(body);
 
@@ -33,6 +40,30 @@ export async function POST(request: NextRequest) {
       market.collateralToken,
       parsed.executionSurface as ExecutionSurface | undefined
     );
+
+    await recordTradeExecution({
+      organizationId: context.membership.organizationId,
+      marketId: parsed.marketId,
+      userId: context.user.id,
+      executionSurface: result.executionSurface,
+      txHash: result.txHash || undefined,
+      status: result.status,
+      errorCode: result.errorCode,
+      errorMessage: result.error,
+    });
+    await recordAudit({
+      organizationId: context.membership.organizationId,
+      userId: context.user.id,
+      action: "market.bet",
+      targetType: "market",
+      targetId: String(parsed.marketId),
+      metadata: {
+        outcome: parsed.outcome,
+        amount: parsed.amount,
+        status: result.status,
+        executionSurface: result.executionSurface,
+      },
+    });
 
     return NextResponse.json(result);
   } catch (err: any) {

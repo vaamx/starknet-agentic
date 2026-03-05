@@ -3,14 +3,21 @@ import {
   getMarkets,
   getAgentPredictions,
   getWeightedProbability,
+  isMarketFinalized,
   DEMO_QUESTIONS,
 } from "@/lib/market-reader";
+import { requireRole } from "@/lib/require-auth";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const context = requireRole(request, "viewer");
+    if (!context) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const { id } = await params;
     const marketId = parseInt(id, 10);
     const markets = await getMarkets();
@@ -20,9 +27,10 @@ export async function GET(
       return NextResponse.json({ error: "Market not found" }, { status: 404 });
     }
 
-    const [predictions, weightedProb] = await Promise.all([
+    const [predictions, weightedProb, finalized] = await Promise.all([
       getAgentPredictions(marketId),
       getWeightedProbability(marketId),
+      isMarketFinalized(marketId),
     ]);
 
     return NextResponse.json({
@@ -35,6 +43,7 @@ export async function GET(
       },
       predictions,
       weightedProbability: weightedProb,
+      finalized,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

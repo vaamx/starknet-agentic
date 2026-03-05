@@ -4,12 +4,15 @@ import { useState, useEffect } from "react";
 
 interface MarketCreatorProps {
   onClose: () => void;
+  onCreated?: () => Promise<void> | void;
 }
 
-export default function MarketCreator({ onClose }: MarketCreatorProps) {
+export default function MarketCreator({ onClose, onCreated }: MarketCreatorProps) {
   const [question, setQuestion] = useState("");
   const [days, setDays] = useState("30");
   const [feeBps, setFeeBps] = useState("200");
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Close on Escape key
   useEffect(() => {
@@ -27,6 +30,38 @@ export default function MarketCreator({ onClose }: MarketCreatorProps) {
       document.body.style.overflow = "";
     };
   }, []);
+
+  const handleCreate = async () => {
+    if (!question.trim() || creating) return;
+    setCreating(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/markets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: question.trim(),
+          days: parseInt(days, 10),
+          feeBps: parseInt(feeBps, 10),
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error ?? "Failed to create market");
+      }
+
+      if (onCreated) {
+        await onCreated();
+      }
+      onClose();
+    } catch (err: any) {
+      setError(err?.message ?? "Failed to create market");
+    } finally {
+      setCreating(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
@@ -96,11 +131,18 @@ export default function MarketCreator({ onClose }: MarketCreatorProps) {
           </div>
 
           <button
-            disabled={!question.trim()}
+            onClick={handleCreate}
+            disabled={!question.trim() || creating}
             className="neo-btn-dark w-full text-sm disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
           >
-            Deploy Market Contract
+            {creating ? "Deploying..." : "Deploy Market Contract"}
           </button>
+
+          {error && (
+            <p className="text-[10px] text-red-500 text-center font-mono leading-relaxed">
+              {error}
+            </p>
+          )}
 
           <p className="text-[10px] text-gray-400 text-center font-mono leading-relaxed">
             Requires deployed contracts on Sepolia.

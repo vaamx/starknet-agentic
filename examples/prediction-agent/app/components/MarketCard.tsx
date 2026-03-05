@@ -21,6 +21,9 @@ interface MarketCardProps {
   predictions?: AgentPrediction[];
   onAnalyze: (marketId: number) => void;
   onBet: (marketId: number) => void;
+  onResolve: (marketId: number) => void;
+  onFinalize: (marketId: number) => void;
+  onClaim: (marketId: number) => void;
 }
 
 export default function MarketCard({
@@ -34,6 +37,9 @@ export default function MarketCard({
   predictions = [],
   onAnalyze,
   onBet,
+  onResolve,
+  onFinalize,
+  onClaim,
 }: MarketCardProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -250,6 +256,31 @@ export default function MarketCard({
               className="neo-btn-primary flex-1 text-sm py-2.5"
             >
               Place Bet
+            </button>
+            {daysLeft === 0 && (
+              <button
+                onClick={() => onResolve(id)}
+                className="neo-btn flex-1 text-sm py-2.5 bg-neo-orange text-neo-dark"
+              >
+                Resolve
+              </button>
+            )}
+          </div>
+        )}
+
+        {status === 2 && (
+          <div className="flex gap-2">
+            <button
+              onClick={() => onClaim(id)}
+              className="neo-btn-primary flex-1 text-sm py-2.5"
+            >
+              Claim Winnings
+            </button>
+            <button
+              onClick={() => onFinalize(id)}
+              className="neo-btn-dark flex-1 text-sm py-2.5"
+            >
+              Finalize Accuracy
             </button>
           </div>
         )}

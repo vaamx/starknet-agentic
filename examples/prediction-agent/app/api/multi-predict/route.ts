@@ -7,6 +7,8 @@ import {
 import { getMarkets, getAgentPredictions, DEMO_QUESTIONS } from "@/lib/market-reader";
 import { gatherResearch, buildResearchBrief } from "@/lib/data-sources/index";
 import type { DataSourceName } from "@/lib/data-sources/index";
+import { requireRole } from "@/lib/require-auth";
+import { recordAudit, recordForecast, recordResearchArtifact } from "@/lib/ops-store";
 
 /**
  * Multi-agent forecast endpoint.
@@ -15,6 +17,14 @@ import type { DataSourceName } from "@/lib/data-sources/index";
  * The final output includes a reputation-weighted consensus.
  */
 export async function POST(request: NextRequest) {
+  const context = requireRole(request, "analyst");
+  if (!context) {
+    return new Response(JSON.stringify({ error: "Forbidden" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const body = await request.json();
   const marketId = body.marketId as number;
 
@@ -73,6 +83,18 @@ export async function POST(request: NextRequest) {
             try {
               const research = await gatherResearch(question, sources);
               researchBrief = buildResearchBrief(research);
+              for (const item of research) {
+                const firstPoint = item.data[0];
+                await recordResearchArtifact({
+                  organizationId: context.membership.organizationId,
+                  marketId,
+                  sourceType: item.source,
+                  sourceUrl: firstPoint?.url,
+                  title: firstPoint?.label,
+                  summary: item.summary,
+                  payloadJson: JSON.stringify(item),
+                });
+              }
 
               // Stream a research summary event
               controller.enqueue(
@@ -159,6 +181,14 @@ export async function POST(request: NextRequest) {
             probability,
             brierScore,
           });
+          await recordForecast({
+            organizationId: context.membership.organizationId,
+            marketId,
+            userId: context.user.id,
+            agentId: persona.id,
+            probability,
+            modelName: persona.model,
+          });
 
           // Signal agent completion
           controller.enqueue(
@@ -208,6 +238,19 @@ export async function POST(request: NextRequest) {
             })}\n\n`
           )
         );
+
+        await recordAudit({
+          organizationId: context.membership.organizationId,
+          userId: context.user.id,
+          action: "market.multi_predict",
+          targetType: "market",
+          targetId: String(marketId),
+          metadata: {
+            weightedProbability: weightedProb,
+            simpleProbability: simpleAvg,
+            agentCount: agentResults.length,
+          },
+        });
 
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();

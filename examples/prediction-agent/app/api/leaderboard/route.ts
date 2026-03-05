@@ -1,10 +1,16 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getDemoLeaderboard } from "@/lib/market-reader";
 import { getDemoAgentIdentities } from "@/lib/agent-identity";
 import { agentSpawner } from "@/lib/agent-spawner";
+import { requireRole } from "@/lib/require-auth";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const context = requireRole(request, "viewer");
+    if (!context) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     // TODO: Read from on-chain AccuracyTracker when deployed
     const leaderboard = getDemoLeaderboard();
     const identities = getDemoAgentIdentities();
