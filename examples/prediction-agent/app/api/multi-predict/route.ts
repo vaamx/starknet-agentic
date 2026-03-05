@@ -1,20 +1,100 @@
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import { forecastMarket, extractProbability } from "@/lib/agent-forecaster";
 import {
   AGENT_PERSONAS,
   simulatePersonaForecast,
 } from "@/lib/agent-personas";
-import { getMarkets, getAgentPredictions, DEMO_QUESTIONS } from "@/lib/market-reader";
-import { gatherResearch, buildResearchBrief } from "@/lib/data-sources/index";
-import type { DataSourceName } from "@/lib/data-sources/index";
+import {
+  getMarkets,
+  getAgentPredictions,
+  DEMO_QUESTIONS,
+} from "@/lib/market-reader";
+import {
+  gatherResearch,
+  buildResearchBrief,
+  averageResearchQuality,
+  type DataSourceName,
+  type DataSourceResult,
+} from "@/lib/data-sources/index";
 import { requireRole } from "@/lib/require-auth";
-import { recordAudit, recordForecast, recordResearchArtifact } from "@/lib/ops-store";
+import {
+  recordAudit,
+  recordForecast,
+  recordResearchArtifact,
+  getAgentCalibrationMemory,
+  getSourceReliabilityProfile,
+} from "@/lib/ops-store";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { buildSuperforecastConsensus } from "@/lib/superforecast";
+import {
+  buildForecastSkillPlan,
+  formatForecastSkillPlan,
+} from "@/lib/forecast-skills";
+import {
+  aggregateSourceReliability,
+  adjustWithCalibrationMemory,
+  blendResearchQuality,
+  deriveForecastConfidence,
+} from "@/lib/forecast-calibration";
+
+const MultiPredictSchema = z.object({
+  marketId: z.number().int().min(0),
+});
+
+const DEFAULT_SOURCES: DataSourceName[] = [
+  "polymarket",
+  "coingecko",
+  "news",
+  "social",
+];
+
+function isDataSourceName(value: string): value is DataSourceName {
+  return (
+    value === "polymarket" ||
+    value === "coingecko" ||
+    value === "news" ||
+    value === "social"
+  );
+}
+
+function getPersonaSources(
+  preferredSources: string[] | undefined
+): DataSourceName[] {
+  const raw = preferredSources ?? DEFAULT_SOURCES;
+  const normalized = raw
+    .map((source) => source.toLowerCase().trim())
+    .filter(isDataSourceName);
+  return normalized.length > 0 ? normalized : DEFAULT_SOURCES;
+}
+
+function mergeSources(...groups: DataSourceName[][]): DataSourceName[] {
+  return Array.from(new Set(groups.flat()));
+}
+
+function hashString(input: string): number {
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash * 31 + input.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function deriveFallbackBrier(
+  personaId: string,
+  marketId: number,
+  probability: number
+): number {
+  const seed = hashString(
+    `${personaId}:${marketId}:${Math.round(probability * 1000)}`
+  );
+  return 0.12 + (seed % 120) / 1000;
+}
 
 /**
  * Multi-agent forecast endpoint.
  * Runs all agent personas on a market and streams their reasoning.
- * Each agent produces an independent probability estimate.
- * The final output includes a reputation-weighted consensus.
+ * The final output includes a superforecasting consensus with confidence bands.
  */
 export async function POST(request: NextRequest) {
   const context = requireRole(request, "analyst");
@@ -25,8 +105,38 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const body = await request.json();
-  const marketId = body.marketId as number;
+  const rateLimit = checkRateLimit(
+    `multi_predict:${context.membership.organizationId}:${context.user.id}`,
+    {
+      windowMs: 60_000,
+      max: 6,
+      blockMs: 60_000,
+    }
+  );
+  if (!rateLimit.allowed) {
+    return new Response(
+      JSON.stringify({
+        error: "Rate limit exceeded for multi-agent prediction requests",
+      }),
+      {
+        status: 429,
+        headers: {
+          "Content-Type": "application/json",
+          "Retry-After": String(Math.ceil(rateLimit.retryAfterMs / 1000)),
+        },
+      }
+    );
+  }
+
+  const body = await request.json().catch(() => null);
+  const parsed = MultiPredictSchema.safeParse(body);
+  if (!parsed.success) {
+    return new Response(JSON.stringify({ error: parsed.error.issues }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const marketId = parsed.data.marketId;
 
   const markets = await getMarkets();
   const market = markets.find((m) => m.id === marketId);
@@ -45,23 +155,92 @@ export async function POST(request: NextRequest) {
     0,
     Math.floor((market.resolutionTime - Date.now() / 1000) / 86400)
   );
-
-  const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
+  const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
+  const [sourceReliabilityProfile, calibrationMemoryEntries] = await Promise.all([
+    getSourceReliabilityProfile(context.membership.organizationId).catch(
+      () => ({})
+    ),
+    Promise.all(
+      AGENT_PERSONAS.map(async (persona) =>
+        [
+          persona.id,
+          await getAgentCalibrationMemory(
+            context.membership.organizationId,
+            persona.id
+          ).catch(() => ({
+            agentId: persona.id,
+            samples: 0,
+            avgBrier: 0.25,
+            calibrationBias: 0,
+            reliabilityScore: 0.5,
+            confidence: 0,
+            memoryStrength: 0,
+          })),
+        ] as const
+      )
+    ),
+  ]);
+  const calibrationMemoryByAgent = new Map(calibrationMemoryEntries);
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const agentResults: {
+        const unionSources = new Set<DataSourceName>();
+        for (const persona of AGENT_PERSONAS) {
+          const skillPlan = buildForecastSkillPlan(question, persona);
+          const sources = mergeSources(
+            getPersonaSources(persona.preferredSources),
+            skillPlan.recommendedSources
+          );
+          for (const source of sources) {
+            unionSources.add(source);
+          }
+        }
+
+        let sharedResearch: DataSourceResult[] = [];
+        try {
+          sharedResearch = await gatherResearch(
+            question,
+            unionSources.size > 0 ? Array.from(unionSources) : DEFAULT_SOURCES
+          );
+
+          for (const item of sharedResearch) {
+            const firstPoint = item.data[0];
+            await recordResearchArtifact({
+              organizationId: context.membership.organizationId,
+              marketId,
+              sourceType: item.source,
+              sourceUrl: firstPoint?.url,
+              title: firstPoint?.label,
+              summary: item.summary,
+              payloadJson: JSON.stringify(item),
+            });
+          }
+
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: "research_ready",
+                sourceCount: sharedResearch.length,
+                quality: averageResearchQuality(sharedResearch),
+              })}\n\n`
+            )
+          );
+        } catch {
+          sharedResearch = [];
+        }
+
+        const agentResults: Array<{
           agent: string;
           name: string;
           probability: number;
           brierScore: number;
-        }[] = [];
+          confidence: number;
+          sourceQuality: number;
+        }> = [];
 
-        // Process each persona
         for (const persona of AGENT_PERSONAS) {
-          // Signal which agent is starting
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
@@ -74,42 +253,68 @@ export async function POST(request: NextRequest) {
             )
           );
 
+          const skillPlan = buildForecastSkillPlan(question, persona);
+          const personaSources = mergeSources(
+            getPersonaSources(persona.preferredSources),
+            skillPlan.recommendedSources
+          );
+          const personaResearch = sharedResearch.filter((item) =>
+            personaSources.includes(item.source as DataSourceName)
+          );
+          const researchBrief = [
+            formatForecastSkillPlan(skillPlan),
+            buildResearchBrief(personaResearch),
+          ]
+            .filter((section) => section.length > 0)
+            .join("\n\n");
+          const liveResearchQuality = averageResearchQuality(personaResearch);
+          const backtestedReliability = aggregateSourceReliability(
+            personaSources,
+            sourceReliabilityProfile
+          );
+          const sourceQuality = blendResearchQuality(
+            liveResearchQuality,
+            backtestedReliability
+          );
+          const calibrationMemory = calibrationMemoryByAgent.get(persona.id);
+          const allowLiveForecast =
+            hasApiKey &&
+            (persona.id === "alpha" ||
+              (persona.id === "beta" &&
+                persona.model.toLowerCase().includes("claude")));
+
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: "text",
+                agentId: persona.id,
+                content: `[Skill plan: ${skillPlan.skills
+                  .map((skill) => skill.name)
+                  .join(", ")}]\n\n`,
+              })}\n\n`
+            )
+          );
+
+          if (personaResearch.length > 0) {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  type: "text",
+                  agentId: persona.id,
+                  content: `[Research quality ${(sourceQuality * 100).toFixed(
+                    0
+                  )}% (live ${(liveResearchQuality * 100).toFixed(
+                    0
+                  )}% + backtest ${(backtestedReliability * 100).toFixed(
+                    0
+                  )}%) from ${personaResearch.map((r) => r.source).join(", ")}]\n\n`,
+                })}\n\n`
+              )
+            );
+          }
+
           let probability: number;
-
-          if (hasApiKey && persona.id === "alpha") {
-            // Gather research data for the primary agent
-            const sources = (persona.preferredSources ?? ["polymarket", "coingecko", "news", "social"]) as DataSourceName[];
-            let researchBrief = "";
-            try {
-              const research = await gatherResearch(question, sources);
-              researchBrief = buildResearchBrief(research);
-              for (const item of research) {
-                const firstPoint = item.data[0];
-                await recordResearchArtifact({
-                  organizationId: context.membership.organizationId,
-                  marketId,
-                  sourceType: item.source,
-                  sourceUrl: firstPoint?.url,
-                  title: firstPoint?.label,
-                  summary: item.summary,
-                  payloadJson: JSON.stringify(item),
-                });
-              }
-
-              // Stream a research summary event
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({
-                    type: "text",
-                    agentId: persona.id,
-                    content: `[Researched ${research.length} data sources: ${research.map((r) => r.source).join(", ")}]\n\n`,
-                  })}\n\n`
-                )
-              );
-            } catch {
-              // Research failed, continue without it
-            }
-
+          if (allowLiveForecast) {
             const generator = forecastMarket(question, {
               currentMarketProb: market.impliedProbYes,
               totalPool: (market.totalPool / 10n ** 18n).toString(),
@@ -123,7 +328,7 @@ export async function POST(request: NextRequest) {
             });
 
             let fullText = "";
-            let result: any;
+            let result: { probability: number } | undefined;
 
             while (true) {
               const { value, done } = await generator.next();
@@ -145,15 +350,14 @@ export async function POST(request: NextRequest) {
 
             probability = result?.probability ?? extractProbability(fullText);
           } else {
-            // Simulated forecast for other agents
             const forecast = simulatePersonaForecast(
               persona,
               market.impliedProbYes,
-              question
+              question,
+              { sourceQuality }
             );
             probability = forecast.probability;
 
-            // Stream the simulated reasoning in chunks for visual effect
             const chunks = forecast.reasoning.split(/(?<=\n\n)/);
             for (const chunk of chunks) {
               controller.enqueue(
@@ -165,32 +369,70 @@ export async function POST(request: NextRequest) {
                   })}\n\n`
                 )
               );
-              await new Promise((r) => setTimeout(r, 100));
+              await new Promise((resolve) => setTimeout(resolve, 80));
             }
           }
 
-          // Find this agent's existing Brier score from predictions
-          const existing = predictions.find(
-            (p) => p.agent === `0x${persona.id.charAt(0).toUpperCase()}${persona.id.slice(1)}`
+          let calibrationAdjustedBy = 0;
+          if (calibrationMemory) {
+            const adjusted = adjustWithCalibrationMemory(
+              probability,
+              calibrationMemory,
+              sourceQuality
+            );
+            probability = adjusted.adjustedProbability;
+            calibrationAdjustedBy = adjusted.adjustment;
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  type: "text",
+                  agentId: persona.id,
+                  content: `[Calibration memory n=${
+                    calibrationMemory.samples
+                  }, bias=${(calibrationMemory.calibrationBias * 100).toFixed(
+                    1
+                  )}pt, adjust=${(calibrationAdjustedBy * 100).toFixed(
+                    1
+                  )}pt]\n\n`,
+                })}\n\n`
+              )
+            );
+          }
+
+          const forecastConfidence = deriveForecastConfidence(
+            probability,
+            sourceQuality,
+            calibrationMemory
           );
-          const brierScore = existing?.brierScore ?? 0.2 + Math.random() * 0.15;
+
+          const existing = predictions.find(
+            (prediction) =>
+              prediction.agent ===
+              `0x${persona.id.charAt(0).toUpperCase()}${persona.id.slice(1)}`
+          );
+          const brierScore =
+            existing?.brierScore ??
+            deriveFallbackBrier(persona.id, marketId, probability);
 
           agentResults.push({
             agent: persona.id,
             name: persona.name,
             probability,
             brierScore,
+            confidence: forecastConfidence,
+            sourceQuality,
           });
+
           await recordForecast({
             organizationId: context.membership.organizationId,
             marketId,
             userId: context.user.id,
             agentId: persona.id,
             probability,
+            confidence: forecastConfidence,
             modelName: persona.model,
           });
 
-          // Signal agent completion
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
@@ -199,42 +441,47 @@ export async function POST(request: NextRequest) {
                 agentName: persona.name,
                 probability,
                 brierScore,
+                confidence: forecastConfidence,
+                sourceQuality,
+                memory: calibrationMemory
+                  ? {
+                      samples: calibrationMemory.samples,
+                      reliabilityScore: calibrationMemory.reliabilityScore,
+                      calibrationBias: calibrationMemory.calibrationBias,
+                      adjustment: calibrationAdjustedBy,
+                    }
+                  : null,
               })}\n\n`
             )
           );
         }
 
-        // Compute reputation-weighted consensus
-        const totalInverseWeight = agentResults.reduce(
-          (sum, a) => sum + (a.brierScore > 0 ? 1 / a.brierScore : 10),
-          0
+        const consensus = buildSuperforecastConsensus(
+          agentResults.map((agent) => ({
+            id: agent.agent,
+            name: agent.name,
+            probability: agent.probability,
+            brierScore: agent.brierScore,
+            confidence: agent.confidence,
+            sourceQuality: agent.sourceQuality,
+          })),
+          market.impliedProbYes
         );
-        const weightedProb = agentResults.reduce(
-          (sum, a) =>
-            sum +
-            a.probability *
-              (a.brierScore > 0 ? 1 / a.brierScore : 10),
-          0
-        ) / totalInverseWeight;
-
-        const simpleAvg =
-          agentResults.reduce((sum, a) => sum + a.probability, 0) /
-          agentResults.length;
 
         controller.enqueue(
           encoder.encode(
             `data: ${JSON.stringify({
               type: "consensus",
-              weightedProbability: weightedProb,
-              simpleProbability: simpleAvg,
-              agentCount: agentResults.length,
-              agents: agentResults.map((a) => ({
-                id: a.agent,
-                name: a.name,
-                probability: a.probability,
-                brierScore: a.brierScore,
-                weight: a.brierScore > 0 ? (1 / a.brierScore / totalInverseWeight) : 0,
-              })),
+              weightedProbability: consensus.weightedProbability,
+              simpleProbability: consensus.simpleProbability,
+              agentCount: consensus.agentCount,
+              disagreement: consensus.disagreement,
+              confidenceScore: consensus.confidenceScore,
+              confidenceInterval: consensus.confidenceInterval,
+              marketEdge: consensus.marketEdge,
+              signal: consensus.signal,
+              scenarios: consensus.scenarios,
+              agents: consensus.agents,
             })}\n\n`
           )
         );
@@ -246,18 +493,23 @@ export async function POST(request: NextRequest) {
           targetType: "market",
           targetId: String(marketId),
           metadata: {
-            weightedProbability: weightedProb,
-            simpleProbability: simpleAvg,
-            agentCount: agentResults.length,
+            weightedProbability: consensus.weightedProbability,
+            simpleProbability: consensus.simpleProbability,
+            disagreement: consensus.disagreement,
+            confidenceScore: consensus.confidenceScore,
+            signal: consensus.signal,
+            agentCount: consensus.agentCount,
           },
         });
 
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error ? err.message : "Unknown multi-agent error";
         controller.enqueue(
           encoder.encode(
-            `data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`
+            `data: ${JSON.stringify({ type: "error", message })}\n\n`
           )
         );
         controller.close();

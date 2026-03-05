@@ -2,15 +2,28 @@ import { mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-const dataDir = path.join(process.cwd(), ".data");
-if (!existsSync(dataDir)) {
-  mkdirSync(dataDir, { recursive: true });
+const isBuildTime =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.PREDICTION_AGENT_BUILD === "true";
+
+let dbPath = process.env.PREDICTION_AGENT_DB_PATH;
+if (!dbPath) {
+  if (isBuildTime) {
+    // Build workers don't require persistent storage and can contend on sqlite locks.
+    dbPath = ":memory:";
+  } else {
+    const dataDir = path.join(process.cwd(), ".data");
+    if (!existsSync(dataDir)) {
+      mkdirSync(dataDir, { recursive: true });
+    }
+    dbPath = path.join(dataDir, "prediction-agent.sqlite");
+  }
 }
 
-const dbPath = path.join(dataDir, "prediction-agent.sqlite");
 export const db = new DatabaseSync(dbPath);
 
 db.exec(`
+  PRAGMA busy_timeout = 10000;
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
 

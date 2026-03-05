@@ -85,6 +85,8 @@ const envSchema = z.object({
   STARKNET_RPC_URL: z.string().url(),
   STARKNET_ACCOUNT_ADDRESS: z.string().startsWith("0x"),
   STARKNET_EXECUTION_SURFACE: z.enum(["direct", "avnu", "starkzap"]).optional(),
+  STARKNET_STARKZAP_FALLBACK_TO_DIRECT: z.enum(["true", "false"]).optional(),
+  STARKNET_EXECUTION_PROFILE: z.enum(["standard", "hardened"]).optional(),
   STARKNET_SIGNER_MODE: z.enum(["direct", "proxy"]).optional(),
   STARKNET_PRIVATE_KEY: z.string().startsWith("0x").optional(),
   AVNU_BASE_URL: z.string().url().optional(),
@@ -119,6 +121,9 @@ const env = envSchema.parse({
   STARKNET_RPC_URL: process.env.STARKNET_RPC_URL,
   STARKNET_ACCOUNT_ADDRESS: process.env.STARKNET_ACCOUNT_ADDRESS,
   STARKNET_EXECUTION_SURFACE: process.env.STARKNET_EXECUTION_SURFACE,
+  STARKNET_STARKZAP_FALLBACK_TO_DIRECT:
+    process.env.STARKNET_STARKZAP_FALLBACK_TO_DIRECT,
+  STARKNET_EXECUTION_PROFILE: process.env.STARKNET_EXECUTION_PROFILE,
   STARKNET_SIGNER_MODE: process.env.STARKNET_SIGNER_MODE,
   STARKNET_PRIVATE_KEY: process.env.STARKNET_PRIVATE_KEY,
   AVNU_BASE_URL: process.env.AVNU_BASE_URL || defaultAvnuApiUrl,
@@ -143,9 +148,38 @@ const env = envSchema.parse({
 });
 
 const executionSurface = env.STARKNET_EXECUTION_SURFACE ?? "direct";
+const starkzapFallbackToDirect =
+  env.STARKNET_STARKZAP_FALLBACK_TO_DIRECT === "true";
+const executionProfile = env.STARKNET_EXECUTION_PROFILE ?? "hardened";
 const signerMode = env.STARKNET_SIGNER_MODE ?? "direct";
 const runtimeEnvironment = (env.NODE_ENV || "development").toLowerCase();
 const isProductionRuntime = runtimeEnvironment === "production";
+
+type ExecuteTransactionToolName =
+  | "starknet_transfer"
+  | "starknet_invoke_contract"
+  | "starknet_vesu_deposit"
+  | "starknet_vesu_withdraw"
+  | "starknet_swap"
+  | "starknet_deploy_agent_account"
+  | "starknet_register_agent"
+  | "starknet_set_agent_metadata";
+
+const EXECUTE_TRANSACTION_TOOL_NAMES: ExecuteTransactionToolName[] = [
+  "starknet_transfer",
+  "starknet_invoke_contract",
+  "starknet_vesu_deposit",
+  "starknet_vesu_withdraw",
+  "starknet_swap",
+  "starknet_deploy_agent_account",
+  "starknet_register_agent",
+  "starknet_set_agent_metadata",
+];
+
+const HARDENED_STARKZAP_ALLOWED_TOOLS = new Set<ExecuteTransactionToolName>([
+  "starknet_transfer",
+  "starknet_swap",
+]);
 
 if (isProductionRuntime && signerMode !== "proxy") {
   throw new Error(
@@ -433,93 +467,82 @@ function parseDeployResultFromReceipt(
  * - gasfree=true + API key: sponsored mode (dApp pays all gas)
  * - gasfree=true + no API key: user pays gas in gasToken
  */
-async function executeTransaction(
+interface ExecuteTransactionResult {
+  transactionHash: string;
+  configuredSurface: "direct" | "avnu" | "starkzap";
+  executedSurface: "direct" | "starkzap";
+  fallbackFrom?: "starkzap";
+  fallbackReason?: string;
+}
+
+function isStarkzapUnavailableError(rawError: unknown): boolean {
+  const message =
+    typeof rawError === "string"
+      ? rawError
+      : (rawError as { message?: string } | null)?.message ?? "";
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("starkzap sdk is unavailable") ||
+    lower.includes("cannot find module") ||
+    lower.includes("incomplete starkzap sdk exports") ||
+    lower.includes("requires starknet_signer_mode=direct") ||
+    lower.includes("requires starknet_private_key")
+  );
+}
+
+function normalizeErrorMessage(rawError: unknown): string {
+  if (rawError instanceof Error) return rawError.message;
+  if (typeof rawError === "string") return rawError;
+  return "unknown";
+}
+
+async function probeStarkzapReadiness(): Promise<{
+  ready: boolean;
+  reason?: string;
+}> {
+  if (signerMode !== "direct") {
+    return {
+      ready: false,
+      reason:
+        "starkzap execution requires STARKNET_SIGNER_MODE=direct with STARKNET_PRIVATE_KEY set",
+    };
+  }
+
+  if (!env.STARKNET_PRIVATE_KEY) {
+    return {
+      ready: false,
+      reason: "starkzap execution requires STARKNET_PRIVATE_KEY",
+    };
+  }
+
+  const dynamicImport = new Function(
+    "moduleName",
+    "return import(moduleName)"
+  ) as (moduleName: string) => Promise<any>;
+
+  try {
+    const sdkModule = await dynamicImport("starkzap");
+    if (!sdkModule?.StarkSDK || !sdkModule?.StarkSigner || !sdkModule?.ChainId) {
+      return {
+        ready: false,
+        reason: "Incomplete Starkzap SDK exports (StarkSDK/StarkSigner/ChainId)",
+      };
+    }
+    return { ready: true };
+  } catch {
+    return {
+      ready: false,
+      reason:
+        'Starkzap SDK is unavailable. Install dependency "starkzap" to enable STARKNET_EXECUTION_SURFACE=starkzap.',
+    };
+  }
+}
+
+async function executeThroughAccount(
   calls: Call | Call[],
   gasfree: boolean,
   gasToken: string = TOKENS.STRK
 ): Promise<string> {
-  if (executionSurface === "starkzap") {
-    const dynamicImport = new Function(
-      "moduleName",
-      "return import(moduleName)"
-    ) as (moduleName: string) => Promise<any>;
-
-    if (signerMode !== "direct") {
-      throw new Error(
-        "starkzap execution requires STARKNET_SIGNER_MODE=direct with STARKNET_PRIVATE_KEY set"
-      );
-    }
-
-    if (!env.STARKNET_PRIVATE_KEY) {
-      throw new Error(
-        "starkzap execution requires STARKNET_PRIVATE_KEY"
-      );
-    }
-
-    let sdkModule: any;
-    try {
-      sdkModule = await dynamicImport("starkzap");
-    } catch {
-      throw new Error(
-        'Starkzap SDK is unavailable. Install dependency "starkzap" to enable STARKNET_EXECUTION_SURFACE=starkzap.'
-      );
-    }
-
-    const StarkSDK = sdkModule.StarkSDK;
-    const StarkSigner = sdkModule.StarkSigner;
-    const ChainId = sdkModule.ChainId;
-    if (!StarkSDK || !StarkSigner || !ChainId) {
-      throw new Error(
-        "Incomplete Starkzap SDK exports (StarkSDK/StarkSigner/ChainId)"
-      );
-    }
-
-    const chainId =
-      (isSepoliaRpc ? ChainId.SEPOLIA : ChainId.MAINNET) ??
-      (isSepoliaRpc ? ChainId.SN_SEPOLIA : ChainId.SN_MAIN);
-
-    const sdk = new StarkSDK({
-      rpcUrl: env.STARKNET_RPC_URL,
-      chainId,
-    });
-
-    const wallet = await sdk.connectWallet({
-      account: { signer: new StarkSigner(env.STARKNET_PRIVATE_KEY) },
-      feeMode: gasfree ? "sponsored" : "user_pays",
-    });
-
-    await wallet.ensureReady({ deploy: "if_needed" });
-
-    const callsArray = Array.isArray(calls) ? calls : [calls];
-    if (typeof wallet.preflight === "function") {
-      const preflight = await wallet.preflight({
-        calls: callsArray,
-        feeMode: gasfree ? "sponsored" : "user_pays",
-      });
-      if (preflight && preflight.ok === false) {
-        throw new Error(`starkzap preflight failed: ${preflight.reason ?? "unknown"}`);
-      }
-    }
-
-    const execution = await wallet.execute(callsArray, {
-      feeMode: gasfree ? "sponsored" : "user_pays",
-    });
-
-    if (execution && typeof execution.wait === "function") {
-      await execution.wait();
-    }
-
-    const txHash =
-      execution?.transactionHash ??
-      execution?.transaction_hash ??
-      execution?.hash;
-
-    if (!txHash) {
-      throw new Error("starkzap execute returned no transaction hash");
-    }
-    return txHash;
-  }
-
   if (!gasfree) {
     const result = await account.execute(calls);
     return result.transaction_hash;
@@ -540,6 +563,160 @@ async function executeTransaction(
   );
 
   return result.transaction_hash;
+}
+
+async function executeThroughStarkzap(
+  calls: Call | Call[],
+  gasfree: boolean
+): Promise<string> {
+  const dynamicImport = new Function(
+    "moduleName",
+    "return import(moduleName)"
+  ) as (moduleName: string) => Promise<any>;
+
+  if (signerMode !== "direct") {
+    throw new Error(
+      "starkzap execution requires STARKNET_SIGNER_MODE=direct with STARKNET_PRIVATE_KEY set"
+    );
+  }
+
+  if (!env.STARKNET_PRIVATE_KEY) {
+    throw new Error("starkzap execution requires STARKNET_PRIVATE_KEY");
+  }
+
+  let sdkModule: any;
+  try {
+    sdkModule = await dynamicImport("starkzap");
+  } catch {
+    throw new Error(
+      'Starkzap SDK is unavailable. Install dependency "starkzap" to enable STARKNET_EXECUTION_SURFACE=starkzap.'
+    );
+  }
+
+  const StarkSDK = sdkModule.StarkSDK;
+  const StarkSigner = sdkModule.StarkSigner;
+  const ChainId = sdkModule.ChainId;
+  if (!StarkSDK || !StarkSigner || !ChainId) {
+    throw new Error("Incomplete Starkzap SDK exports (StarkSDK/StarkSigner/ChainId)");
+  }
+
+  const chainId =
+    (isSepoliaRpc ? ChainId.SEPOLIA : ChainId.MAINNET) ??
+    (isSepoliaRpc ? ChainId.SN_SEPOLIA : ChainId.SN_MAIN);
+
+  const sdk = new StarkSDK({
+    rpcUrl: env.STARKNET_RPC_URL,
+    chainId,
+  });
+
+  const wallet = await sdk.connectWallet({
+    account: { signer: new StarkSigner(env.STARKNET_PRIVATE_KEY) },
+    feeMode: gasfree ? "sponsored" : "user_pays",
+  });
+
+  await wallet.ensureReady({ deploy: "if_needed" });
+
+  const callsArray = Array.isArray(calls) ? calls : [calls];
+  if (typeof wallet.preflight === "function") {
+    const preflight = await wallet.preflight({
+      calls: callsArray,
+      feeMode: gasfree ? "sponsored" : "user_pays",
+    });
+    if (preflight && preflight.ok === false) {
+      throw new Error(`starkzap preflight failed: ${preflight.reason ?? "unknown"}`);
+    }
+  }
+
+  const execution = await wallet.execute(callsArray, {
+    feeMode: gasfree ? "sponsored" : "user_pays",
+  });
+
+  if (execution && typeof execution.wait === "function") {
+    await execution.wait();
+  }
+
+  const txHash = execution?.transactionHash ?? execution?.transaction_hash ?? execution?.hash;
+  if (!txHash) {
+    throw new Error("starkzap execute returned no transaction hash");
+  }
+  return txHash;
+}
+
+function toolAllowsStarkzap(toolName: ExecuteTransactionToolName): boolean {
+  if (executionProfile === "standard") {
+    return true;
+  }
+  return HARDENED_STARKZAP_ALLOWED_TOOLS.has(toolName);
+}
+
+function assertStarkzapToolAllowed(toolName: ExecuteTransactionToolName): void {
+  if (toolAllowsStarkzap(toolName)) {
+    return;
+  }
+  throw new Error(
+    `${toolName} is blocked when STARKNET_EXECUTION_PROFILE=${executionProfile} and ` +
+      `STARKNET_EXECUTION_SURFACE=starkzap. Use STARKNET_EXECUTION_SURFACE=direct ` +
+      "for this tool or set STARKNET_EXECUTION_PROFILE=standard."
+  );
+}
+
+interface ExecuteTransactionOptions {
+  toolName: ExecuteTransactionToolName;
+  allowFallbackToDirect?: boolean;
+}
+
+async function executeTransaction(
+  calls: Call | Call[],
+  gasfree: boolean,
+  gasToken: string = TOKENS.STRK,
+  options: ExecuteTransactionOptions
+): Promise<ExecuteTransactionResult> {
+  if (executionSurface === "starkzap") {
+    assertStarkzapToolAllowed(options.toolName);
+
+    try {
+      const transactionHash = await executeThroughStarkzap(calls, gasfree);
+      return {
+        transactionHash,
+        configuredSurface: executionSurface,
+        executedSurface: "starkzap",
+      };
+    } catch (error) {
+      if (
+        options.allowFallbackToDirect &&
+        starkzapFallbackToDirect &&
+        isStarkzapUnavailableError(error)
+      ) {
+        const reason = normalizeErrorMessage(error);
+        const transactionHash = await executeThroughAccount(calls, gasfree, gasToken);
+        log({
+          level: "warn",
+          event: "starkzap_fallback_to_direct",
+          details: {
+            reason,
+            toolName: options.toolName,
+            signerMode,
+            gasfree,
+          },
+        });
+        return {
+          transactionHash,
+          configuredSurface: executionSurface,
+          executedSurface: "direct",
+          fallbackFrom: "starkzap",
+          fallbackReason: reason,
+        };
+      }
+      throw error;
+    }
+  }
+
+  const transactionHash = await executeThroughAccount(calls, gasfree, gasToken);
+  return {
+    transactionHash,
+    configuredSurface: executionSurface,
+    executedSurface: "direct",
+  };
 }
 
 // MCP Server setup
@@ -741,6 +918,16 @@ const tools: Tool[] = [
         },
       },
       required: ["sellToken", "buyToken", "amount"],
+    },
+  },
+  {
+    name: "starknet_execution_surface_status",
+    description:
+      "Report execution-surface readiness, fallback posture, and hardened profile constraints (direct/avnu/starkzap).",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
     },
   },
   {
@@ -1330,8 +1517,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }),
         };
 
-        const transactionHash = await executeTransaction(transferCall, gasfree, gasTokenAddress);
-        await provider.waitForTransaction(transactionHash, { retries: TX_WAIT_RETRIES, retryInterval: TX_WAIT_INTERVAL_MS });
+        const execution = await executeTransaction(transferCall, gasfree, gasTokenAddress, {
+          toolName: "starknet_transfer",
+          allowFallbackToDirect: true,
+        });
+        await provider.waitForTransaction(execution.transactionHash, {
+          retries: TX_WAIT_RETRIES,
+          retryInterval: TX_WAIT_INTERVAL_MS,
+        });
 
         return {
           content: [
@@ -1339,12 +1532,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               type: "text",
               text: JSON.stringify({
                 success: true,
-                transactionHash,
+                transactionHash: execution.transactionHash,
                 recipient,
                 token,
                 amount,
                 gasfree,
-                executionSurface,
+                executionSurface: execution.configuredSurface,
+                executedSurface: execution.executedSurface,
+                ...(execution.fallbackFrom
+                  ? {
+                      fallbackFrom: execution.fallbackFrom,
+                      fallbackReason: execution.fallbackReason,
+                    }
+                  : {}),
               }, null, 2),
             },
           ],
@@ -1400,8 +1600,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           calldata: validatedCalldata,
         };
 
-        const transactionHash = await executeTransaction(invokeCall, gasfree, gasTokenAddress);
-        await provider.waitForTransaction(transactionHash, { retries: TX_WAIT_RETRIES, retryInterval: TX_WAIT_INTERVAL_MS });
+        const execution = await executeTransaction(invokeCall, gasfree, gasTokenAddress, {
+          toolName: "starknet_invoke_contract",
+        });
+        await provider.waitForTransaction(execution.transactionHash, {
+          retries: TX_WAIT_RETRIES,
+          retryInterval: TX_WAIT_INTERVAL_MS,
+        });
 
         return {
           content: [
@@ -1409,10 +1614,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               type: "text",
               text: JSON.stringify({
                 success: true,
-                transactionHash,
+                transactionHash: execution.transactionHash,
                 contractAddress,
                 entrypoint,
                 gasfree,
+                executionSurface: execution.configuredSurface,
+                executedSurface: execution.executedSurface,
+                ...(execution.fallbackFrom
+                  ? {
+                      fallbackFrom: execution.fallbackFrom,
+                      fallbackReason: execution.fallbackReason,
+                    }
+                  : {}),
               }, null, 2),
             },
           ],
@@ -1444,8 +1657,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         );
 
         const gasTokenAddress = gasToken ? await resolveTokenAddressAsync(gasToken) : TOKENS.STRK;
-        const transactionHash = await executeTransaction(calls, gasfree, gasTokenAddress);
-        await provider.waitForTransaction(transactionHash, { retries: TX_WAIT_RETRIES, retryInterval: TX_WAIT_INTERVAL_MS });
+        const execution = await executeTransaction(calls, gasfree, gasTokenAddress, {
+          toolName: "starknet_vesu_deposit",
+        });
+        await provider.waitForTransaction(execution.transactionHash, {
+          retries: TX_WAIT_RETRIES,
+          retryInterval: TX_WAIT_INTERVAL_MS,
+        });
 
         return {
           content: [
@@ -1453,10 +1671,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               type: "text",
               text: JSON.stringify({
                 success: true,
-                transactionHash,
+                transactionHash: execution.transactionHash,
                 token,
                 amount,
                 pool: pool === VESU_PRIME_POOL ? "prime" : pool,
+                executionSurface: execution.configuredSurface,
+                executedSurface: execution.executedSurface,
+                ...(execution.fallbackFrom
+                  ? {
+                      fallbackFrom: execution.fallbackFrom,
+                      fallbackReason: execution.fallbackReason,
+                    }
+                  : {}),
               }, null, 2),
             },
           ],
@@ -1488,8 +1714,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         );
 
         const gasTokenAddress = gasToken ? await resolveTokenAddressAsync(gasToken) : TOKENS.STRK;
-        const transactionHash = await executeTransaction(calls, gasfree, gasTokenAddress);
-        await provider.waitForTransaction(transactionHash, { retries: TX_WAIT_RETRIES, retryInterval: TX_WAIT_INTERVAL_MS });
+        const execution = await executeTransaction(calls, gasfree, gasTokenAddress, {
+          toolName: "starknet_vesu_withdraw",
+        });
+        await provider.waitForTransaction(execution.transactionHash, {
+          retries: TX_WAIT_RETRIES,
+          retryInterval: TX_WAIT_INTERVAL_MS,
+        });
 
         return {
           content: [
@@ -1497,9 +1728,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               type: "text",
               text: JSON.stringify({
                 success: true,
-                transactionHash,
+                transactionHash: execution.transactionHash,
                 token,
                 amount,
+                executionSurface: execution.configuredSurface,
+                executedSurface: execution.executedSurface,
+                ...(execution.fallbackFrom
+                  ? {
+                      fallbackFrom: execution.fallbackFrom,
+                      fallbackReason: execution.fallbackReason,
+                    }
+                  : {}),
               }, null, 2),
             },
           ],
@@ -1633,8 +1872,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }, { baseUrl: env.AVNU_BASE_URL });
 
         const gasTokenAddress = gasToken ? await resolveTokenAddressAsync(gasToken) : sellTokenAddress;
-        const transactionHash = await executeTransaction(calls, gasfree, gasTokenAddress);
-        await provider.waitForTransaction(transactionHash, { retries: TX_WAIT_RETRIES, retryInterval: TX_WAIT_INTERVAL_MS });
+        const execution = await executeTransaction(calls, gasfree, gasTokenAddress, {
+          toolName: "starknet_swap",
+          allowFallbackToDirect: true,
+        });
+        await provider.waitForTransaction(execution.transactionHash, {
+          retries: TX_WAIT_RETRIES,
+          retryInterval: TX_WAIT_INTERVAL_MS,
+        });
 
         const tokenService = getTokenService();
         const buyDecimals = await tokenService.getDecimalsAsync(buyTokenAddress);
@@ -1648,7 +1893,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               type: "text",
               text: JSON.stringify({
                 success: true,
-                transactionHash,
+                transactionHash: execution.transactionHash,
                 sellToken,
                 buyToken,
                 sellAmount: amount,
@@ -1656,7 +1901,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 buyAmountInUsd: bestQuote.buyAmountInUsd?.toFixed(2),
                 slippage,
                 gasfree,
-                executionSurface,
+                executionSurface: execution.configuredSurface,
+                executedSurface: execution.executedSurface,
+                ...(execution.fallbackFrom
+                  ? {
+                      fallbackFrom: execution.fallbackFrom,
+                      fallbackReason: execution.fallbackReason,
+                    }
+                  : {}),
                 ...(swapPriceWarning ? { warning: swapPriceWarning } : {}),
               }, null, 2),
             },
@@ -1713,6 +1965,66 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 executionSurface,
                 ...(quotePriceWarning ? { warning: quotePriceWarning } : {}),
               }, null, 2),
+            },
+          ],
+        };
+      }
+
+      case "starknet_execution_surface_status": {
+        const starkzapProbe = await probeStarkzapReadiness();
+        const effectiveSurface =
+          executionSurface === "starkzap" && !starkzapProbe.ready && starkzapFallbackToDirect
+            ? "direct"
+            : executionSurface;
+        const blockedInHardenedProfile =
+          executionSurface === "starkzap" && executionProfile === "hardened"
+            ? EXECUTE_TRANSACTION_TOOL_NAMES.filter((toolName) => !toolAllowsStarkzap(toolName))
+            : [];
+
+        const issues: string[] = [];
+        if (executionSurface === "starkzap" && !starkzapProbe.ready && !starkzapFallbackToDirect) {
+          issues.push(starkzapProbe.reason ?? "starkzap is not ready");
+        }
+        if (executionSurface === "starkzap" && !starkzapProbe.ready && starkzapFallbackToDirect) {
+          issues.push(
+            `starkzap unavailable; fallback enabled (${starkzapProbe.reason ?? "unknown reason"})`
+          );
+        }
+        if (blockedInHardenedProfile.length > 0) {
+          issues.push(
+            `hardened profile restricts starkzap execution to: ${[
+              ...HARDENED_STARKZAP_ALLOWED_TOOLS,
+            ].join(", ")}`
+          );
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  configuredSurface: executionSurface,
+                  effectiveSurface,
+                  executionProfile,
+                  signerMode,
+                  fallbackToDirectEnabled: starkzapFallbackToDirect,
+                  starkzapPolicy: {
+                    allowedTools:
+                      executionProfile === "hardened"
+                        ? [...HARDENED_STARKZAP_ALLOWED_TOOLS]
+                        : "all",
+                    blockedTools: blockedInHardenedProfile,
+                  },
+                  starkzap: {
+                    ready: starkzapProbe.ready,
+                    ...(starkzapProbe.reason ? { reason: starkzapProbe.reason } : {}),
+                  },
+                  issues,
+                },
+                null,
+                2
+              ),
             },
           ],
         };
@@ -2273,8 +2585,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }),
         };
 
-        const transactionHash = await executeTransaction(deployCall, gasfree);
-        const receipt = await provider.waitForTransaction(transactionHash, { retries: TX_WAIT_RETRIES, retryInterval: TX_WAIT_INTERVAL_MS });
+        const execution = await executeTransaction(deployCall, gasfree, TOKENS.STRK, {
+          toolName: "starknet_deploy_agent_account",
+        });
+        const receipt = await provider.waitForTransaction(execution.transactionHash, {
+          retries: TX_WAIT_RETRIES,
+          retryInterval: TX_WAIT_INTERVAL_MS,
+        });
         const { accountAddress, agentId } = parseDeployResultFromReceipt(
           receipt,
           env.AGENT_ACCOUNT_FACTORY_ADDRESS
@@ -2286,12 +2603,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               type: "text",
               text: JSON.stringify({
                 success: true,
-                transactionHash,
+                transactionHash: execution.transactionHash,
                 factoryAddress: env.AGENT_ACCOUNT_FACTORY_ADDRESS,
                 publicKey: `0x${parsedPublicKey.toString(16)}`,
                 salt: `0x${parsedSalt.toString(16)}`,
                 accountAddress,
                 agentId,
+                executionSurface: execution.configuredSurface,
+                executedSurface: execution.executedSurface,
+                ...(execution.fallbackFrom
+                  ? {
+                      fallbackFrom: execution.fallbackFrom,
+                      fallbackReason: execution.fallbackReason,
+                    }
+                  : {}),
               }, null, 2),
             },
           ],
@@ -2326,8 +2651,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           calldata,
         };
 
-        const transactionHash = await executeTransaction(call, gasfree);
-        const receipt = await provider.waitForTransaction(transactionHash, {
+        const execution = await executeTransaction(call, gasfree, TOKENS.STRK, {
+          toolName: "starknet_register_agent",
+        });
+        const receipt = await provider.waitForTransaction(execution.transactionHash, {
           retries: TX_WAIT_RETRIES,
           retryInterval: TX_WAIT_INTERVAL_MS,
         });
@@ -2340,9 +2667,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: JSON.stringify(
                 {
                   success: true,
-                  transactionHash,
+                  transactionHash: execution.transactionHash,
                   identityRegistry: identity,
                   agentId,
+                  executionSurface: execution.configuredSurface,
+                  executedSurface: execution.executedSurface,
+                  ...(execution.fallbackFrom
+                    ? {
+                        fallbackFrom: execution.fallbackFrom,
+                        fallbackReason: execution.fallbackReason,
+                      }
+                    : {}),
                 },
                 null,
                 2
@@ -2388,8 +2723,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           calldata,
         };
 
-        const transactionHash = await executeTransaction(call, gasfree);
-        await provider.waitForTransaction(transactionHash, {
+        const execution = await executeTransaction(call, gasfree, TOKENS.STRK, {
+          toolName: "starknet_set_agent_metadata",
+        });
+        await provider.waitForTransaction(execution.transactionHash, {
           retries: TX_WAIT_RETRIES,
           retryInterval: TX_WAIT_INTERVAL_MS,
         });
@@ -2401,11 +2738,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: JSON.stringify(
                 {
                   success: true,
-                  transactionHash,
+                  transactionHash: execution.transactionHash,
                   identityRegistry: identity,
                   agentId: agent_id,
                   key,
                   value,
+                  executionSurface: execution.configuredSurface,
+                  executedSurface: execution.executedSurface,
+                  ...(execution.fallbackFrom
+                    ? {
+                        fallbackFrom: execution.fallbackFrom,
+                        fallbackReason: execution.fallbackReason,
+                      }
+                    : {}),
                 },
                 null,
                 2

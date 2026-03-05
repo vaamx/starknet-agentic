@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_PATHS = new Set([
-  "/login",
-  "/signup",
-]);
+const PUBLIC_PATHS = new Set(["/login", "/signup"]);
 
 function isPublicAsset(pathname: string): boolean {
   return (
@@ -14,7 +11,7 @@ function isPublicAsset(pathname: string): boolean {
   );
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const hasSessionCookie = Boolean(request.cookies.get("hc_session")?.value);
 

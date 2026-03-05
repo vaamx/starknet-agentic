@@ -1,5 +1,12 @@
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import { agentSpawner, serializeAgent } from "@/lib/agent-spawner";
+import { requireRole } from "@/lib/require-auth";
+import { recordAudit } from "@/lib/ops-store";
+
+const AgentActionSchema = z.object({
+  action: z.enum(["stop", "pause", "resume"]),
+});
 
 /**
  * Single Agent endpoint.
@@ -8,9 +15,13 @@ import { agentSpawner, serializeAgent } from "@/lib/agent-spawner";
  * DELETE: Remove agent.
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!requireRole(request, "viewer")) {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const { id } = await params;
   const agent = agentSpawner.getAgent(id);
 
@@ -25,9 +36,21 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const context = requireRole(request, "admin");
+  if (!context) {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const { id } = await params;
-  const body = await request.json();
-  const action = body.action as string;
+  const body = await request.json().catch(() => null);
+  const parsed = AgentActionSchema.safeParse(body);
+  if (!parsed.success) {
+    return Response.json(
+      { error: parsed.error.issues.map((issue) => issue.message) },
+      { status: 400 }
+    );
+  }
+  const action = parsed.data.action;
 
   const agent = agentSpawner.getAgent(id);
   if (!agent) {
@@ -51,6 +74,17 @@ export async function POST(
       );
   }
 
+  await recordAudit({
+    organizationId: context.membership.organizationId,
+    userId: context.user.id,
+    action: `agent.${action}`,
+    targetType: "agent",
+    targetId: id,
+    metadata: {
+      status: agentSpawner.getAgent(id)?.status ?? null,
+    },
+  });
+
   return Response.json({
     ok: true,
     agent: serializeAgent(agentSpawner.getAgent(id)!),
@@ -58,9 +92,14 @@ export async function POST(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const context = requireRole(request, "admin");
+  if (!context) {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const { id } = await params;
   const agent = agentSpawner.getAgent(id);
 
@@ -69,5 +108,13 @@ export async function DELETE(
   }
 
   agentSpawner.remove(id);
+  await recordAudit({
+    organizationId: context.membership.organizationId,
+    userId: context.user.id,
+    action: "agent.remove",
+    targetType: "agent",
+    targetId: id,
+    metadata: { name: agent.name },
+  });
   return Response.json({ ok: true, message: `Agent "${agent.name}" removed` });
 }

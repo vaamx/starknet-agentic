@@ -18,6 +18,14 @@
     "starknet": "^9.2.1",
     "zod": "^4.3.6"
   },
+  "peerDependencies": {
+    "starkzap": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "starkzap": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/node": "^25.3.2",
     "@vitest/coverage-v8": "4.0.18",

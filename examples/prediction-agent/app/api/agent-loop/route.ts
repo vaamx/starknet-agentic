@@ -1,7 +1,14 @@
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import { agentLoop } from "@/lib/agent-loop";
 import { requireRole } from "@/lib/require-auth";
 import { recordAudit } from "@/lib/ops-store";
+import { checkRateLimit } from "@/lib/rate-limit";
+
+const AgentLoopActionSchema = z.object({
+  action: z.enum(["start", "stop"]),
+  intervalMs: z.number().int().min(5_000).max(3_600_000).optional(),
+});
 
 /**
  * Agent Loop control endpoint.
@@ -14,9 +21,32 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = await request.json();
-  const action = body.action as string;
-  const intervalMs = body.intervalMs as number | undefined;
+  const rateLimit = checkRateLimit(
+    `agent_loop:${context.membership.organizationId}:${context.user.id}`,
+    {
+      windowMs: 60_000,
+      max: 20,
+      blockMs: 60_000,
+    }
+  );
+  if (!rateLimit.allowed) {
+    return Response.json(
+      { error: "Rate limit exceeded for agent-loop control actions" },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.ceil(rateLimit.retryAfterMs / 1000)),
+        },
+      }
+    );
+  }
+
+  const body = await request.json().catch(() => null);
+  const parsed = AgentLoopActionSchema.safeParse(body);
+  if (!parsed.success) {
+    return Response.json({ error: parsed.error.issues }, { status: 400 });
+  }
+  const { action, intervalMs } = parsed.data;
 
   if (action === "start") {
     agentLoop.start(intervalMs);

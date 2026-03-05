@@ -12,12 +12,22 @@ export interface DataPoint {
   confidence?: number;
 }
 
+export interface SourceQuality {
+  reliabilityScore: number;
+  freshnessScore: number;
+  confidenceScore: number;
+  coverageScore: number;
+  overallScore: number;
+  latencyMs: number;
+}
+
 export interface DataSourceResult {
   source: string; // "polymarket" | "coingecko" | "news" | "social"
   query: string;
   timestamp: number;
   data: DataPoint[];
   summary: string;
+  quality?: SourceQuality;
 }
 
 export type DataSourceName = "polymarket" | "coingecko" | "news" | "social";
@@ -44,6 +54,78 @@ const ALL_SOURCES: DataSourceName[] = [
   "social",
 ];
 
+const SOURCE_BASELINE_RELIABILITY: Record<DataSourceName, number> = {
+  polymarket: 0.82,
+  coingecko: 0.87,
+  news: 0.68,
+  social: 0.58,
+};
+
+function clampUnit(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function scoreConfidence(points: DataPoint[]): number {
+  const confidences = points
+    .map((point) => point.confidence)
+    .filter((value): value is number => typeof value === "number");
+  if (confidences.length === 0) return 0.55;
+  return clampUnit(
+    confidences.reduce((sum, value) => sum + clampUnit(value), 0) /
+      confidences.length
+  );
+}
+
+function scoreCoverage(points: DataPoint[]): number {
+  return clampUnit(Math.min(1, points.length / 5));
+}
+
+function scoreFreshness(timestamp: number): number {
+  const ageMs = Math.max(0, Date.now() - timestamp);
+  // 1h half-life style decay for live-market relevance.
+  return clampUnit(1 / (1 + ageMs / (60 * 60 * 1000)));
+}
+
+function enrichWithQuality(
+  source: DataSourceName,
+  result: DataSourceResult,
+  latencyMs: number
+): DataSourceResult {
+  const reliabilityScore = SOURCE_BASELINE_RELIABILITY[source];
+  const freshnessScore = scoreFreshness(result.timestamp);
+  const confidenceScore = scoreConfidence(result.data);
+  const coverageScore = scoreCoverage(result.data);
+  const overallScore = clampUnit(
+    reliabilityScore * 0.4 +
+      freshnessScore * 0.25 +
+      confidenceScore * 0.2 +
+      coverageScore * 0.15
+  );
+
+  return {
+    ...result,
+    quality: {
+      reliabilityScore,
+      freshnessScore,
+      confidenceScore,
+      coverageScore,
+      overallScore,
+      latencyMs,
+    },
+  };
+}
+
+export function averageResearchQuality(results: DataSourceResult[]): number {
+  if (results.length === 0) return 0.5;
+  const scores = results
+    .map((result) => result.quality?.overallScore)
+    .filter((value): value is number => typeof value === "number");
+  if (scores.length === 0) return 0.5;
+  return (
+    scores.reduce((sum, score) => sum + clampUnit(score), 0) / scores.length
+  );
+}
+
 /**
  * Gather research from multiple data sources in parallel.
  * Returns results from all requested sources (defaults to all).
@@ -55,9 +137,11 @@ export async function gatherResearch(
   const selectedSources = sources ?? ALL_SOURCES;
 
   const results = await Promise.allSettled(
-    selectedSources.map((source) => {
+    selectedSources.map(async (source) => {
       const fetcher = SOURCE_FETCHERS[source];
-      return fetcher(question);
+      const startedAt = Date.now();
+      const result = await fetcher(question);
+      return enrichWithQuality(source, result, Date.now() - startedAt);
     })
   );
 
@@ -76,11 +160,15 @@ export function buildResearchBrief(results: DataSourceResult[]): string {
   if (results.length === 0) return "";
 
   const sections = results.map((r) => {
+    const quality = r.quality;
+    const qualityLine = quality
+      ? `Quality ${(quality.overallScore * 100).toFixed(0)}% (reliability ${(quality.reliabilityScore * 100).toFixed(0)}%, freshness ${(quality.freshnessScore * 100).toFixed(0)}%, confidence ${(quality.confidenceScore * 100).toFixed(0)}%)`
+      : "Quality unavailable";
     const points = r.data
       .slice(0, 5)
       .map((d) => `  - ${d.label}: ${d.value}`)
       .join("\n");
-    return `### ${r.source.toUpperCase()} Data\n${r.summary}\n${points}`;
+    return `### ${r.source.toUpperCase()} Data\n${qualityLine}\n${r.summary}\n${points}`;
   });
 
   return `## Real-World Research Data (gathered ${new Date().toISOString()})\n\n${sections.join("\n\n")}`;

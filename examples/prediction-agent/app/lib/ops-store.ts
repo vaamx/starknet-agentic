@@ -23,6 +23,15 @@ export interface AnalyticsOverview {
     source: string;
     count: number;
   }>;
+  sourceReliability: SourceReliabilityBacktestRow[];
+  agentCalibration: AgentCalibrationMemory[];
+  forecastQuality: {
+    avgBrier: number;
+    avgLogLoss: number;
+    sharpness: number;
+    calibrationGap: number;
+    brierSkillScore: number;
+  };
   strategy: {
     totalExecutions: number;
     successRate: number;
@@ -44,6 +53,26 @@ export interface ModelCalibrationRow {
   calibrationGap: number;
 }
 
+export interface SourceReliabilityBacktestRow {
+  source: string;
+  samples: number;
+  markets: number;
+  avgBrier: number;
+  calibrationBias: number;
+  reliabilityScore: number;
+  confidence: number;
+}
+
+export interface AgentCalibrationMemory {
+  agentId: string;
+  samples: number;
+  avgBrier: number;
+  calibrationBias: number;
+  reliabilityScore: number;
+  confidence: number;
+  memoryStrength: number;
+}
+
 type OutcomeRow = {
   probability: number;
   outcome: number;
@@ -52,9 +81,176 @@ type OutcomeRow = {
   agentId?: string | null;
 };
 
+type SourceOutcomeRow = {
+  sourceType: string;
+  marketId: number;
+  probability: number;
+  outcome: number;
+  createdAt: number;
+};
+
+const SOURCE_PRIOR_RELIABILITY: Record<string, number> = {
+  polymarket: 0.72,
+  coingecko: 0.76,
+  news: 0.62,
+  social: 0.52,
+};
+
+function clampUnit(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function normalizeAgentMemory(row: {
+  agentId: string;
+  samples: number;
+  avgBrier: number;
+  calibrationBias: number;
+}): AgentCalibrationMemory {
+  const confidence = clampUnit(Math.sqrt(row.samples / 48));
+  const reliabilityScore = clampUnit(
+    (1 - row.avgBrier * 1.7) * (1 - Math.min(0.9, Math.abs(row.calibrationBias)))
+  );
+  const memoryStrength = clampUnit(confidence * 0.85);
+
+  return {
+    agentId: row.agentId,
+    samples: row.samples,
+    avgBrier: row.avgBrier,
+    calibrationBias: row.calibrationBias,
+    reliabilityScore,
+    confidence,
+    memoryStrength,
+  };
+}
+
+function buildSourceReliabilityBacktests(
+  sourceRows: SourceOutcomeRow[]
+): SourceReliabilityBacktestRow[] {
+  const groups = new Map<
+    string,
+    {
+      source: string;
+      samples: number;
+      brierSum: number;
+      biasSum: number;
+      markets: Set<number>;
+    }
+  >();
+
+  for (const row of sourceRows) {
+    const source = row.sourceType.toLowerCase();
+    const probability = Math.max(0, Math.min(1, row.probability));
+    const outcome = row.outcome === 1 ? 1 : 0;
+    const brier = (probability - outcome) * (probability - outcome);
+    const bias = probability - outcome;
+
+    const current = groups.get(source) ?? {
+      source,
+      samples: 0,
+      brierSum: 0,
+      biasSum: 0,
+      markets: new Set<number>(),
+    };
+
+    current.samples += 1;
+    current.brierSum += brier;
+    current.biasSum += bias;
+    current.markets.add(row.marketId);
+    groups.set(source, current);
+  }
+
+  const rows = [...groups.values()].map((group) => {
+    const avgBrier = group.samples > 0 ? group.brierSum / group.samples : 0.25;
+    const calibrationBias =
+      group.samples > 0 ? group.biasSum / group.samples : 0;
+    const confidence = clampUnit(Math.sqrt(group.samples / 40));
+    const prior = SOURCE_PRIOR_RELIABILITY[group.source] ?? 0.55;
+    const skill = clampUnit(1 - avgBrier * 1.65);
+    const biasPenalty = clampUnit(1 - Math.min(0.85, Math.abs(calibrationBias)));
+    const reliabilityScore = clampUnit(
+      prior * 0.25 + skill * 0.45 + biasPenalty * 0.15 + confidence * 0.15
+    );
+
+    return {
+      source: group.source,
+      samples: group.samples,
+      markets: group.markets.size,
+      avgBrier,
+      calibrationBias,
+      reliabilityScore,
+      confidence,
+    };
+  });
+
+  for (const [source, prior] of Object.entries(SOURCE_PRIOR_RELIABILITY)) {
+    if (!rows.some((row) => row.source === source)) {
+      rows.push({
+        source,
+        samples: 0,
+        markets: 0,
+        avgBrier: 0.25,
+        calibrationBias: 0,
+        reliabilityScore: prior,
+        confidence: 0,
+      });
+    }
+  }
+
+  return rows.sort((a, b) => b.reliabilityScore - a.reliabilityScore);
+}
+
+function buildAgentCalibrationMemoriesFromOutcomes(
+  outcomeRows: OutcomeRow[]
+): AgentCalibrationMemory[] {
+  const groups = new Map<
+    string,
+    {
+      agentId: string;
+      samples: number;
+      brierSum: number;
+      biasSum: number;
+    }
+  >();
+
+  for (const row of outcomeRows) {
+    const agentId = (row.agentId ?? "").trim();
+    if (!agentId) continue;
+
+    const probability = Math.max(0, Math.min(1, row.probability));
+    const outcome = row.outcome === 1 ? 1 : 0;
+    const brier = (probability - outcome) * (probability - outcome);
+    const bias = probability - outcome;
+
+    const current = groups.get(agentId) ?? {
+      agentId,
+      samples: 0,
+      brierSum: 0,
+      biasSum: 0,
+    };
+
+    current.samples += 1;
+    current.brierSum += brier;
+    current.biasSum += bias;
+    groups.set(agentId, current);
+  }
+
+  return [...groups.values()]
+    .map((group) =>
+      normalizeAgentMemory({
+        agentId: group.agentId,
+        samples: group.samples,
+        avgBrier: group.samples > 0 ? group.brierSum / group.samples : 0.25,
+        calibrationBias: group.samples > 0 ? group.biasSum / group.samples : 0,
+      })
+    )
+    .sort((a, b) => b.memoryStrength - a.memoryStrength);
+}
+
 function buildOverview(
   outcomeRows: OutcomeRow[],
   sourceAttribution: Array<{ source: string; count: number }>,
+  sourceReliability: SourceReliabilityBacktestRow[],
+  agentCalibration: AgentCalibrationMemory[],
   strategyRows: Array<{
     executionSurface: string;
     status: string;
@@ -70,10 +266,17 @@ function buildOverview(
   }));
 
   const timelineMap = new Map<string, { scoreSum: number; count: number }>();
+  let brierSum = 0;
+  let logLossSum = 0;
+  let sharpnessSum = 0;
+  let predictedSum = 0;
+  let outcomeSum = 0;
   for (const row of outcomeRows) {
     const p = Math.max(0, Math.min(1, row.probability));
     const o = row.outcome === 1 ? 1 : 0;
     const brier = (p - o) * (p - o);
+    const pClamped = Math.max(1e-6, Math.min(1 - 1e-6, p));
+    const logLoss = -(o * Math.log(pClamped) + (1 - o) * Math.log(1 - pClamped));
 
     const binIndex = Math.min(9, Math.floor(p * 10));
     const bin = bins[binIndex];
@@ -86,6 +289,12 @@ function buildOverview(
     t.scoreSum += brier;
     t.count += 1;
     timelineMap.set(day, t);
+
+    brierSum += brier;
+    logLossSum += logLoss;
+    sharpnessSum += Math.abs(p - 0.5) * 2;
+    predictedSum += p;
+    outcomeSum += o;
   }
 
   const calibration = bins
@@ -105,6 +314,24 @@ function buildOverview(
       brier: t.scoreSum / t.count,
       count: t.count,
     }));
+
+  const forecastCount = outcomeRows.length;
+  const avgOutcome = forecastCount > 0 ? outcomeSum / forecastCount : 0.5;
+  const baselineBrier =
+    forecastCount > 0
+      ? outcomeRows.reduce((sum, row) => {
+          const outcome = row.outcome === 1 ? 1 : 0;
+          const delta = avgOutcome - outcome;
+          return sum + delta * delta;
+        }, 0) / forecastCount
+      : 0;
+  const avgBrier = forecastCount > 0 ? brierSum / forecastCount : 0;
+  const avgLogLoss = forecastCount > 0 ? logLossSum / forecastCount : 0;
+  const sharpness = forecastCount > 0 ? sharpnessSum / forecastCount : 0;
+  const avgPredicted = forecastCount > 0 ? predictedSum / forecastCount : 0.5;
+  const calibrationGap = Math.abs(avgPredicted - avgOutcome);
+  const brierSkillScore =
+    baselineBrier > 0 ? 1 - avgBrier / baselineBrier : 0;
 
   const bySurfaceMap = new Map<string, { executions: number; success: number }>();
   let totalExecutions = 0;
@@ -127,6 +354,15 @@ function buildOverview(
     calibration,
     brierTimeline,
     sourceAttribution,
+    sourceReliability,
+    agentCalibration,
+    forecastQuality: {
+      avgBrier,
+      avgLogLoss,
+      sharpness,
+      calibrationGap,
+      brierSkillScore,
+    },
     strategy: {
       totalExecutions,
       successRate: totalExecutions > 0 ? success / totalExecutions : 0,
@@ -230,6 +466,63 @@ async function getJoinedOutcomeRows(organizationId: string): Promise<OutcomeRow[
       `
     )
     .all(organizationId) as OutcomeRow[];
+}
+
+async function getJoinedSourceOutcomeRows(
+  organizationId: string
+): Promise<SourceOutcomeRow[]> {
+  const prisma = await getPrismaClient();
+  if (prisma) {
+    const rows = (await prisma.$queryRawUnsafe(
+      `
+      SELECT
+        rs.source_type as "sourceType",
+        f.market_id as "marketId",
+        f.probability as "probability",
+        mo.outcome as "outcome",
+        f.created_at as "createdAt"
+      FROM forecasts f
+      JOIN market_outcomes mo
+        ON mo.org_id = f.org_id
+       AND mo.market_id = f.market_id
+      JOIN (
+        SELECT DISTINCT org_id, market_id, source_type
+        FROM research_artifacts
+        WHERE org_id = $1
+      ) rs
+        ON rs.org_id = f.org_id
+       AND rs.market_id = f.market_id
+      WHERE f.org_id = $1
+      `,
+      organizationId
+    )) as SourceOutcomeRow[];
+    return rows;
+  }
+
+  return db
+    .prepare(
+      `
+      SELECT
+        rs.source_type as sourceType,
+        f.market_id as marketId,
+        f.probability as probability,
+        mo.outcome as outcome,
+        f.created_at as createdAt
+      FROM forecasts f
+      JOIN market_outcomes mo
+        ON mo.org_id = f.org_id
+       AND mo.market_id = f.market_id
+      JOIN (
+        SELECT DISTINCT org_id, market_id, source_type
+        FROM research_artifacts
+        WHERE org_id = ?
+      ) rs
+        ON rs.org_id = f.org_id
+       AND rs.market_id = f.market_id
+      WHERE f.org_id = ?
+      `
+    )
+    .all(organizationId, organizationId) as SourceOutcomeRow[];
 }
 
 export async function recordForecast(params: {
@@ -475,10 +768,16 @@ export async function getAnalyticsOverview(
   organizationId: string
 ): Promise<AnalyticsOverview> {
   const prisma = await getPrismaClient();
+  const [outcomeRows, sourceReliability] = await Promise.all([
+    getJoinedOutcomeRows(organizationId),
+    listSourceReliabilityBacktests(organizationId),
+  ]);
+  const agentCalibration = buildAgentCalibrationMemoriesFromOutcomes(
+    outcomeRows
+  ).slice(0, 10);
 
   if (prisma) {
-    const [outcomeRows, sourceRows, strategyRows] = await Promise.all([
-      getJoinedOutcomeRows(organizationId),
+    const [sourceRows, strategyRows] = await Promise.all([
       prisma.researchArtifact.groupBy({
         by: ["sourceType"],
         where: { orgId: organizationId },
@@ -504,6 +803,8 @@ export async function getAnalyticsOverview(
     return buildOverview(
       outcomeRows,
       sourceAttribution,
+      sourceReliability,
+      agentCalibration,
       strategyRows.map((r: any) => ({
         executionSurface: r.executionSurface,
         status: r.status,
@@ -513,7 +814,6 @@ export async function getAnalyticsOverview(
     );
   }
 
-  const outcomeRows = await getJoinedOutcomeRows(organizationId);
   const sourceAttribution = db
     .prepare(
       `
@@ -545,7 +845,13 @@ export async function getAnalyticsOverview(
     realizedPnlStrk: number | null;
   }>;
 
-  return buildOverview(outcomeRows, sourceAttribution, strategyRows);
+  return buildOverview(
+    outcomeRows,
+    sourceAttribution,
+    sourceReliability,
+    agentCalibration,
+    strategyRows
+  );
 }
 
 export async function getModelCalibrationComparison(
@@ -553,6 +859,86 @@ export async function getModelCalibrationComparison(
 ): Promise<ModelCalibrationRow[]> {
   const outcomeRows = await getJoinedOutcomeRows(organizationId);
   return buildModelCalibration(outcomeRows);
+}
+
+export async function listSourceReliabilityBacktests(
+  organizationId: string
+): Promise<SourceReliabilityBacktestRow[]> {
+  const sourceRows = await getJoinedSourceOutcomeRows(organizationId);
+  return buildSourceReliabilityBacktests(sourceRows);
+}
+
+export async function getSourceReliabilityProfile(
+  organizationId: string
+): Promise<Record<string, SourceReliabilityBacktestRow>> {
+  const rows = await listSourceReliabilityBacktests(organizationId);
+  return rows.reduce(
+    (acc, row) => {
+      acc[row.source] = row;
+      return acc;
+    },
+    {} as Record<string, SourceReliabilityBacktestRow>
+  );
+}
+
+export async function listAgentCalibrationMemories(
+  organizationId: string,
+  limit = 12
+): Promise<AgentCalibrationMemory[]> {
+  const rows = buildAgentCalibrationMemoriesFromOutcomes(
+    await getJoinedOutcomeRows(organizationId)
+  );
+  const finalLimit = Math.min(100, Math.max(1, limit));
+  return rows.slice(0, finalLimit);
+}
+
+export async function getAgentCalibrationMemory(
+  organizationId: string,
+  agentId: string
+): Promise<AgentCalibrationMemory> {
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId) {
+    return normalizeAgentMemory({
+      agentId: "unknown",
+      samples: 0,
+      avgBrier: 0.25,
+      calibrationBias: 0,
+    });
+  }
+
+  const outcomeRows = await getJoinedOutcomeRows(organizationId);
+  const matching = outcomeRows.filter(
+    (row) => (row.agentId ?? "").trim() === normalizedAgentId
+  );
+
+  if (matching.length === 0) {
+    return normalizeAgentMemory({
+      agentId: normalizedAgentId,
+      samples: 0,
+      avgBrier: 0.25,
+      calibrationBias: 0,
+    });
+  }
+
+  const summary = matching.reduce(
+    (acc, row) => {
+      const p = Math.max(0, Math.min(1, row.probability));
+      const o = row.outcome === 1 ? 1 : 0;
+      const error = p - o;
+      acc.samples += 1;
+      acc.brierSum += error * error;
+      acc.biasSum += error;
+      return acc;
+    },
+    { samples: 0, brierSum: 0, biasSum: 0 }
+  );
+
+  return normalizeAgentMemory({
+    agentId: normalizedAgentId,
+    samples: summary.samples,
+    avgBrier: summary.samples > 0 ? summary.brierSum / summary.samples : 0.25,
+    calibrationBias: summary.samples > 0 ? summary.biasSum / summary.samples : 0,
+  });
 }
 
 export async function listRecentForecasts(organizationId: string, limit = 100) {

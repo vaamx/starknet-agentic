@@ -15,6 +15,23 @@ interface DataSourceResult {
   timestamp: number;
   data: DataPoint[];
   summary: string;
+  quality?: {
+    reliabilityScore: number;
+    freshnessScore: number;
+    confidenceScore: number;
+    coverageScore: number;
+    overallScore: number;
+    latencyMs: number;
+  };
+  backtest?: {
+    source: string;
+    samples: number;
+    markets: number;
+    avgBrier: number;
+    calibrationBias: number;
+    reliabilityScore: number;
+    confidence: number;
+  } | null;
 }
 
 interface DataSourcesPanelProps {
@@ -126,6 +143,16 @@ export default function DataSourcesPanel({ question }: DataSourcesPanelProps) {
                       <span className="font-mono text-[10px] text-gray-400">
                         {result.data.length} points
                       </span>
+                      {result.quality && (
+                        <span className="font-mono text-[10px] text-gray-500">
+                          Q{Math.round(result.quality.overallScore * 100)}
+                        </span>
+                      )}
+                      {result.backtest && (
+                        <span className="font-mono text-[10px] text-gray-500">
+                          BT{Math.round(result.backtest.reliabilityScore * 100)}
+                        </span>
+                      )}
                     </div>
                     <svg
                       className={`w-3 h-3 text-gray-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
@@ -148,6 +175,64 @@ export default function DataSourcesPanel({ question }: DataSourcesPanelProps) {
                       <p className="font-mono text-[11px] text-gray-500 leading-snug">
                         {result.summary}
                       </p>
+
+                      {result.quality && (
+                        <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono">
+                          <span className="text-gray-500">
+                            Reliability:{" "}
+                            <span className="font-bold text-gray-700">
+                              {Math.round(result.quality.reliabilityScore * 100)}%
+                            </span>
+                          </span>
+                          <span className="text-gray-500">
+                            Freshness:{" "}
+                            <span className="font-bold text-gray-700">
+                              {Math.round(result.quality.freshnessScore * 100)}%
+                            </span>
+                          </span>
+                          <span className="text-gray-500">
+                            Confidence:{" "}
+                            <span className="font-bold text-gray-700">
+                              {Math.round(result.quality.confidenceScore * 100)}%
+                            </span>
+                          </span>
+                          <span className="text-gray-500">
+                            Latency:{" "}
+                            <span className="font-bold text-gray-700">
+                              {result.quality.latencyMs}ms
+                            </span>
+                          </span>
+                        </div>
+                      )}
+
+                      {result.backtest && (
+                        <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono border border-black/10 bg-white p-2">
+                          <span className="text-gray-500">
+                            Backtest score:{" "}
+                            <span className="font-bold text-gray-700">
+                              {Math.round(result.backtest.reliabilityScore * 100)}%
+                            </span>
+                          </span>
+                          <span className="text-gray-500">
+                            Samples:{" "}
+                            <span className="font-bold text-gray-700">
+                              {result.backtest.samples}
+                            </span>
+                          </span>
+                          <span className="text-gray-500">
+                            Markets:{" "}
+                            <span className="font-bold text-gray-700">
+                              {result.backtest.markets}
+                            </span>
+                          </span>
+                          <span className="text-gray-500">
+                            Avg Brier:{" "}
+                            <span className="font-bold text-gray-700">
+                              {result.backtest.avgBrier.toFixed(3)}
+                            </span>
+                          </span>
+                        </div>
+                      )}
 
                       {/* Data points */}
                       <div className="space-y-1">

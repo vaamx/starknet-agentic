@@ -1,33 +1,52 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ensureCsrfToken } from "@/lib/client-csrf";
 
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const next = searchParams.get("next") ?? "/";
+  const [nextPath, setNextPath] = useState("/");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextParam =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("next")
+        : null;
+    if (nextParam) {
+      setNextPath(nextParam);
+    }
+
+    ensureCsrfToken()
+      .then(setCsrfToken)
+      .catch(() => setError("Security initialization failed. Refresh and retry."));
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
+      const token = csrfToken ?? (await ensureCsrfToken());
       const response = await fetch("/api/auth/login", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": token,
+        },
         body: JSON.stringify({ email, password }),
       });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data?.error ?? "Login failed");
       }
-      router.replace(next);
+      router.replace(nextPath);
     } catch (err: any) {
       setError(err?.message ?? "Login failed");
     } finally {
@@ -72,7 +91,7 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !csrfToken}
             className="neo-btn-primary w-full text-sm py-2.5 disabled:opacity-40"
           >
             {loading ? "Signing in..." : "Sign In"}

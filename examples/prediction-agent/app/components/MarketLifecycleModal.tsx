@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { postJsonWithCsrf } from "@/lib/secure-fetch";
 
 type LifecycleAction = "resolve" | "finalize" | "claim";
 
@@ -49,11 +50,7 @@ export default function MarketLifecycleModal({
     try {
       const endpoint = `/api/markets/${marketId}/${action}`;
       const payload = action === "claim" ? {} : { outcome };
-      const resp = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const resp = await postJsonWithCsrf(endpoint, payload);
       const data = await resp.json();
 
       if (!resp.ok || data.status === "error") {

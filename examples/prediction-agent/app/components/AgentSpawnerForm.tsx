@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { AGENT_PERSONAS } from "@/lib/agent-personas";
+import { postJsonWithCsrf } from "@/lib/secure-fetch";
 
 interface AgentSpawnerFormProps {
   onClose: () => void;
@@ -67,16 +68,12 @@ export default function AgentSpawnerForm({
     setError(null);
 
     try {
-      const res = await fetch("/api/agents", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          personaId,
-          budgetStrk: parseFloat(budgetStrk) || 1000,
-          maxBetStrk: parseFloat(maxBetStrk) || 100,
-          preferredSources: selectedSources,
-        }),
+      const res = await postJsonWithCsrf("/api/agents", {
+        name: name.trim(),
+        personaId,
+        budgetStrk: parseFloat(budgetStrk) || 1000,
+        maxBetStrk: parseFloat(maxBetStrk) || 100,
+        preferredSources: selectedSources,
       });
 
       const data = await res.json();
