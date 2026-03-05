@@ -20,25 +20,68 @@ npm run build
 
 ## Configuration
 
-Create a `.env` file with your Starknet credentials:
+Create a `.env` file with your Starknet credentials.
+
+Direct signer mode (development/local only):
 
 ```bash
 STARKNET_RPC_URL=https://starknet-mainnet.g.alchemy.com/v2/YOUR_KEY
 STARKNET_ACCOUNT_ADDRESS=0x...
+STARKNET_SIGNER_MODE=direct
 STARKNET_PRIVATE_KEY=0x...
-
-# Optional session-key signer (limited permissions)
-STARKNET_SESSION_PRIVATE_KEY=0x...
-STARKNET_SESSION_PUBLIC_KEY=0x...
-STARKNET_SIGNER=session
-
-# Optional AgentAccountFactory for account+identity deployment
-STARKNET_AGENT_ACCOUNT_FACTORY=0x...
 
 # avnu URLs (optional -- defaults shown)
 AVNU_BASE_URL=https://starknet.api.avnu.fi
 AVNU_PAYMASTER_URL=https://starknet.paymaster.avnu.fi
+#
+# Paymaster fee mode:
+# - sponsored: dApp pays gas (requires AVNU to authorize your API key for sponsored builds)
+# - default: user pays gas in `gasToken` via paymaster
+# Defaults to "sponsored" when AVNU_PAYMASTER_API_KEY is set; otherwise "default".
+# You can force "default" to avoid failures when your key is not sponsor-authorized.
+AVNU_PAYMASTER_FEE_MODE=default
 ```
+
+Proxy signer mode (recommended for production):
+
+```bash
+STARKNET_RPC_URL=https://starknet-mainnet.g.alchemy.com/v2/YOUR_KEY
+STARKNET_ACCOUNT_ADDRESS=0x...
+STARKNET_SIGNER_MODE=proxy
+KEYRING_PROXY_URL=https://signer.internal:8545
+KEYRING_HMAC_SECRET=replace-with-long-random-secret
+KEYRING_CLIENT_ID=starknet-mcp-server
+# mTLS client material (required in production for non-loopback signer URLs)
+# KEYRING_TLS_CLIENT_CERT_PATH=/etc/starknet-mcp/tls/client.crt
+# KEYRING_TLS_CLIENT_KEY_PATH=/etc/starknet-mcp/tls/client.key
+# KEYRING_TLS_CA_PATH=/etc/starknet-mcp/tls/ca.crt
+# Optional:
+# KEYRING_SIGNING_KEY_ID=default
+# KEYRING_REQUEST_TIMEOUT_MS=5000
+# KEYRING_SESSION_VALIDITY_SECONDS=300
+```
+
+Signer boundary contract:
+- OpenAPI: `spec/signer-api-v1.openapi.yaml`
+- JSON Schema: `spec/signer-api-v1.schema.json`
+- Auth vectors: `spec/signer-auth-v1.json`
+- Auth vectors schema: `spec/signer-auth-v1.schema.json`
+- Security notes: `docs/security/SIGNER_API_SPEC.md`
+- Rotation runbook: `docs/security/SIGNER_PROXY_ROTATION_RUNBOOK.md`
+
+Interop note:
+- `spec/interop-version.json` remains at `0.1.0` until cross-repo conformance updates land.
+- Proxy clients should follow the signer API v1 contract above, including `X-Keyring-Client-Id`.
+
+SISNA server-side production key-custody guard:
+- Current SISNA builds fail production startup unless
+  `KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION=true` is explicitly set
+  while in-process key custody is still used.
+- This is a temporary explicit-risk acknowledgement until external KMS/HSM
+  signing mode is available in SISNA.
+
+Production startup guard: `KEYRING_PROXY_URL` must use `https://` unless loopback is used (`http://127.0.0.1`, `http://localhost`, or `http://[::1]`).
+Production startup guard (non-loopback signer URLs): `KEYRING_TLS_CLIENT_CERT_PATH`, `KEYRING_TLS_CLIENT_KEY_PATH`, and `KEYRING_TLS_CA_PATH` are required.
 
 ## Usage
 
@@ -57,11 +100,30 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
       "env": {
         "STARKNET_RPC_URL": "https://starknet-mainnet.g.alchemy.com/v2/YOUR_KEY",
         "STARKNET_ACCOUNT_ADDRESS": "0x...",
-        "STARKNET_PRIVATE_KEY": "0x...",
-        "STARKNET_SESSION_PRIVATE_KEY": "0x...",
-        "STARKNET_SESSION_PUBLIC_KEY": "0x...",
-        "STARKNET_SIGNER": "session",
-        "STARKNET_AGENT_ACCOUNT_FACTORY": "0x..."
+        "STARKNET_SIGNER_MODE": "proxy",
+        "KEYRING_PROXY_URL": "http://127.0.0.1:8545",
+        "KEYRING_HMAC_SECRET": "replace-with-long-random-secret"
+      }
+    }
+  }
+}
+```
+
+If you run direct mode locally instead:
+
+```json
+{
+  "mcpServers": {
+    "starknet": {
+      "command": "node",
+      "args": [
+        "/path/to/starknet-agentic/packages/starknet-mcp-server/dist/index.js"
+      ],
+      "env": {
+        "STARKNET_RPC_URL": "https://starknet-mainnet.g.alchemy.com/v2/YOUR_KEY",
+        "STARKNET_ACCOUNT_ADDRESS": "0x...",
+        "STARKNET_SIGNER_MODE": "direct",
+        "STARKNET_PRIVATE_KEY": "0x..."
       }
     }
   }
@@ -93,8 +155,7 @@ Transfer tokens to another address.
 {
   "recipient": "0x...",
   "token": "STRK",
-  "amount": "10.5",  // human-readable format
-  "signer": "session"  // optional: "owner" or "session"
+  "amount": "10.5"  // human-readable format
 }
 ```
 
@@ -118,8 +179,7 @@ Invoke a state-changing contract function.
 {
   "contractAddress": "0x...",
   "entrypoint": "approve",
-  "calldata": ["0x...", "1000000"],
-  "signer": "session"
+  "calldata": ["0x...", "1000000"]
 }
 ```
 
@@ -132,8 +192,7 @@ Execute a token swap using avnu aggregator.
   "sellToken": "ETH",
   "buyToken": "STRK",
   "amount": "0.1",
-  "slippage": 0.01,  // optional, defaults to 1%
-  "signer": "session"
+  "slippage": 0.01  // optional, defaults to 1%
 }
 ```
 
@@ -157,21 +216,7 @@ Estimate transaction fee.
 {
   "contractAddress": "0x...",
   "entrypoint": "transfer",
-  "calldata": ["0x...", "1000"],
-  "signer": "session"
-}
-```
-
-### `starknet_deploy_agent_account`
-
-Deploy a new AgentAccount via the factory and register an ERC-8004 identity.
-
-```typescript
-{
-  "publicKey": "0x...",
-  "salt": "0x1",
-  "tokenUri": "ipfs://QmAgent/agent.json",
-  "factoryAddress": "0x..."  // optional, defaults to STARKNET_AGENT_ACCOUNT_FACTORY
+  "calldata": ["0x...", "1000"]
 }
 ```
 
@@ -198,7 +243,14 @@ The server uses:
 
 ## Security
 
-- Private keys are loaded from environment variables only
+- Production startup guard: `NODE_ENV=production` requires `STARKNET_SIGNER_MODE=proxy`
+- Production startup guard: rejects `STARKNET_PRIVATE_KEY` when `STARKNET_SIGNER_MODE=proxy`
+- Production startup guard: non-loopback proxy URLs require mTLS client cert/key/CA paths
+- Proxy mode keeps signing outside MCP process (`starknet-keyring-proxy`)
+- Signer boundary API is versioned at `/v1/sign/session-transaction`
+- SISNA currently requires explicit production acknowledgement for in-process
+  key custody: `KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION=true`
+- Direct private key mode is intended for local development only
 - All inputs are validated before execution
 - Transactions wait for confirmation before returning
 - Comprehensive error handling for all operations

@@ -27,6 +27,7 @@ pub mod ReputationRegistry {
     use erc8004::interfaces::reputation_registry::{
         FeedbackCore, FeedbackRevoked, IReputationRegistry, NewFeedback, ResponseAppended,
     };
+    use erc8004::version::contract_version;
     use openzeppelin::access::ownable::OwnableComponent;
     use openzeppelin::security::reentrancyguard::ReentrancyGuardComponent;
     use openzeppelin::upgrades::UpgradeableComponent;
@@ -37,6 +38,19 @@ pub mod ReputationRegistry {
     // ============ Constants ============
     // Maximum absolute value for feedback (matches Solidity: 1e38)
     const MAX_ABS_VALUE: i128 = 100000000000000000000000000000000000000; // 1e38
+    // Defensive ceiling for the legacy non-paginated reader.
+    // Large reads should use `read_all_feedback_paginated`.
+    const MAX_READ_ALL_FEEDBACK_ENTRIES: u32 = 2048;
+    // Defensive ceiling for the legacy non-paginated summary.
+    const MAX_SUMMARY_SCAN_FEEDBACK_ENTRIES: u32 = 2048;
+    // Defensive ceiling for unpaginated client list reads.
+    const MAX_GET_CLIENTS_ENTRIES: u64 = 900;
+    // Defensive ceiling for response-count full scans.
+    const MAX_RESPONSE_COUNT_SCAN_ENTRIES: u64 = 900;
+    // Defensive ceilings for paginated scans to avoid unbounded O(n) reads
+    // from user-provided limits.
+    const MAX_PAGINATED_CLIENT_LIMIT: u32 = 256;
+    const MAX_PAGINATED_FEEDBACK_LIMIT: u64 = 1024;
 
     // ============ Component Declarations ============
     component!(
@@ -103,6 +117,7 @@ pub mod ReputationRegistry {
     fn constructor(
         ref self: ContractState, owner: ContractAddress, identity_registry_address: ContractAddress,
     ) {
+        assert(!owner.is_zero(), 'Invalid owner');
         // Validate address is not zero
         assert(!identity_registry_address.is_zero(), 'bad identity');
 
@@ -290,12 +305,19 @@ pub mod ReputationRegistry {
             let mut decimal_counts: Felt252Dict<u64> = Default::default();
 
             let mut i: u32 = 0;
+            let mut scanned_feedbacks: u32 = 0;
             while i < client_addresses.len() {
                 let client = *client_addresses.at(i);
                 let last_idx = self.last_index.entry((agent_id, client)).read();
+                if last_idx == 0 {
+                    scanned_feedbacks += 1;
+                    assert(scanned_feedbacks <= MAX_SUMMARY_SCAN_FEEDBACK_ENTRIES, 'Use get_summary_paginated');
+                }
 
                 let mut j: u64 = 1;
                 while j <= last_idx {
+                    scanned_feedbacks += 1;
+                    assert(scanned_feedbacks <= MAX_SUMMARY_SCAN_FEEDBACK_ENTRIES, 'Use get_summary_paginated');
                     let fb = self.feedback_core.entry((agent_id, client, j)).read();
 
                     // Skip revoked feedback
@@ -571,28 +593,29 @@ pub mod ReputationRegistry {
             let mut tag2s_arr: Array<ByteArray> = ArrayTrait::new();
             let mut revoked_arr: Array<bool> = ArrayTrait::new();
 
-            // Get client list
-            let client_list = if client_addresses.len() > 0 {
-                client_addresses
-            } else {
-                // Get all clients from Vec
-                let client_vec = self.clients.entry(agent_id);
-                let mut all_clients: Array<ContractAddress> = ArrayTrait::new();
-                let mut i: u64 = 0;
-                while i < client_vec.len() {
-                    all_clients.append(client_vec.at(i).read());
-                    i += 1;
-                };
-                all_clients.span()
-            };
+            // Hardening: non-paginated reads require explicit client scoping.
+            // For broad scans over all clients, use read_all_feedback_paginated.
+            assert(client_addresses.len() > 0, 'explicit clients required');
 
             let mut i: u32 = 0;
-            while i < client_list.len() {
-                let client = *client_list.at(i);
+            let mut scanned_clients: u32 = 0;
+            let mut scanned_feedbacks: u32 = 0;
+            while i < client_addresses.len() {
+                scanned_clients += 1;
+                assert(
+                    scanned_clients <= MAX_READ_ALL_FEEDBACK_ENTRIES,
+                    'Use read_all_feedback_paginated',
+                );
+                let client = *client_addresses.at(i);
                 let last_idx = self.last_index.entry((agent_id, client)).read();
 
                 let mut j: u64 = 1;
                 while j <= last_idx {
+                    scanned_feedbacks += 1;
+                    assert(
+                        scanned_feedbacks <= MAX_READ_ALL_FEEDBACK_ENTRIES,
+                        'Use read_all_feedback_paginated',
+                    );
                     let fb = self.feedback_core.entry((agent_id, client, j)).read();
                     let stored_tag1 = self.feedback_tag1.entry((agent_id, client, j)).read();
                     let stored_tag2 = self.feedback_tag2.entry((agent_id, client, j)).read();
@@ -613,6 +636,10 @@ pub mod ReputationRegistry {
                         continue;
                     }
 
+                    assert(
+                        clients_arr.len() < MAX_READ_ALL_FEEDBACK_ENTRIES,
+                        'Use read_all_feedback_paginated',
+                    );
                     clients_arr.append(client);
                     indexes_arr.append(j);
                     values_arr.append(fb.value);
@@ -630,6 +657,199 @@ pub mod ReputationRegistry {
             (clients_arr, indexes_arr, values_arr, decimals_arr, tag1s_arr, tag2s_arr, revoked_arr)
         }
 
+        fn read_all_feedback_paginated(
+            self: @ContractState,
+            agent_id: u256,
+            client_addresses: Span<ContractAddress>,
+            tag1: ByteArray,
+            tag2: ByteArray,
+            include_revoked: bool,
+            client_offset: u32,
+            client_limit: u32,
+            feedback_offset: u64,
+            feedback_limit: u64,
+        ) -> (
+            Array<ContractAddress>,
+            Array<u64>,
+            Array<i128>,
+            Array<u8>,
+            Array<ByteArray>,
+            Array<ByteArray>,
+            Array<bool>,
+            bool,
+        ) {
+            let mut clients_arr: Array<ContractAddress> = ArrayTrait::new();
+            let mut indexes_arr: Array<u64> = ArrayTrait::new();
+            let mut values_arr: Array<i128> = ArrayTrait::new();
+            let mut decimals_arr: Array<u8> = ArrayTrait::new();
+            let mut tag1s_arr: Array<ByteArray> = ArrayTrait::new();
+            let mut tag2s_arr: Array<ByteArray> = ArrayTrait::new();
+            let mut revoked_arr: Array<bool> = ArrayTrait::new();
+
+            // Harden against pathological scans from oversized caller-provided limits.
+            assert(client_limit <= MAX_PAGINATED_CLIENT_LIMIT, 'client_limit too large');
+            assert(feedback_limit <= MAX_PAGINATED_FEEDBACK_LIMIT, 'feedback_limit too large');
+
+            // Degenerate window: no scan, caller can advance pagination window.
+            if client_limit == 0 || feedback_limit == 0 {
+                let truncated = if client_addresses.len() > 0 {
+                    client_offset < client_addresses.len()
+                } else {
+                    let client_vec = self.clients.entry(agent_id);
+                    (client_offset.into()) < client_vec.len()
+                };
+
+                return (
+                    clients_arr,
+                    indexes_arr,
+                    values_arr,
+                    decimals_arr,
+                    tag1s_arr,
+                    tag2s_arr,
+                    revoked_arr,
+                    truncated,
+                );
+            }
+
+            let mut truncated = false;
+
+            // If callers provide an explicit client list, paginate over it.
+            if client_addresses.len() > 0 {
+                let mut i: u32 = client_offset;
+                let mut scanned_clients: u32 = 0;
+                while i < client_addresses.len() && scanned_clients < client_limit {
+                    let client = *client_addresses.at(i);
+                    let last_idx = self.last_index.entry((agent_id, client)).read();
+
+                    if feedback_offset < last_idx {
+                        let mut j: u64 = feedback_offset + 1;
+                        let mut scanned_feedbacks: u64 = 0;
+
+                        while j <= last_idx && scanned_feedbacks < feedback_limit {
+                            let fb = self.feedback_core.entry((agent_id, client, j)).read();
+                            let stored_tag1 = self.feedback_tag1.entry((agent_id, client, j)).read();
+                            let stored_tag2 = self.feedback_tag2.entry((agent_id, client, j)).read();
+
+                            // Skip revoked if not included
+                            if !include_revoked && fb.is_revoked {
+                                j += 1;
+                                scanned_feedbacks += 1;
+                                continue;
+                            }
+
+                            // Apply tag filters
+                            if tag1.len() > 0 && stored_tag1 != tag1 {
+                                j += 1;
+                                scanned_feedbacks += 1;
+                                continue;
+                            }
+                            if tag2.len() > 0 && stored_tag2 != tag2 {
+                                j += 1;
+                                scanned_feedbacks += 1;
+                                continue;
+                            }
+
+                            clients_arr.append(client);
+                            indexes_arr.append(j);
+                            values_arr.append(fb.value);
+                            decimals_arr.append(fb.value_decimals);
+                            tag1s_arr.append(stored_tag1);
+                            tag2s_arr.append(stored_tag2);
+                            revoked_arr.append(fb.is_revoked);
+
+                            j += 1;
+                            scanned_feedbacks += 1;
+                        };
+
+                        if j <= last_idx {
+                            truncated = true;
+                        }
+                    }
+
+                    i += 1;
+                    scanned_clients += 1;
+                }
+
+                if i < client_addresses.len() {
+                    truncated = true;
+                }
+            } else {
+                // Otherwise paginate directly over storage client Vec (bounded).
+                let client_vec = self.clients.entry(agent_id);
+                let clients_len = client_vec.len();
+
+                let mut i: u64 = client_offset.into();
+                let mut scanned_clients: u64 = 0;
+                let client_limit_u64: u64 = client_limit.into();
+
+                while i < clients_len && scanned_clients < client_limit_u64 {
+                    let client = client_vec.at(i).read();
+                    let last_idx = self.last_index.entry((agent_id, client)).read();
+
+                    if feedback_offset < last_idx {
+                        let mut j: u64 = feedback_offset + 1;
+                        let mut scanned_feedbacks: u64 = 0;
+
+                        while j <= last_idx && scanned_feedbacks < feedback_limit {
+                            let fb = self.feedback_core.entry((agent_id, client, j)).read();
+                            let stored_tag1 = self.feedback_tag1.entry((agent_id, client, j)).read();
+                            let stored_tag2 = self.feedback_tag2.entry((agent_id, client, j)).read();
+
+                            if !include_revoked && fb.is_revoked {
+                                j += 1;
+                                scanned_feedbacks += 1;
+                                continue;
+                            }
+
+                            if tag1.len() > 0 && stored_tag1 != tag1 {
+                                j += 1;
+                                scanned_feedbacks += 1;
+                                continue;
+                            }
+                            if tag2.len() > 0 && stored_tag2 != tag2 {
+                                j += 1;
+                                scanned_feedbacks += 1;
+                                continue;
+                            }
+
+                            clients_arr.append(client);
+                            indexes_arr.append(j);
+                            values_arr.append(fb.value);
+                            decimals_arr.append(fb.value_decimals);
+                            tag1s_arr.append(stored_tag1);
+                            tag2s_arr.append(stored_tag2);
+                            revoked_arr.append(fb.is_revoked);
+
+                            j += 1;
+                            scanned_feedbacks += 1;
+                        };
+
+                        if j <= last_idx {
+                            truncated = true;
+                        }
+                    }
+
+                    i += 1;
+                    scanned_clients += 1;
+                }
+
+                if i < clients_len {
+                    truncated = true;
+                }
+            }
+
+            (
+                clients_arr,
+                indexes_arr,
+                values_arr,
+                decimals_arr,
+                tag1s_arr,
+                tag2s_arr,
+                revoked_arr,
+                truncated,
+            )
+        }
+
         fn get_response_count(
             self: @ContractState,
             agent_id: u256,
@@ -643,6 +863,7 @@ pub mod ReputationRegistry {
             }
 
             let mut count: u64 = 0;
+            let mut scanned_feedbacks: u64 = 0;
 
             if client_address.is_zero() {
                 // Count all responses for all clients from specified responders
@@ -654,6 +875,8 @@ pub mod ReputationRegistry {
 
                     let mut j: u64 = 1;
                     while j <= last_idx {
+                        scanned_feedbacks += 1;
+                        assert(scanned_feedbacks <= MAX_RESPONSE_COUNT_SCAN_ENTRIES, 'Specify client_address');
                         let mut k: u32 = 0;
                         while k < responders.len() {
                             count += self
@@ -671,6 +894,8 @@ pub mod ReputationRegistry {
                 let last_idx = self.last_index.entry((agent_id, client_address)).read();
                 let mut j: u64 = 1;
                 while j <= last_idx {
+                    scanned_feedbacks += 1;
+                    assert(scanned_feedbacks <= MAX_RESPONSE_COUNT_SCAN_ENTRIES, 'Use narrower query');
                     let mut k: u32 = 0;
                     while k < responders.len() {
                         count += self
@@ -699,6 +924,7 @@ pub mod ReputationRegistry {
         fn get_clients(self: @ContractState, agent_id: u256) -> Array<ContractAddress> {
             let mut result: Array<ContractAddress> = ArrayTrait::new();
             let client_vec = self.clients.entry(agent_id);
+            assert(client_vec.len() <= MAX_GET_CLIENTS_ENTRIES, 'Use get_clients_paginated');
 
             let mut i: u64 = 0;
             while i < client_vec.len() {
@@ -709,6 +935,33 @@ pub mod ReputationRegistry {
             result
         }
 
+        fn get_clients_paginated(
+            self: @ContractState, agent_id: u256, offset: u64, limit: u64,
+        ) -> (Array<ContractAddress>, bool) {
+            let mut result: Array<ContractAddress> = ArrayTrait::new();
+            let client_vec = self.clients.entry(agent_id);
+            let len = client_vec.len();
+            assert(limit <= MAX_PAGINATED_CLIENT_LIMIT.into(), 'client_limit too large');
+
+            if offset >= len {
+                return (result, false);
+            }
+
+            if limit == 0 {
+                return (result, true);
+            }
+
+            let remaining = len - offset;
+            let end = if limit < remaining { offset + limit } else { len };
+            let mut i = offset;
+            while i < end {
+                result.append(client_vec.at(i).read());
+                i += 1;
+            };
+
+            (result, end < len)
+        }
+
         fn get_last_index(
             self: @ContractState, agent_id: u256, client_address: ContractAddress,
         ) -> u64 {
@@ -717,6 +970,10 @@ pub mod ReputationRegistry {
 
         fn get_identity_registry(self: @ContractState) -> ContractAddress {
             self.identity_registry.read()
+        }
+
+        fn get_version(self: @ContractState) -> ByteArray {
+            contract_version()
         }
     }
 

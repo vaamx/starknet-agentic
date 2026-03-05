@@ -18,14 +18,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 # v4
         with:
           submodules: recursive
 
       - name: Setup pnpm
         uses: pnpm/action-setup@53751a9789c7351e4924f01fe68370252a4f1f18 # v2
         with:
-          version: 8
+          version: 10
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -38,12 +38,12 @@ jobs:
 
       - name: JS build
         id: js_build
-        run: pnpm -r build --if-present
+        run: pnpm -r --if-present build
         continue-on-error: true
 
       - name: JS tests
         id: js_test
-        run: pnpm -r test --if-present
+        run: pnpm -r --if-present test
         continue-on-error: true
 
       - name: Setup Scarb

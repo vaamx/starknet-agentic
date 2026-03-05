@@ -7,7 +7,7 @@
 //
 // Key Features:
 // - Validation requests with URI and hash commitments
-// - Multiple responses per request (progressive validation)
+// - Single immutable response per request
 // - Tag-based categorization (ByteArray for Solidity string parity)
 // - On-chain aggregation for composability
 // - Support for various validation methods (stake-secured, zkML, TEE)
@@ -25,12 +25,19 @@ pub mod ValidationRegistry {
         IValidationRegistry, Request, Response, ValidationRequest as ValidationRequestEvent,
         ValidationResponse as ValidationResponseEvent,
     };
+    use erc8004::version::contract_version;
     use openzeppelin::access::ownable::OwnableComponent;
     use openzeppelin::interfaces::erc721::{IERC721Dispatcher, IERC721DispatcherTrait};
     use openzeppelin::security::reentrancyguard::ReentrancyGuardComponent;
     use openzeppelin::upgrades::UpgradeableComponent;
     use starknet::storage::*;
     use starknet::{ClassHash, ContractAddress, get_block_timestamp, get_caller_address};
+
+    // ============ Constants ============
+    // Defensive ceilings for legacy non-paginated methods.
+    const MAX_SUMMARY_SCAN_REQUESTS: u64 = 900;
+    const MAX_UNPAGINATED_LIST_ENTRIES: u64 = 900;
+    const MAX_PAGINATED_LIST_LIMIT: u64 = 256;
 
     // ============ Components ============
     component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
@@ -212,6 +219,10 @@ pub mod ValidationRegistry {
             let caller = get_caller_address();
             assert(caller == request.validator_address, 'Not validator');
 
+            // Finalize-once policy: response is immutable once submitted.
+            let existing = self.responses.entry(request_hash).read();
+            assert(!existing.has_response, 'Response already submitted');
+
             // Store response
             self
                 .responses
@@ -281,9 +292,12 @@ pub mod ValidationRegistry {
 
             let mut count: u64 = 0;
             let mut total_response: u64 = 0;
+            let mut scanned: u64 = 0;
 
             let mut i = 0;
             while i < len {
+                scanned += 1;
+                assert(scanned <= MAX_SUMMARY_SCAN_REQUESTS, 'Use get_summary_paginated');
                 let request_hash = request_hashes_vec.at(i).read();
                 let resp = self.responses.entry(request_hash).read();
 
@@ -417,6 +431,7 @@ pub mod ValidationRegistry {
         fn get_agent_validations(self: @ContractState, agent_id: u256) -> Array<u256> {
             let mut result = ArrayTrait::new();
             let vec = self.agent_validations.entry(agent_id);
+            assert(vec.len() <= MAX_UNPAGINATED_LIST_ENTRIES, 'Use paginated list');
 
             let mut i = 0;
             while i < vec.len() {
@@ -427,11 +442,37 @@ pub mod ValidationRegistry {
             result
         }
 
+        fn get_agent_validations_paginated(
+            self: @ContractState, agent_id: u256, offset: u64, limit: u64,
+        ) -> (Array<u256>, bool) {
+            let mut result = ArrayTrait::new();
+            let vec = self.agent_validations.entry(agent_id);
+            let len = vec.len();
+            assert(limit <= MAX_PAGINATED_LIST_LIMIT, 'limit too large');
+
+            if offset >= len {
+                return (result, false);
+            }
+
+            let remaining = len - offset;
+            let page_size = if limit < remaining { limit } else { remaining };
+            let end = offset + page_size;
+
+            let mut i = offset;
+            while i < end {
+                result.append(vec.at(i).read());
+                i += 1;
+            }
+
+            (result, end < len)
+        }
+
         fn get_validator_requests(
             self: @ContractState, validator_address: ContractAddress,
         ) -> Array<u256> {
             let mut result = ArrayTrait::new();
             let vec = self.validator_requests.entry(validator_address);
+            assert(vec.len() <= MAX_UNPAGINATED_LIST_ENTRIES, 'Use paginated list');
 
             let mut i = 0;
             while i < vec.len() {
@@ -440,6 +481,31 @@ pub mod ValidationRegistry {
             }
 
             result
+        }
+
+        fn get_validator_requests_paginated(
+            self: @ContractState, validator_address: ContractAddress, offset: u64, limit: u64,
+        ) -> (Array<u256>, bool) {
+            let mut result = ArrayTrait::new();
+            let vec = self.validator_requests.entry(validator_address);
+            let len = vec.len();
+            assert(limit <= MAX_PAGINATED_LIST_LIMIT, 'limit too large');
+
+            if offset >= len {
+                return (result, false);
+            }
+
+            let remaining = len - offset;
+            let page_size = if limit < remaining { limit } else { remaining };
+            let end = offset + page_size;
+
+            let mut i = offset;
+            while i < end {
+                result.append(vec.at(i).read());
+                i += 1;
+            }
+
+            (result, end < len)
         }
 
         fn request_exists(self: @ContractState, request_hash: u256) -> bool {
@@ -460,6 +526,10 @@ pub mod ValidationRegistry {
 
         fn get_identity_registry(self: @ContractState) -> ContractAddress {
             self.identity_registry.read()
+        }
+
+        fn get_version(self: @ContractState) -> ByteArray {
+            contract_version()
         }
 
         fn upgrade(ref self: ContractState, new_class_hash: ClassHash) {
