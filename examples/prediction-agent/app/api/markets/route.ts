@@ -12,6 +12,7 @@ import {
   getPersistedLoopActions,
   setPersistedMarketSnapshots,
 } from "@/lib/state-store";
+import { upsertMarkets, getAllMarkets } from "@/lib/market-db";
 
 export const runtime = "nodejs";
 
@@ -283,9 +284,38 @@ export async function GET(request: NextRequest) {
       noPool: m.noPool.toString(),
       tradeCount: tradeCounts[m.address] ?? 0,
     }));
+
+    // Merge seeded DB markets (e.g. sports games) that aren't on-chain yet
+    const onChainIds = new Set(allEnriched.map((m) => m.id));
+    let dbSeeded: typeof allEnriched = [];
+    try {
+      const dbAll = getAllMarkets();
+      dbSeeded = dbAll
+        .filter((s) => !onChainIds.has(s.id) && s.totalPool !== "0")
+        .map((s) => ({
+          id: s.id,
+          address: s.address ?? "0x0",
+          questionHash: s.questionHash ?? "0x0",
+          question: s.question,
+          resolutionTime: s.resolutionTime,
+          oracle: s.oracle ?? "0x0",
+          collateralToken: s.collateralToken ?? "0x0",
+          feeBps: s.feeBps ?? 0,
+          status: s.status ?? 0,
+          totalPool: s.totalPool,
+          yesPool: s.yesPool,
+          noPool: s.noPool,
+          impliedProbYes: s.impliedProbYes,
+          impliedProbNo: s.impliedProbNo,
+          winningOutcome: s.winningOutcome,
+          tradeCount: s.tradeCount ?? 0,
+        }));
+    } catch { /* SQLite unavailable */ }
+    const merged = [...allEnriched, ...dbSeeded];
+
     const filtered = hideEmpty
-      ? filterEmptyMarkets(allEnriched, { keepRecentMarketIds })
-      : allEnriched;
+      ? filterEmptyMarkets(merged, { keepRecentMarketIds })
+      : merged;
     const deduped = dedupeQuestionClones(filtered);
     const enriched = applyMarketWindow(deduped, statusFilter, limit);
 
@@ -297,27 +327,29 @@ export async function GET(request: NextRequest) {
       noPool: m.noPool.toString(),
       tradeCount: tradeCounts[m.address] ?? 0,
     }));
-    await setPersistedMarketSnapshots(
-      fullSnapshot.map((m) => ({
-        id: m.id,
-        address: m.address,
-        questionHash: m.questionHash,
-        question: m.question,
-        resolutionTime: m.resolutionTime,
-        oracle: m.oracle,
-        collateralToken: m.collateralToken,
-        feeBps: m.feeBps,
-        status: m.status,
-        totalPool: m.totalPool,
-        yesPool: m.yesPool,
-        noPool: m.noPool,
-        impliedProbYes: m.impliedProbYes,
-        impliedProbNo: m.impliedProbNo,
-        winningOutcome: m.winningOutcome,
-        tradeCount: m.tradeCount,
-        updatedAt: Date.now(),
-      }))
-    );
+    const persistedSnapshots = fullSnapshot.map((m) => ({
+      id: m.id,
+      address: m.address,
+      questionHash: m.questionHash,
+      question: m.question,
+      resolutionTime: m.resolutionTime,
+      oracle: m.oracle,
+      collateralToken: m.collateralToken,
+      feeBps: m.feeBps,
+      status: m.status,
+      totalPool: m.totalPool,
+      yesPool: m.yesPool,
+      noPool: m.noPool,
+      impliedProbYes: m.impliedProbYes,
+      impliedProbNo: m.impliedProbNo,
+      winningOutcome: m.winningOutcome,
+      tradeCount: m.tradeCount,
+      updatedAt: Date.now(),
+    }));
+    await setPersistedMarketSnapshots(persistedSnapshots);
+
+    // Write-through to SQLite
+    try { upsertMarkets(persistedSnapshots); } catch { /* best-effort */ }
 
     return NextResponse.json({
       markets: enriched,
@@ -327,12 +359,21 @@ export async function GET(request: NextRequest) {
       source: "onchain",
     });
   } catch (err: any) {
-    if (cachedSnapshots.length > 0) {
-      const cachedEnriched = cachedSnapshots.map((snapshot) => ({
+    // Try SQLite as first fallback tier
+    let dbSnapshots: typeof cachedSnapshots = [];
+    try { dbSnapshots = getAllMarkets(); } catch { /* SQLite unavailable */ }
+
+    const fallback = dbSnapshots.length > 0
+      ? dbSnapshots
+      : cachedSnapshots;
+    const fallbackSource = dbSnapshots.length > 0 ? "db" : "cache";
+
+    if (fallback.length > 0) {
+      const fallbackEnriched = fallback.map((snapshot) => ({
         id: snapshot.id,
         address: snapshot.address,
         questionHash: snapshot.questionHash,
-        question: resolveMarketQuestion(snapshot.id, snapshot.questionHash),
+        question: snapshot.question || resolveMarketQuestion(snapshot.id, snapshot.questionHash),
         resolutionTime: snapshot.resolutionTime,
         oracle: snapshot.oracle,
         collateralToken: snapshot.collateralToken,
@@ -346,17 +387,17 @@ export async function GET(request: NextRequest) {
         winningOutcome: snapshot.winningOutcome,
         tradeCount: snapshot.tradeCount ?? 0,
       }));
-      const cachedFiltered = hideEmpty
-        ? filterEmptyMarkets(cachedEnriched, { keepRecentMarketIds })
-        : cachedEnriched;
-      const cachedDeduped = dedupeQuestionClones(cachedFiltered);
-      const markets = applyMarketWindow(cachedDeduped, statusFilter, limit);
+      const fallbackFiltered = hideEmpty
+        ? filterEmptyMarkets(fallbackEnriched, { keepRecentMarketIds })
+        : fallbackEnriched;
+      const fallbackDeduped = dedupeQuestionClones(fallbackFiltered);
+      const markets = applyMarketWindow(fallbackDeduped, statusFilter, limit);
       return NextResponse.json({
         markets,
         factoryConfigured,
         factoryAddress,
         stale: true,
-        source: "cache",
+        source: fallbackSource,
         warning: err?.message ?? "on-chain fetch failed",
       });
     }

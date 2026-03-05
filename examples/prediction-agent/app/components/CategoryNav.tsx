@@ -1,82 +1,126 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import type { MarketCategory } from "@/lib/categories";
-import type { CategoryTab, SortMode } from "./dashboard/types";
+import type { CategoryTab } from "./dashboard/types";
+
+/* ═══════════════════════════════════════════════════════════
+   TAB DEFINITIONS — Polymarket-style topic bar
+   ═══════════════════════════════════════════════════════════ */
+
+/** Special sort-mode tabs shown before the separator */
+const SPECIAL_TABS: { id: string; label: string; category: MarketCategory }[] = [
+  { id: "trending", label: "Trending", category: "all" },
+  { id: "breaking", label: "Breaking", category: "all" },
+  { id: "new",      label: "New",      category: "all" },
+];
+
+/** Topic tabs — each maps to an underlying MarketCategory for filtering */
+const TOPIC_TABS: { id: string; label: string; category: MarketCategory }[] = [
+  { id: "politics",    label: "Politics",          category: "politics" },
+  { id: "sports",      label: "Sports",            category: "sports" },
+  { id: "crypto",      label: "Crypto",            category: "crypto" },
+  { id: "finance",     label: "Finance",           category: "crypto" },
+  { id: "geopolitics", label: "Geopolitics",       category: "politics" },
+  { id: "earnings",    label: "Earnings",          category: "crypto" },
+  { id: "tech",        label: "Tech",              category: "tech" },
+  { id: "culture",     label: "Culture",           category: "other" },
+  { id: "world",       label: "World",             category: "other" },
+  { id: "economy",     label: "Economy",           category: "politics" },
+  { id: "climate",     label: "Climate & Science", category: "other" },
+  { id: "elections",   label: "Elections",          category: "politics" },
+];
+
+/* ═══════════════════════════════════════════════════════════
+   COMPONENT
+   ═══════════════════════════════════════════════════════════ */
 
 interface CategoryNavProps {
   tabs: CategoryTab[];
   activeCategory: MarketCategory;
-  sortBy: SortMode;
   onSetCategory: (category: MarketCategory) => void;
-  onSortChange: (mode: SortMode) => void;
 }
-
-const CATEGORY_COLORS: Partial<Record<MarketCategory, string>> = {
-  sports: "border-neo-green/50 bg-neo-green/10 text-neo-green",
-  crypto: "border-neo-blue/50 bg-neo-blue/10 text-neo-blue",
-  politics: "border-neo-pink/50 bg-neo-pink/10 text-neo-pink",
-  tech: "border-neo-purple/50 bg-neo-purple/10 text-neo-purple",
-  other: "border-neo-yellow/50 bg-neo-yellow/10 text-neo-yellow",
-};
 
 export default function CategoryNav({
   tabs,
   activeCategory,
-  sortBy,
   onSetCategory,
-  onSortChange,
 }: CategoryNavProps) {
+  // Track which specific topic tab is highlighted (since multiple map to same category)
+  const [activeTab, setActiveTab] = useState("trending");
+
+  // Sync activeTab when category changes externally
+  useEffect(() => {
+    const matchingTopic = TOPIC_TABS.find(t => t.id === activeTab && t.category === activeCategory);
+    const matchingSpecial = SPECIAL_TABS.find(t => t.id === activeTab && t.category === activeCategory);
+    if (!matchingTopic && !matchingSpecial) {
+      const firstMatch = TOPIC_TABS.find(t => t.category === activeCategory)
+        ?? SPECIAL_TABS.find(t => t.category === activeCategory);
+      if (firstMatch) setActiveTab(firstMatch.id);
+    }
+  }, [activeCategory, activeTab]);
+
+  const handleTabClick = useCallback((id: string, category: MarketCategory) => {
+    setActiveTab(id);
+    onSetCategory(category);
+  }, [onSetCategory]);
+
   return (
-    <div className="flex items-center gap-2 border-b border-white/[0.07] bg-neo-surface/50 backdrop-blur-md px-4 sm:px-6 py-2">
-      <div
-        className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar flex-1"
-        role="tablist"
-        aria-label="Market categories"
-      >
-        {tabs.map((tab) => {
-          const isActive = activeCategory === tab.id;
-          const colorClass =
-            isActive && tab.id !== "all"
-              ? CATEGORY_COLORS[tab.id] ?? "border-neo-brand/50 bg-neo-brand/10 text-neo-brand"
-              : "";
+    <div className="border-b border-white/[0.04] bg-[#12141a]/80 backdrop-blur-xl sticky top-14 z-40">
+      <div className="flex justify-center overflow-x-auto hide-scrollbar">
+        <div className="flex items-center h-11" role="tablist" aria-label="Market categories">
 
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              onClick={() => onSetCategory(tab.id)}
-              className={`shrink-0 px-3 py-1.5 rounded-full border text-xs font-medium transition-colors ${
-                isActive
-                  ? tab.id === "all"
-                    ? "border-neo-brand/50 bg-neo-brand/10 text-neo-brand"
-                    : colorClass
-                  : "border-white/10 text-white/50 hover:border-white/25 hover:text-white/70"
-              }`}
-            >
-              {tab.label}
-              {tab.count > 0 && (
-                <span className={`ml-1 text-xs ${isActive ? "opacity-80" : "opacity-50"}`}>
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          );
-        })}
+          {/* ── Special tabs: Trending / Breaking / New ── */}
+          {SPECIAL_TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => handleTabClick(tab.id, tab.category)}
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-heading font-medium transition-all duration-150 ${
+                  isActive
+                    ? "text-white font-semibold"
+                    : "text-white/35 hover:text-white/60"
+                }`}
+              >
+                {tab.id === "trending" && (
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.518l2.74-1.22m0 0l-5.94-2.281m5.94 2.28l-2.28 5.941" />
+                  </svg>
+                )}
+                {tab.label}
+              </button>
+            );
+          })}
+
+          {/* ── Separator ── */}
+          <div className="w-px h-4 bg-white/[0.08] mx-2 shrink-0" />
+
+          {/* ── Topic tabs ── */}
+          {TOPIC_TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => handleTabClick(tab.id, tab.category)}
+                className={`shrink-0 px-3 py-1.5 text-[13px] font-heading font-medium transition-all duration-150 whitespace-nowrap ${
+                  isActive
+                    ? "text-white font-semibold"
+                    : "text-white/35 hover:text-white/60"
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
-
-      <select
-        value={sortBy}
-        onChange={(e) => onSortChange(e.target.value as SortMode)}
-        className="shrink-0 bg-white/5 border border-white/10 rounded-lg text-xs text-white/70 px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-neo-brand/40"
-        aria-label="Sort markets"
-      >
-        <option value="engagement">Trending</option>
-        <option value="volume">Volume</option>
-        <option value="ending">Ending Soon</option>
-        <option value="disagreement">Disagreement</option>
-      </select>
     </div>
   );
 }

@@ -11,7 +11,7 @@ const CRYPTO_REGEX =
   /bitcoin|btc|ethereum|eth|starknet|strk|solana|sol|crypto|token|defi|nft|blockchain|tps|gas fee|layer\s?2|zk|rollup|airdrop|memecoin|stablecoin|bridge|wallet/i;
 
 const POLITICS_REGEX =
-  /president|election|congress|senate|vote|policy|regulation|government|fed|tariff|sanction|legislation|supreme court|parliament|white house|prime minister|ceasefire|ukraine|russia|china|israel|gaza|nato|impeachment|cabinet|campaign/i;
+  /president|election|congress|senate|vote|policy|regulation|government|fed|tariff|sanction|legislation|supreme court|parliament|white house|prime minister|ceasefire|ukraine|russia|china|israel|gaza|nato|impeachment|cabinet|campaign|trump|biden|executive order/i;
 
 const TECH_REGEX =
   /ai\b|artificial intelligence|gpt|llm|openai|google|apple|microsoft|semiconductor|chip|quantum|robot|self.?driving|tesla|spacex|launch|nvidia|meta|anthropic|tiktok|youtube|xai|datacenter|robotaxi/i;

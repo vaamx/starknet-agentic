@@ -1,26 +1,27 @@
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap");
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    --font-space-grotesk: "Space Grotesk";
-    --font-dm-sans: "DM Sans";
-    --font-jetbrains-mono: "JetBrains Mono";
+    --font-heading: "Plus Jakarta Sans";
+    --font-body: "Outfit";
+    --font-mono: "JetBrains Mono";
 
-    --bg: #0d111c;
-    --surface: #131a2a;
-    --surface-2: #1a2236;
-    --surface-3: #1f2940;
+    --bg: #12141a;
+    --surface: #181b23;
+    --surface-2: #1a1d27;
+    --surface-3: #1f2230;
     --border: rgba(255, 255, 255, 0.07);
-    --text: #e6edf7;
-    --muted: #8a94b8;
-    --accent: #00e5cc;
-    --accent-warm: #e63946;
-    --accent-violet: #7c5cff;
-    --accent-amber: #f5b942;
+    --border-strong: rgba(255, 255, 255, 0.12);
+    --text: #e4e7ed;
+    --text-secondary: #9ca3af;
+    --muted: #6b7280;
+    --accent: #00d4b8;
+    --green: #10b981;
+    --green-vivid: #34d399;
+    --red: #ef4444;
+    --red-vivid: #f87171;
   }
 
   html {
@@ -28,35 +29,61 @@
   }
 
   body {
-    @apply font-body text-[color:var(--text)];
+    font-family: var(--font-body), system-ui, sans-serif;
+    color: var(--text);
+    font-size: 15px;
     background-color: var(--bg);
     background-image:
-      radial-gradient(circle at 14% 15%, rgba(33, 110, 255, 0.10), transparent 34%),
-      radial-gradient(circle at 85% 0%, rgba(0, 229, 204, 0.07), transparent 30%),
-      linear-gradient(180deg, #0d111c, #0f1626 44%, #0d111c 100%);
+      radial-gradient(ellipse 80% 60% at 50% -10%, rgba(0, 212, 184, 0.015), transparent);
     background-attachment: fixed;
   }
 
   ::selection {
-    @apply bg-neo-brand/30 text-white;
+    background: rgba(0, 229, 204, 0.2);
+    color: white;
   }
 }
 
 @layer components {
+  /* ═══════════════════════════════════════════════════════════
+     CARDS
+     ═══════════════════════════════════════════════════════════ */
   .neo-card {
-    @apply rounded-xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-md transition-all duration-100;
-    box-shadow:
-      0 4px 16px rgba(2, 8, 23, 0.35),
-      inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    @apply rounded-2xl border border-white/[0.07] transition-all duration-150;
+    background: var(--surface-2);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   }
 
   .neo-card-hover {
-    @apply neo-card hover:-translate-y-0.5 hover:border-white/[0.12] hover:shadow-neo;
+    @apply neo-card hover:border-white/[0.12];
+    cursor: pointer;
+  }
+  .neo-card-hover:hover {
+    background: var(--surface-3);
   }
 
+  .market-card {
+    @apply rounded-2xl border border-white/[0.07] transition-all duration-200 relative overflow-hidden;
+    background: var(--surface-2);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  }
+
+  .market-card:hover {
+    @apply border-white/[0.14];
+    background: var(--surface-3);
+    transform: translateY(-3px);
+    box-shadow:
+      0 16px 40px rgba(0, 0, 0, 0.4),
+      0 0 0 1px rgba(255, 255, 255, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     BUTTONS
+     ═══════════════════════════════════════════════════════════ */
   .neo-btn {
     @apply inline-flex items-center justify-center rounded-lg border border-white/10 px-4 py-2 font-heading font-semibold text-sm text-white/90
-      bg-white/5 shadow-neo-sm transition-all duration-100 hover:bg-white/10 cursor-pointer;
+      bg-white/5 transition-all duration-100 hover:bg-white/10 cursor-pointer;
   }
 
   .neo-btn-primary {
@@ -81,37 +108,70 @@
       focus:outline-none focus:ring-2 focus:ring-neo-brand/40 focus:border-neo-brand/40 transition-all duration-100;
   }
 
+  /* ═══════════════════════════════════════════════════════════
+     TRADE BUTTONS — Polymarket-style
+     ═══════════════════════════════════════════════════════════ */
   .pill-btn {
     @apply inline-flex items-center justify-center rounded-lg font-heading font-bold text-sm px-5 py-2.5 transition-all duration-100 cursor-pointer;
   }
 
   .pill-btn-yes {
-    @apply pill-btn bg-neo-green/15 text-neo-green border border-neo-green/30 hover:bg-neo-green/25;
+    @apply pill-btn bg-emerald-500/[0.12] text-emerald-400 border border-emerald-500/20
+      hover:bg-emerald-500/20 hover:border-emerald-400/[0.35] active:scale-[0.97];
   }
 
   .pill-btn-no {
-    @apply pill-btn bg-neo-red/15 text-neo-red border border-neo-red/30 hover:bg-neo-red/25;
+    @apply pill-btn bg-red-500/[0.12] text-red-400 border border-red-500/20
+      hover:bg-red-500/20 hover:border-red-400/[0.35] active:scale-[0.97];
   }
 
-  .market-card {
-    @apply neo-card-hover relative overflow-hidden;
+  .trade-btn {
+    @apply flex-1 py-2.5 rounded-xl text-sm font-heading font-bold transition-all duration-150 cursor-pointer border;
   }
 
-  .market-card::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    border-radius: 3px 0 0 3px;
+  .trade-btn-yes {
+    @apply trade-btn bg-emerald-500/10 text-emerald-400 border-emerald-500/20
+      hover:bg-emerald-500/20 hover:border-emerald-400/30 active:scale-[0.98];
   }
 
-  .market-card[data-category="sports"]::before { background: #22C55E; }
-  .market-card[data-category="crypto"]::before { background: #4C8DFF; }
-  .market-card[data-category="politics"]::before { background: #E63946; }
-  .market-card[data-category="tech"]::before { background: #7C5CFF; }
-  .market-card[data-category="other"]::before { background: #F5B942; }
+  .trade-btn-no {
+    @apply trade-btn bg-red-500/10 text-red-400 border-red-500/20
+      hover:bg-red-500/20 hover:border-red-400/30 active:scale-[0.98];
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     PROBABILITY BAR — ProbTrade-style
+     ═══════════════════════════════════════════════════════════ */
+  .prob-track {
+    @apply h-1.5 rounded-full overflow-hidden flex w-full;
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .prob-fill-yes {
+    background: linear-gradient(90deg, #059669, #10b981);
+    border-radius: 9999px 0 0 9999px;
+    transform-origin: left;
+    animation: bar-grow 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+  }
+
+  .prob-fill-no {
+    background: linear-gradient(90deg, #ef4444, #dc2626);
+    border-radius: 0 9999px 9999px 0;
+    transform-origin: right;
+    animation: bar-grow-right 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     CATEGORY BADGES
+     ═══════════════════════════════════════════════════════════ */
+  .cat-badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider;
+  }
+  .cat-badge-sports { @apply bg-emerald-500/10 text-emerald-400; }
+  .cat-badge-crypto { @apply bg-blue-500/10 text-blue-400; }
+  .cat-badge-politics { @apply bg-rose-500/10 text-rose-400; }
+  .cat-badge-tech { @apply bg-violet-500/10 text-violet-400; }
+  .cat-badge-other { @apply bg-amber-500/10 text-amber-400; }
 
   .glow-ring {
     box-shadow: 0 0 0 1px rgba(0, 229, 204, 0.15), 0 0 16px rgba(0, 229, 204, 0.12);
@@ -124,8 +184,8 @@
   }
 
   .bg-dots {
-    background-image: radial-gradient(circle, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
-    background-size: 22px 22px;
+    background-image: radial-gradient(circle, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    background-size: 24px 24px;
   }
 
   .text-muted {
@@ -140,7 +200,9 @@
   }
 }
 
-/* Scrollbar */
+/* ═══════════════════════════════════════════════════════════
+   SCROLLBAR
+   ═══════════════════════════════════════════════════════════ */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -149,24 +211,26 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.16);
 }
 
-/* Probability Bar Animations */
+/* ═══════════════════════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════════════════════ */
 @keyframes bar-grow {
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
 }
-.prob-bar {
-  transform-origin: left;
-  animation: bar-grow 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+
+@keyframes bar-grow-right {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
 }
 
-/* Terminal Cursor */
 @keyframes cursor-blink {
   0%, 45% { opacity: 1; }
   50%, 95% { opacity: 0; }
@@ -179,11 +243,10 @@
   margin-left: 1px;
 }
 
-/* Stagger Entrance */
 @keyframes slide-up-fade {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -191,15 +254,17 @@
   }
 }
 .animate-enter {
-  animation: slide-up-fade 0.28s ease-out both;
+  animation: slide-up-fade 0.3s ease-out both;
 }
-.stagger-1 { animation-delay: 0.04s; }
-.stagger-2 { animation-delay: 0.08s; }
-.stagger-3 { animation-delay: 0.12s; }
-.stagger-4 { animation-delay: 0.16s; }
-.stagger-5 { animation-delay: 0.2s; }
+.stagger-1 { animation-delay: 0.03s; }
+.stagger-2 { animation-delay: 0.06s; }
+.stagger-3 { animation-delay: 0.09s; }
+.stagger-4 { animation-delay: 0.12s; }
+.stagger-5 { animation-delay: 0.15s; }
+.stagger-6 { animation-delay: 0.18s; }
+.stagger-7 { animation-delay: 0.21s; }
+.stagger-8 { animation-delay: 0.24s; }
 
-/* Modal Entry */
 @keyframes modal-in {
   from {
     opacity: 0;
@@ -214,7 +279,6 @@
   animation: modal-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* Pulse Ring */
 @keyframes pulse-ring {
   0% { transform: scale(1); opacity: 1; }
   100% { transform: scale(2.2); opacity: 0; }
@@ -228,7 +292,6 @@
   animation: pulse-ring 2s ease-out infinite;
 }
 
-/* Ticker Tape */
 @keyframes ticker {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }
@@ -240,7 +303,6 @@
   animation-play-state: paused;
 }
 
-/* Scanline Overlay */
 .scanlines {
   position: relative;
 }
@@ -258,204 +320,270 @@
   pointer-events: none;
 }
 
-/* Glow Effect (for terminal) */
 .terminal-glow {
   text-shadow: 0 0 8px rgba(0, 229, 204, 0.2);
 }
 
-/* Tamagotchi Mascot */
-@keyframes tama-bob {
+/* ═══════════════════════════════════════════════════════════
+   TAMAGOTCHI SVG ANIMATIONS
+   ═══════════════════════════════════════════════════════════ */
+@keyframes tama-svg-bob {
   0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-1px); }
+  50%      { transform: translateY(-1.5px); }
 }
-@keyframes tama-blink {
+@keyframes tama-svg-blink {
   0%, 42%, 46%, 100% { transform: scaleY(1); }
-  44% { transform: scaleY(0.15); }
+  44%                 { transform: scaleY(0.1); }
 }
-@keyframes tama-spark {
-  0%, 100% { opacity: 0.35; transform: scale(0.9); }
-  50% { opacity: 1; transform: scale(1); }
+@keyframes tama-svg-spark-pulse {
+  0%, 100% { opacity: 0.3; }
+  50%      { opacity: 1; }
 }
-
-.tama-badge {
-  position: relative;
-  width: 36px;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  animation: tama-bob 2.4s ease-in-out infinite;
+@keyframes tama-svg-scanline {
+  0%   { transform: translateY(0);   opacity: 0.25; }
+  50%  { transform: translateY(9px); opacity: 0.15; }
+  100% { transform: translateY(0);   opacity: 0.25; }
 }
-
-.tama-antenna {
-  position: absolute;
-  top: 1px;
-  left: 50%;
-  width: 2px;
-  height: 6px;
-  margin-left: -1px;
-  background: currentColor;
-  opacity: 0.8;
-}
-.tama-antenna::after {
-  content: "";
-  position: absolute;
-  top: -2px;
-  left: 50%;
-  width: 3px;
-  height: 3px;
-  margin-left: -1.5px;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-.tama-shell {
-  width: 28px;
-  height: 26px;
-  margin-top: 5px;
-  border-radius: 8px;
-  border: 1px solid currentColor;
-  background: rgba(6, 19, 39, 0.92);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.tama-screen {
-  position: relative;
-  width: 19px;
-  height: 14px;
-  border-radius: 4px;
-  background: rgba(8, 34, 58, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.tama-eye {
-  position: absolute;
-  top: 3px;
-  width: 4px;
-  height: 4px;
-  background: currentColor;
-  border-radius: 1px;
-  animation: tama-blink 4.8s step-end infinite;
-}
-.tama-eye-left { left: 3px; }
-.tama-eye-right { right: 3px; }
-
-.tama-mouth {
-  position: absolute;
-  left: 50%;
-  top: 9px;
-  width: 7px;
-  height: 2px;
-  margin-left: -3.5px;
-  border-radius: 2px;
-  background: currentColor;
-}
-
-.tama-spark {
-  position: absolute;
-  right: -2px;
-  top: -2px;
-  width: 4px;
-  height: 4px;
-  border-radius: 999px;
-  background: currentColor;
-  animation: tama-spark 1.6s ease-in-out infinite;
-}
-
-.tama-hyped {
-  color: #64ffe8;
-}
-.tama-hyped .tama-mouth {
-  width: 7px;
-  height: 3px;
-  margin-left: -3.5px;
-}
-
-.tama-focus {
-  color: #7ce8ff;
-}
-.tama-focus .tama-screen::after {
-  content: "";
-  position: absolute;
-  left: 4px;
-  top: 1px;
-  width: 8px;
-  height: 1px;
-  background: currentColor;
-  opacity: 0.9;
-}
-
-.tama-idle {
-  color: #9dd8ff;
-}
-.tama-idle .tama-mouth {
-  opacity: 0.7;
-}
-
-.tama-alert {
-  color: #f5b942;
-}
-.tama-alert .tama-shell {
-  box-shadow: 0 0 0 1px rgba(245, 185, 66, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-.tama-alert .tama-mouth {
-  width: 5px;
-  margin-left: -2.5px;
-}
-
-.tama-offline {
-  color: rgba(255, 255, 255, 0.45);
-}
-.tama-offline .tama-eye {
-  top: 4px;
-  height: 1px;
-  border-radius: 0;
-}
-.tama-offline .tama-mouth {
-  opacity: 0.45;
-}
-
-/* Tamagotchi Loader — scanning eye */
-@keyframes tama-scan {
+@keyframes tama-svg-scan-eye {
   0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(2px); }
-  75% { transform: translateX(-2px); }
+  25%      { transform: translateX(1px); }
+  75%      { transform: translateX(-1px); }
 }
-.tama-loading .tama-scan-eye {
-  animation: tama-scan 1.2s ease-in-out infinite;
+@keyframes tama-svg-shake {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-0.5px); }
+  40%      { transform: translateX(0.5px); }
+  60%      { transform: translateX(-0.5px); }
+  80%      { transform: translateX(0.5px); }
 }
 
-/* Bottom Sheet (mobile modals) */
+.tama-svg { display: inline-block; vertical-align: middle; }
+
+.tama-svg-hyped { animation: tama-svg-bob 1.8s ease-in-out infinite; }
+.tama-svg-hyped .tama-svg-eye { animation: tama-svg-blink 3.6s step-end infinite; }
+.tama-svg-hyped .tama-svg-spark { animation: tama-svg-spark-pulse 1.0s ease-in-out infinite; }
+
+.tama-svg-focus { animation: tama-svg-bob 2.4s ease-in-out infinite; }
+.tama-svg-focus .tama-svg-eye { animation: tama-svg-blink 4.8s step-end infinite; }
+.tama-svg-focus .tama-svg-spark { animation: tama-svg-spark-pulse 1.6s ease-in-out infinite; }
+.tama-svg-focus .tama-svg-scanline { animation: tama-svg-scanline 2.4s linear infinite; }
+
+.tama-svg-idle { animation: tama-svg-bob 3.2s ease-in-out infinite; }
+.tama-svg-idle .tama-svg-eye { animation: tama-svg-blink 6s step-end infinite; }
+.tama-svg-idle .tama-svg-spark { animation: tama-svg-spark-pulse 2.4s ease-in-out infinite; }
+
+.tama-svg-alert { animation: tama-svg-shake 0.6s ease-in-out infinite; }
+.tama-svg-alert .tama-svg-eye { animation: tama-svg-blink 2.4s step-end infinite; }
+.tama-svg-alert .tama-svg-spark { animation: tama-svg-spark-pulse 0.5s ease-in-out infinite; }
+
+.tama-svg-offline { opacity: 0.65; }
+
+.tama-svg-loading .tama-svg-eye {
+  animation: tama-svg-scan-eye 1.2s ease-in-out infinite !important;
+}
+
 @keyframes slide-up-sheet {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }
 .animate-sheet-up {
   animation: slide-up-sheet 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* Reduced Motion */
+@keyframes slide-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+.animate-sheet-left {
+  animation: slide-in-left 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CARD ENTRANCE — staggered grid appearance
+   ═══════════════════════════════════════════════════════════ */
+@keyframes card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.animate-card-enter {
+  animation: card-enter 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SPARKLINE / CHART
+   ═══════════════════════════════════════════════════════════ */
+@keyframes sparkline-draw {
+  from { stroke-dashoffset: 500; }
+  to { stroke-dashoffset: 0; }
+}
+.sparkline-animate path {
+  stroke-dasharray: 500;
+  animation: sparkline-draw 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+/* line clamp for card text */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LIVE DYNAMICS — streaming, real-time animations
+   ═══════════════════════════════════════════════════════════ */
+
+/* Chat message slide in */
+@keyframes chat-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.animate-chat-slide-in {
+  animation: chat-slide-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Cursor blink for typing indicator */
+@keyframes cursor-blink-live {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+.animate-cursor-blink {
+  animation: cursor-blink-live 0.8s step-end infinite;
+}
+
+/* Trade amount slide in from left */
+@keyframes trade-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.animate-trade-slide-in {
+  animation: trade-slide-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Trade amount fade out */
+@keyframes trade-fade-out {
+  from { opacity: 0.9; }
+  to { opacity: 0.25; }
+}
+.animate-trade-fade {
+  animation: trade-fade-out 3s ease-out both;
+  animation-delay: 1.5s;
+}
+
+/* Price flash — green or red */
+@keyframes price-flash-up {
+  0% { color: inherit; }
+  15% { color: #34d399; text-shadow: 0 0 8px rgba(52, 211, 153, 0.4); }
+  100% { color: inherit; text-shadow: none; }
+}
+@keyframes price-flash-down {
+  0% { color: inherit; }
+  15% { color: #f87171; text-shadow: 0 0 8px rgba(248, 113, 113, 0.4); }
+  100% { color: inherit; text-shadow: none; }
+}
+.price-flash-up {
+  animation: price-flash-up 1.2s ease-out;
+}
+.price-flash-down {
+  animation: price-flash-down 1.2s ease-out;
+}
+
+/* Probability tick animation */
+@keyframes prob-tick {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+.animate-prob-tick {
+  animation: prob-tick 0.3s ease-out;
+}
+
+/* Live dot breathing */
+@keyframes live-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+.animate-live-breathe {
+  animation: live-breathe 2s ease-in-out infinite;
+}
+
+/* Chart point pulse */
+@keyframes chart-point-pulse {
+  0%, 100% { r: 3.5; opacity: 1; }
+  50% { r: 6; opacity: 0.5; }
+}
+
+/* Glow pulse for live cards */
+@keyframes live-card-glow {
+  0%, 100% {
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15), 0 0 0 1px rgba(239, 68, 68, 0);
+  }
+  50% {
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15), 0 0 12px 1px rgba(239, 68, 68, 0.06);
+  }
+}
+.market-card-live {
+  animation: live-card-glow 3s ease-in-out infinite;
+}
+
+/* Scrolling ticker for volume/activity */
+@keyframes scroll-ticker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-100%); }
+}
+
+/* Number counter animation */
+@keyframes count-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-count-up {
+  animation: count-up 0.2s ease-out;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   REDUCED MOTION
+   ═══════════════════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
-  .prob-bar,
+  .prob-fill-yes,
+  .prob-fill-no,
   .animate-enter,
+  .animate-card-enter,
   .ticker-tape,
-  .tama-badge,
-  .tama-eye,
-  .tama-spark {
+  .tama-svg,
+  .tama-svg-eye,
+  .tama-svg-spark,
+  .tama-svg-scanline {
     animation: none !important;
   }
-  .prob-bar {
+  .prob-fill-yes,
+  .prob-fill-no {
     transform: scaleX(1);
   }
-  .animate-enter {
+  .animate-enter,
+  .animate-card-enter {
     opacity: 1;
+    transform: none;
+  }
+  .market-card:hover {
     transform: none;
   }
   * {
