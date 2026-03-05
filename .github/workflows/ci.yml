@@ -182,6 +182,9 @@ jobs:
       - name: Run tests
         run: pnpm run test
 
+      - name: Run MCP adversarial policy harness
+        run: pnpm --filter @starknet-agentic/mcp-server test -- __tests__/adversarial/policy-envelope.test.ts
+
   cairo-check:
     name: Cairo Check
     needs: [detect-changes]
