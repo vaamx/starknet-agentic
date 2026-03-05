@@ -6,6 +6,7 @@ import { buildCreateMarketCalls } from "@/lib/contracts";
 
 interface MarketCreatorProps {
   onClose: () => void;
+  onCreated?: () => Promise<void> | void;
 }
 
 export default function MarketCreator({ onClose }: MarketCreatorProps) {
@@ -20,7 +21,6 @@ export default function MarketCreator({ onClose }: MarketCreatorProps) {
     error?: string;
   } | null>(null);
 
-  // Close on Escape key
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -29,7 +29,6 @@ export default function MarketCreator({ onClose }: MarketCreatorProps) {
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
-  // Prevent body scroll
   useEffect(() => {
     document.body.style.overflow = "hidden";
     return () => {
@@ -76,7 +75,7 @@ export default function MarketCreator({ onClose }: MarketCreatorProps) {
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/55 backdrop-blur-sm"
         onClick={onClose}
       />
 
@@ -144,6 +143,106 @@ export default function MarketCreator({ onClose }: MarketCreatorProps) {
                 = {(parseInt(feeBps || "0") / 100).toFixed(1)}% fee
               </p>
             </div>
+
+            <aside className="space-y-3">
+              <div className="border-2 border-black bg-cream p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                    Preflight Score
+                  </p>
+                  <span
+                    className={`text-xs font-mono font-bold ${
+                      review.score >= 80
+                        ? "text-neo-green"
+                        : review.score >= 60
+                          ? "text-neo-orange"
+                          : "text-neo-pink"
+                    }`}
+                  >
+                    {review.score}/100
+                  </span>
+                </div>
+                <div className="mt-2 h-2 border border-black bg-white">
+                  <div
+                    className={`h-full ${
+                      review.score >= 80
+                        ? "bg-neo-green"
+                        : review.score >= 60
+                          ? "bg-neo-orange"
+                          : "bg-neo-pink"
+                    }`}
+                    style={{ width: `${review.score}%` }}
+                  />
+                </div>
+                <div className="mt-2 text-[10px] font-mono text-gray-500 space-y-1">
+                  <p>Binary: {review.isBinary ? "yes" : "no"}</p>
+                  <p>Time bound: {review.hasTimeBound ? "yes" : "no"}</p>
+                  <p>Category hint: {review.categoryHint}</p>
+                </div>
+              </div>
+
+              <div className="border-2 border-black bg-white p-3">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">
+                  Resolution Preview
+                </p>
+                <div className="space-y-1 text-[11px] font-mono">
+                  <p>
+                    Duration: <span className="font-bold">{parsedDays || 0} days</span>
+                  </p>
+                  <p>
+                    Fee:{" "}
+                    <span className="font-bold">
+                      {(Number.isFinite(parsedFeeBps) ? parsedFeeBps : 0) / 100}%
+                    </span>
+                  </p>
+                  {!validDays && (
+                    <p className="text-neo-pink text-[10px]">
+                      Duration must be between 1 and 3650 days.
+                    </p>
+                  )}
+                  {!validFee && (
+                    <p className="text-neo-pink text-[10px]">
+                      Fee must be between 0 and 1000 bps.
+                    </p>
+                  )}
+                  <p>
+                    Resolves:{" "}
+                    <span className="font-bold">
+                      {resolutionDate
+                        ? resolutionDate.toLocaleString()
+                        : "invalid duration"}
+                    </span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="border-2 border-black bg-white p-3">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">
+                  Quality Findings
+                </p>
+                {review.issues.length === 0 && review.warnings.length === 0 ? (
+                  <p className="text-[11px] font-mono text-neo-green">
+                    No blockers detected.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {review.issues.map((issue) => (
+                      <p key={issue} className="text-[10px] font-mono text-neo-pink">
+                        - {issue}
+                      </p>
+                    ))}
+                    {review.warnings.map((warning) => (
+                      <p
+                        key={warning}
+                        className="text-[10px] font-mono text-neo-orange"
+                      >
+                        - {warning}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </aside>
           </div>
 
           {/* Result feedback */}

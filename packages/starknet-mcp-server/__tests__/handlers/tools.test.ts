@@ -620,6 +620,52 @@ describe("MCP Tool Handlers", () => {
       const result = parseResponse(response);
       expect(result.error).toBe(true);
     });
+
+    it("blocks transfer when execution surface is avnu", async () => {
+      await reloadServerWithEnv({ STARKNET_EXECUTION_SURFACE: "avnu" });
+
+      const response = await callTool("starknet_transfer", {
+        recipient,
+        token: "ETH",
+        amount: "1",
+      });
+
+      expect(response.isError).toBe(true);
+      const result = parseResponse(response);
+      expect(result.code).toBe("UNSUPPORTED_SURFACE");
+      expect(result.surface).toBe("avnu");
+    });
+
+    it("returns provider-unavailable when starkzap surface is enabled but sdk is missing", async () => {
+      await reloadServerWithEnv({ STARKNET_EXECUTION_SURFACE: "starkzap" });
+
+      const response = await callTool("starknet_transfer", {
+        recipient,
+        token: "ETH",
+        amount: "1",
+      });
+
+      expect(response.isError).toBe(true);
+      const result = parseResponse(response);
+      expect(result.code).toBe("PROVIDER_UNAVAILABLE");
+      expect(result.surface).toBe("starkzap");
+    });
+
+    it("reports direct fallback in execution status when starkzap is unavailable", async () => {
+      await reloadServerWithEnv({
+        STARKNET_EXECUTION_SURFACE: "starkzap",
+        STARKNET_STARKZAP_FALLBACK_TO_DIRECT: "true",
+      });
+
+      const response = await callTool("starknet_execution_surface_status", {});
+      const result = parseResponse(response);
+
+      expect(result.configuredSurface).toBe("starkzap");
+      expect(result.effectiveSurface).toBe("direct");
+      expect(result.executionProfile).toBe("hardened");
+      expect(result.fallbackToDirectEnabled).toBe(true);
+      expect(result.starkzap?.ready).toBe(false);
+    });
   });
 
   describe("starknet_call_contract", () => {
@@ -733,6 +779,24 @@ describe("MCP Tool Handlers", () => {
         }),
         expect.anything()
       );
+    });
+
+    it("blocks invoke_contract on starkzap surface in hardened profile", async () => {
+      await reloadServerWithEnv({
+        STARKNET_EXECUTION_SURFACE: "starkzap",
+        STARKNET_EXECUTION_PROFILE: "hardened",
+      });
+
+      const response = await callTool("starknet_invoke_contract", {
+        contractAddress,
+        entrypoint: "set_value",
+        calldata: ["0x42"],
+      });
+
+      expect(response.isError).toBe(true);
+      const result = parseResponse(response);
+      expect(result.code).toBe("UNSUPPORTED_SURFACE");
+      expect(result.surface).toBe("starkzap");
     });
   });
 
@@ -2072,6 +2136,7 @@ describe("Tool list", () => {
     expect(toolNames).toContain("starknet_invoke_contract");
     expect(toolNames).toContain("starknet_swap");
     expect(toolNames).toContain("starknet_get_quote");
+    expect(toolNames).toContain("starknet_execution_surface_status");
     expect(toolNames).toContain("starknet_build_calls");
     expect(toolNames).toContain("starknet_register_session_key");
     expect(toolNames).toContain("starknet_revoke_session_key");

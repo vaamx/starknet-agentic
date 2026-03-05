@@ -96,13 +96,13 @@ Core infrastructure features required for v1.0 release. MVP definition: MCP serv
 **Description**: The starknet-defi skill is currently a template. Complete the implementation with full documentation and examples.
 
 **Requirements**:
-- [x] Add comprehensive swap documentation (avnu patterns)
-- [x] Add staking documentation (STRK staking, liquid staking)
-- [x] Add lending documentation (zkLend, Nostra patterns)
-- [x] Add DCA (Dollar Cost Averaging) documentation
-- [x] Create example scripts for each operation
-- [x] Add error handling guide with recovery steps
-- [x] Include token addresses and protocol endpoints
+- [ ] Add comprehensive swap documentation (avnu patterns)
+- [ ] Add staking documentation (STRK staking, liquid staking)
+- [ ] Add lending documentation (zkLend, Nostra patterns)
+- [ ] Add DCA (Dollar Cost Averaging) documentation
+- [ ] Create example scripts for each operation
+- [ ] Add error handling guide with recovery steps
+- [ ] Include token addresses and protocol endpoints
 
 **Implementation Notes**:
 - `skills/starknet-defi/` now includes production-depth docs + scripts for quote/swap/depth/staking/dca
@@ -126,7 +126,7 @@ Core infrastructure features required for v1.0 release. MVP definition: MCP serv
 
 **Implementation Notes**:
 - Basic structure exists at `skills/starknet-identity/SKILL.md` (303 lines)
-- ERC-8004 contracts are production-ready in `packages/starknet-identity/erc8004-cairo/`
+- ERC-8004 contracts are production-ready in `contracts/erc8004-cairo/`
 - Include agent-passport integration
 
 ---
@@ -244,7 +244,7 @@ Features that enhance the platform but are not required for v1.0 release.
 
 ### 2.1 Agent Account Contract Deployment
 
-**Description**: The Agent Account contract is fully tested (110 tests across 4 suites). Next step is Sepolia deployment.
+**Description**: The Agent Account contract is fully tested (110 tests across 4 suites) and deployed on Sepolia. Next step is mainnet deployment readiness and operations hardening.
 
 **Requirements**:
 - [x] ~~Create tests directory~~ — 4 test files exist in `contracts/agent-account/tests/`
@@ -255,8 +255,9 @@ Features that enhance the platform but are not required for v1.0 release.
 - [x] ~~Write snforge tests for emergency revoke mechanism~~
 - [x] ~~Write snforge tests for agent ID linking~~
 - [x] Create Sepolia deployment script
-- [ ] Deploy to Sepolia testnet
-- [ ] Document deployed contract address
+- [x] Deploy to Sepolia testnet
+- [x] Document deployed contract address
+- [ ] Deploy AgentAccountFactory to mainnet
 
 **Implementation Notes**:
 - Contract at `contracts/agent-account/src/agent_account.cairo` (~570 lines)
@@ -349,6 +350,25 @@ Features that enhance the platform but are not required for v1.0 release.
 - CI pipeline at `.github/workflows/ci.yml` runs 11 jobs: typecheck, lint, test, 3x cairo-test, website-build, validate-skills, onboarding-smoke, all-checks
 - `publish.yml` publishes 3 packages to npm on release (mcp-server, a2a, agent-passport)
 - `health-check.yml` runs daily at 9:15 UTC, creates GitHub issues on failure
+
+---
+
+### 2.6 Starkzap Execution Surface Integration
+
+**Description**: Add Starkzap as a first-class DeFi execution surface while keeping authorization and policy enforcement in starknet-agentic contracts and session key controls.
+
+**Requirements**:
+- [ ] Define execution-surface abstraction (`starkzap` | `avnu` | direct invoke) in MCP layer
+- [ ] Implement Starkzap-backed transfer/swap adapter behind feature flag
+- [ ] Preserve AVNU path as default until parity checks pass
+- [ ] Add provider parity tests (quote/execution/error mapping)
+- [ ] Add reproducibility harness for Sepolia adversarial proof flows
+- [ ] Document execution vs authorization separation in SPECIFICATION and GETTING_STARTED
+
+**Implementation Notes**:
+- Upstream report indicates Starkzap was used in an adversarial Sepolia demo where oversized spend and forbidden selectors were blocked by policy controls.
+- Track source links and verification notes in `docs/UPSTREAM_SYNC_2026-03-05.md`.
+- Integrate incrementally: adapter + tests first, default switch only after stability and security review.
 
 ---
 

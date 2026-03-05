@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import { forecastMarket, extractProbability } from "@/lib/agent-forecaster";
 import { agenticForecastMarket, type AgenticForecastEvent } from "@/lib/forecast-tools";
 import {

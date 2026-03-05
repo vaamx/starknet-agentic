@@ -1,4 +1,8 @@
-name: Publish Packages
+# Manual / emergency publish path.
+# Primary release flow is Changesets (see release.yml).
+# This workflow fires when a GitHub Release is created manually and
+# publishes with SLSA build-provenance attestation.
+name: Publish Packages (manual)
 
 on:
   release:
@@ -21,9 +25,9 @@ jobs:
           version: 10
 
       - name: Setup Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
           cache: 'pnpm'
 
@@ -42,7 +46,7 @@ jobs:
           cd ../starknet-agent-passport && npm pack --pack-destination ../../dist-release
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
         with:
           subject-path: 'dist-release/*.tgz'
 

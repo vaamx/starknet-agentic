@@ -17,6 +17,85 @@ import {
 } from "@/lib/categories";
 import type { MarketCategory } from "./components/dashboard/types";
 
+interface SessionUser {
+  id: string;
+  email: string;
+  name: string;
+}
+
+interface SessionContext {
+  user: SessionUser;
+  organization: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+  role: "owner" | "admin" | "analyst" | "viewer";
+}
+
+interface QuantAnalytics {
+  calibration: Array<{
+    binStart: number;
+    binEnd: number;
+    avgPredicted: number;
+    observedRate: number;
+    count: number;
+  }>;
+  brierTimeline: Array<{
+    day: string;
+    brier: number;
+    count: number;
+  }>;
+  sourceAttribution: Array<{
+    source: string;
+    count: number;
+  }>;
+  sourceReliability: Array<{
+    source: string;
+    samples: number;
+    markets: number;
+    avgBrier: number;
+    calibrationBias: number;
+    reliabilityScore: number;
+    confidence: number;
+  }>;
+  agentCalibration: Array<{
+    agentId: string;
+    samples: number;
+    avgBrier: number;
+    calibrationBias: number;
+    reliabilityScore: number;
+    confidence: number;
+    memoryStrength: number;
+  }>;
+  forecastQuality: {
+    avgBrier: number;
+    avgLogLoss: number;
+    sharpness: number;
+    calibrationGap: number;
+    brierSkillScore: number;
+  };
+  strategy: {
+    totalExecutions: number;
+    successRate: number;
+    deployedCapitalStrk: number;
+    realizedPnlStrk: number;
+    bySurface: Array<{
+      executionSurface: string;
+      executions: number;
+      successRate: number;
+    }>;
+  };
+}
+
+interface ModelCalibrationComparisonRow {
+  modelName: string;
+  agentId: string;
+  forecasts: number;
+  brier: number;
+  calibrationGap: number;
+}
+
 export default function Dashboard() {
   const {
     markets,
@@ -308,7 +387,10 @@ export default function Dashboard() {
 
       {/* Modals */}
       {showCreator && (
-        <MarketCreator onClose={() => setShowCreator(false)} />
+        <MarketCreator
+          onClose={() => setShowCreator(false)}
+          onCreated={loadData}
+        />
       )}
 
       {betMarket && (
@@ -334,6 +416,19 @@ export default function Dashboard() {
           marketId={analyzeMarket.id}
           question={analyzeMarket.question}
           onClose={() => setAnalyzeMarketId(null)}
+        />
+      )}
+
+      {lifecycleAction && (
+        <MarketLifecycleModal
+          marketId={lifecycleAction.marketId}
+          question={
+            markets.find((m) => m.id === lifecycleAction.marketId)?.question ??
+            `Market #${lifecycleAction.marketId}`
+          }
+          action={lifecycleAction.action}
+          onClose={() => setLifecycleAction(null)}
+          onSuccess={loadData}
         />
       )}
     </div>

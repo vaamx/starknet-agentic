@@ -45,6 +45,10 @@ export interface PolicyConfig {
   transfer?: TransferPolicy;
   invoke?: InvokePolicy;
   swap?: SwapPolicy;
+  sessionKeys?: {
+    /** If false (default), block session-key management tools by policy envelope. */
+    allowManagement?: boolean;
+  };
   /** If true, reject requests for tools not covered by explicit policy. Default: false. */
   denyUnknownTools?: boolean;
 }
@@ -96,6 +100,9 @@ export class PolicyGuard {
         return this.evaluateSwap(args);
       case "starknet_build_calls":
         return this.evaluateBuildCalls(args);
+      case "starknet_register_session_key":
+      case "starknet_revoke_session_key":
+        return this.evaluateSessionKeyManagement(toolName);
       default:
         if (this.config.denyUnknownTools) {
           return { allowed: false, reason: `Tool "${toolName}" is not covered by policy` };
@@ -275,6 +282,17 @@ export class PolicyGuard {
     }
 
     return { allowed: true };
+  }
+
+  private evaluateSessionKeyManagement(toolName: string): PolicyResult {
+    const allow = this.config.sessionKeys?.allowManagement === true;
+    if (allow) {
+      return { allowed: true };
+    }
+    return {
+      allowed: false,
+      reason: `${toolName} blocked by policy: session key management disabled`,
+    };
   }
 }
 

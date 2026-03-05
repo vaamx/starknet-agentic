@@ -408,6 +408,50 @@ describe("PolicyGuard", () => {
   // ── Adversarial cases ────────────────────────────────────────────────
 
   describe("adversarial cases", () => {
+    it("oversized spend is blocked by transfer policy envelope", () => {
+      const guard = new PolicyGuard({
+        transfer: { maxAmountPerCall: "25" },
+      });
+      const result = guard.evaluate("starknet_transfer", {
+        recipient: "0xabc",
+        token: "STRK",
+        amount: "250",
+      });
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain("exceeds policy limit");
+    });
+
+    it("revoked session-key management operations are blocked by default", () => {
+      const guard = new PolicyGuard({});
+      const result = guard.evaluate("starknet_revoke_session_key", {
+        accountAddress: "0xabc",
+        sessionPublicKey: "0x123",
+      });
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain("session key management disabled");
+    });
+
+    it("session-key management can be explicitly enabled", () => {
+      const guard = new PolicyGuard({
+        sessionKeys: { allowManagement: true },
+      });
+      const result = guard.evaluate("starknet_revoke_session_key", {
+        accountAddress: "0xabc",
+        sessionPublicKey: "0x123",
+      });
+      expect(result.allowed).toBe(true);
+    });
+
+    it("forbidden selector is blocked preflight before execution", () => {
+      const guard = new PolicyGuard({});
+      const result = guard.evaluate("starknet_invoke_contract", {
+        contractAddress: "0xabc",
+        entrypoint: "set_owner",
+      });
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain("blocked by default security policy");
+    });
+
     it("blocks multicall encoding privileged selectors via build_calls", () => {
       const guard = new PolicyGuard({});
       const result = guard.evaluate("starknet_build_calls", {
