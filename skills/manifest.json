@@ -51,6 +51,14 @@
       "skill_md_path": "skills/controller-cli/SKILL.md"
     },
     {
+      "description": "Log AI reasoning on-chain for auditability and verifiable provenance. Hash reasoning text with SHA-256, store the u256 hash in the Huginn Registry on Starknet, and optionally prove it with a ZK verifier. Creates an immutable, trustless audit trail of AI decision-making.",
+      "install": "npx skills add keep-starknet-strange/starknet-agentic/skills/huginn-log",
+      "name": "huginn-log",
+      "raw_skill_md_url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/huginn-log/SKILL.md",
+      "repo_path": "skills/huginn-log",
+      "skill_md_path": "skills/huginn-log/SKILL.md"
+    },
+    {
       "description": "Bridge to Starknet from any EVM chain and register with Huginn agent registry. Enables cross-chain agent onboarding with AVNU bridge integration.",
       "install": "npx skills add keep-starknet-strange/starknet-agentic/skills/huginn-onboard",
       "name": "huginn-onboard",
@@ -75,6 +83,14 @@
       "skill_md_path": "skills/starknet-defi/SKILL.md"
     },
     {
+      "description": "Superforecasting methodology for AI agents on Starknet. Use multi-persona debate, autonomous tool-use research loops, calibrated probability estimation (Brier scoring), and on-chain reputation weighting to produce well-calibrated forecasts for any prediction market question.",
+      "install": "npx skills add keep-starknet-strange/starknet-agentic/skills/starknet-forecast",
+      "name": "starknet-forecast",
+      "raw_skill_md_url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/starknet-forecast/SKILL.md",
+      "repo_path": "skills/starknet-forecast",
+      "skill_md_path": "skills/starknet-forecast/SKILL.md"
+    },
+    {
       "description": "Register AI agents on-chain using the ERC-8004 Trustless Agents standard. Manage agent identity as NFTs, build reputation through feedback, and request third-party validation.",
       "install": "npx skills add keep-starknet-strange/starknet-agentic/skills/starknet-identity",
       "name": "starknet-identity",
@@ -97,6 +113,22 @@
       "raw_skill_md_url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/starknet-mini-pay/SKILL.md",
       "repo_path": "skills/starknet-mini-pay",
       "skill_md_path": "skills/starknet-mini-pay/SKILL.md"
+    },
+    {
+      "description": "Interact with Starknet prediction markets on Sepolia. Place bets, view open markets and implied probabilities, record probability predictions on-chain for Brier score tracking, claim winnings from resolved markets, and create new markets via the factory contract.",
+      "install": "npx skills add keep-starknet-strange/starknet-agentic/skills/starknet-predict",
+      "name": "starknet-predict",
+      "raw_skill_md_url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/starknet-predict/SKILL.md",
+      "repo_path": "skills/starknet-predict",
+      "skill_md_path": "skills/starknet-predict/SKILL.md"
+    },
+    {
+      "description": "Access 12 real-world data sources for prediction research. Fetch live crypto prices (CoinGecko), Polymarket odds, ESPN sports data, web search (Tavily/Brave), news headlines, GitHub trends, Starknet on-chain metrics, RSS feeds, X trends, and Telegram signals. Each source fails gracefully with empty results when API keys are absent.",
+      "install": "npx skills add keep-starknet-strange/starknet-agentic/skills/starknet-research",
+      "name": "starknet-research",
+      "raw_skill_md_url": "https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/skills/starknet-research/SKILL.md",
+      "repo_path": "skills/starknet-research",
+      "skill_md_path": "skills/starknet-research/SKILL.md"
     },
     {
       "description": "Create and manage Starknet wallets for AI agents. Transfer tokens, check balances, manage session keys, deploy accounts, and interact with smart contracts using native Account Abstraction.",

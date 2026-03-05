@@ -1,6 +1,6 @@
 use prediction_market::interfaces::{
     IMarketFactoryDispatcher, IMarketFactoryDispatcherTrait, IPredictionMarketDispatcher,
-    IPredictionMarketDispatcherTrait,
+    IPredictionMarketDispatcherTrait, IERC20DispatcherTrait,
 };
 use snforge_std::{
     ContractClassTrait, DeclareResultTrait, declare, start_cheat_caller_address,
@@ -21,6 +21,10 @@ fn alice() -> ContractAddress {
 
 fn oracle() -> ContractAddress {
     0xAA.try_into().unwrap()
+}
+
+fn fee_recipient_alt() -> ContractAddress {
+    0xFEE.try_into().unwrap()
 }
 
 fn token() -> ContractAddress {
@@ -50,6 +54,7 @@ fn test_factory_initial_state() {
     let (factory, _) = deploy_factory();
 
     assert_eq!(factory.get_market_count(), 0, "initial count should be 0");
+    assert_eq!(factory.get_fee_recipient(), owner(), "default fee recipient is owner");
 }
 
 #[test]
@@ -124,6 +129,10 @@ fn test_created_market_is_functional() {
     assert_eq!(oracle_addr, oracle(), "oracle");
     assert_eq!(collateral, token_addr, "collateral token");
     assert_eq!(fee_bps, 200, "fee bps");
+
+    let (_, withdrawn, recipient) = market.get_fee_state();
+    assert_eq!(withdrawn, false, "fees not withdrawn");
+    assert_eq!(recipient, owner(), "factory default fee recipient used");
 }
 
 #[test]
@@ -213,4 +222,41 @@ fn test_factory_created_market_can_accept_bets() {
 
     assert_eq!(market.get_total_pool(), 500, "market has tokens");
     assert_eq!(market.get_bet(alice(), 1), 500, "alice bet recorded");
+}
+
+#[test]
+fn test_owner_can_update_fee_recipient() {
+    let (factory, factory_addr) = deploy_factory();
+
+    start_cheat_caller_address(factory_addr, owner());
+    factory.set_fee_recipient(fee_recipient_alt());
+    stop_cheat_caller_address(factory_addr);
+
+    assert_eq!(factory.get_fee_recipient(), fee_recipient_alt(), "updated recipient");
+}
+
+#[test]
+#[should_panic(expected: 'Caller is not the owner')]
+fn test_non_owner_cannot_update_fee_recipient() {
+    let (factory, factory_addr) = deploy_factory();
+
+    start_cheat_caller_address(factory_addr, alice());
+    factory.set_fee_recipient(fee_recipient_alt());
+}
+
+#[test]
+fn test_updated_fee_recipient_applies_to_new_markets() {
+    let (factory, factory_addr) = deploy_factory();
+
+    start_cheat_caller_address(factory_addr, owner());
+    factory.set_fee_recipient(fee_recipient_alt());
+    stop_cheat_caller_address(factory_addr);
+
+    start_cheat_caller_address(factory_addr, alice());
+    let (market_address, _) = factory.create_market(0xABCD, 2000, oracle(), token(), 200);
+    stop_cheat_caller_address(factory_addr);
+
+    let market = IPredictionMarketDispatcher { contract_address: market_address };
+    let (_, _, recipient) = market.get_fee_state();
+    assert_eq!(recipient, fee_recipient_alt(), "market uses updated factory recipient");
 }

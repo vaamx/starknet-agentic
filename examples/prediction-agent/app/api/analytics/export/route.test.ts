@@ -1,9 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const requireRoleMock = vi.fn();
-const listRecentForecastsMock = vi.fn();
-const listRecentResearchArtifactsMock = vi.fn();
-const listRecentExecutionsMock = vi.fn();
+const {
+  requireRoleMock,
+  listRecentForecastsMock,
+  listRecentResearchArtifactsMock,
+  listRecentExecutionsMock,
+} = vi.hoisted(() => ({
+  requireRoleMock: vi.fn(),
+  listRecentForecastsMock: vi.fn(),
+  listRecentResearchArtifactsMock: vi.fn(),
+  listRecentExecutionsMock: vi.fn(),
+}));
 
 vi.mock("@/lib/require-auth", () => ({
   requireRole: requireRoleMock,
@@ -15,7 +22,7 @@ vi.mock("@/lib/ops-store", () => ({
   listRecentExecutions: listRecentExecutionsMock,
 }));
 
-import { GET } from "./route";
+import { GET } from "./route.ts";
 
 describe("analytics export API", () => {
   beforeEach(() => {

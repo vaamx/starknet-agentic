@@ -1,0 +1,27 @@
+{
+  "name": "@starknet-agentic/bitsage-cloud",
+  "version": "0.1.0",
+  "description": "BitsagE Cloud API — STRK-native compute marketplace for sovereign agents",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@starknet-agentic/bitsage-cloud-sdk": "workspace:*",
+    "@starknet-agentic/x402-starknet": "workspace:*",
+    "better-sqlite3": "^9.4.3",
+    "fastify": "^5.3.3",
+    "starknet": "^9.2.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^25.2.3",
+    "tsup": "^8.5.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.0"
+  }
+}

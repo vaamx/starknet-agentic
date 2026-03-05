@@ -90,7 +90,7 @@ await account.execute({
 
 ### Sepolia
 
-- HuginnRegistry: `TBD`
+- HuginnRegistry: See `contracts/huginn-registry/deployments/sepolia.json`
 - AVNU Paymaster: `TBD`
 
 ## Advanced: Manual Steps

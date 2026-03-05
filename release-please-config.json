@@ -1,0 +1,65 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "include-component-in-tag": true,
+  "separate-pull-requests": false,
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "starknet-agentic",
+      "changelog-path": "CHANGELOG.md",
+      "skip-github-release": true
+    },
+    "packages/bitsage-cloud-sdk": {
+      "release-type": "node",
+      "package-name": "@starknet-agentic/bitsage-cloud-sdk"
+    },
+    "packages/create-starknet-agent": {
+      "release-type": "node",
+      "package-name": "create-starknet-agent"
+    },
+    "packages/prediction-arb-scanner": {
+      "release-type": "node",
+      "package-name": "@starknet-agentic/prediction-arb-scanner"
+    },
+    "packages/starknet-a2a": {
+      "release-type": "node",
+      "package-name": "@starknet-agentic/a2a"
+    },
+    "packages/starknet-agent-passport": {
+      "release-type": "node",
+      "package-name": "@starknet-agentic/agent-passport"
+    },
+    "packages/starknet-mcp-server": {
+      "release-type": "node",
+      "package-name": "@starknet-agentic/mcp-server"
+    },
+    "packages/starknet-onboarding-utils": {
+      "release-type": "node",
+      "package-name": "@starknet-agentic/onboarding-utils"
+    },
+    "services/bitsage-cloud": {
+      "release-type": "node",
+      "package-name": "@starknet-agentic/bitsage-cloud"
+    },
+    "skills/starknet-anonymous-wallet": {
+      "release-type": "node",
+      "package-name": "@starknet-agentic/skill-anonymous-wallet"
+    },
+    "skills/starknet-defi": {
+      "release-type": "node",
+      "package-name": "@starknet-agentic/skill-defi"
+    },
+    "skills/starknet-identity": {
+      "release-type": "node",
+      "package-name": "@starknet-agentic/skill-identity"
+    },
+    "skills/starknet-mini-pay": {
+      "release-type": "node",
+      "package-name": "@starknet-agentic/skill-mini-pay"
+    },
+    "skills/starknet-wallet": {
+      "release-type": "node",
+      "package-name": "@starknet-agentic/skill-wallet"
+    }
+  }
+}

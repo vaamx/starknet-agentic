@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const requireRoleMock = vi.fn();
-const getAnalyticsOverviewMock = vi.fn();
+const { requireRoleMock, getAnalyticsOverviewMock } = vi.hoisted(() => ({
+  requireRoleMock: vi.fn(),
+  getAnalyticsOverviewMock: vi.fn(),
+}));
 
 vi.mock("@/lib/require-auth", () => ({
   requireRole: requireRoleMock,
@@ -11,7 +13,7 @@ vi.mock("@/lib/ops-store", () => ({
   getAnalyticsOverview: getAnalyticsOverviewMock,
 }));
 
-import { GET } from "./route";
+import { GET } from "./route.ts";
 
 describe("analytics overview API", () => {
   beforeEach(() => {
@@ -38,6 +40,15 @@ describe("analytics overview API", () => {
       calibration: [],
       brierTimeline: [],
       sourceAttribution: [],
+      sourceReliability: [],
+      agentCalibration: [],
+      forecastQuality: {
+        avgBrier: 0,
+        avgLogLoss: 0,
+        sharpness: 0,
+        calibrationGap: 0,
+        brierSkillScore: 0,
+      },
       strategy: {
         totalExecutions: 0,
         successRate: 0,

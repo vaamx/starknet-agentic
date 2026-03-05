@@ -1,6 +1,8 @@
-import { agentLoop } from "@/lib/agent-loop";
 import { NextRequest } from "next/server";
+import { agentLoop } from "@/lib/agent-loop";
 import { requireRole } from "@/lib/require-auth";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { getPersistedLoopActions } from "@/lib/state-store";
 
 /**
  * SSE stream of live agent actions.
@@ -15,10 +17,48 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  const rateLimit = checkRateLimit(
+    `agent_loop_stream:${context.membership.organizationId}:${context.user.id}`,
+    {
+      windowMs: 60_000,
+      max: 20,
+      blockMs: 60_000,
+    }
+  );
+  if (!rateLimit.allowed) {
+    return new Response(
+      JSON.stringify({ error: "Rate limit exceeded for stream subscriptions" }),
+      {
+        status: 429,
+        headers: {
+          "Content-Type": "application/json",
+          "Retry-After": String(Math.ceil(rateLimit.retryAfterMs / 1000)),
+        },
+      }
+    );
+  }
+
   const encoder = new TextEncoder();
+  let pingInterval: ReturnType<typeof setInterval> | null = null;
+  let unsubscribe: (() => void) | null = null;
+  const onAbort = () => cleanup();
+
+  const cleanup = () => {
+    if (pingInterval) {
+      clearInterval(pingInterval);
+      pingInterval = null;
+    }
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
+    }
+    if (request.signal) {
+      request.signal.removeEventListener("abort", onAbort);
+    }
+  };
 
   const stream = new ReadableStream({
-    start(controller) {
+    async start(controller) {
       // Send initial status
       const status = agentLoop.getStatus();
       controller.enqueue(
@@ -27,8 +67,19 @@ export async function GET(request: NextRequest) {
         )
       );
 
-      // Send recent actions as backfill
-      const recent = agentLoop.getActionLog(10);
+      // Send recent actions as backfill (persisted + in-memory) so
+      // serverless cold starts do not produce an empty debate feed.
+      const [recentInMemory, recentPersisted] = await Promise.all([
+        Promise.resolve(agentLoop.getActionLog(30)),
+        getPersistedLoopActions(30).catch(() => []),
+      ]);
+      const deduped = new Map<string, any>();
+      for (const action of [...recentPersisted, ...recentInMemory]) {
+        deduped.set(action.id, action);
+      }
+      const recent = Array.from(deduped.values())
+        .sort((a, b) => a.timestamp - b.timestamp)
+        .slice(-20);
       for (const action of recent) {
         controller.enqueue(
           encoder.encode(
@@ -38,7 +89,7 @@ export async function GET(request: NextRequest) {
       }
 
       // Subscribe to new actions
-      const unsubscribe = agentLoop.subscribe((action) => {
+      unsubscribe = agentLoop.subscribe((action) => {
         try {
           controller.enqueue(
             encoder.encode(
@@ -47,12 +98,12 @@ export async function GET(request: NextRequest) {
           );
         } catch {
           // Client disconnected
-          unsubscribe();
+          cleanup();
         }
       });
 
       // Keep-alive ping every 30s
-      const pingInterval = setInterval(() => {
+      pingInterval = setInterval(() => {
         try {
           controller.enqueue(
             encoder.encode(
@@ -60,22 +111,16 @@ export async function GET(request: NextRequest) {
             )
           );
         } catch {
-          clearInterval(pingInterval);
-          unsubscribe();
+          cleanup();
         }
       }, 30_000);
 
-      // Cleanup on close
-      const cleanup = () => {
-        clearInterval(pingInterval);
-        unsubscribe();
-      };
-
-      // Use signal if available for cleanup
-      if (typeof AbortSignal !== "undefined") {
-        const signal = new AbortController().signal;
-        signal.addEventListener("abort", cleanup);
+      if (request.signal) {
+        request.signal.addEventListener("abort", onAbort, { once: true });
       }
+    },
+    cancel() {
+      cleanup();
     },
   });
 
@@ -84,6 +129,7 @@ export async function GET(request: NextRequest) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }

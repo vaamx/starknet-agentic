@@ -17,14 +17,12 @@ This skill provides **agent-facing scripts** for:
 - Preflight (simulate + fee estimate)
 - Allowance checks with human amounts
 
-## Quick Reference
+## Standalone Execution (No MCP Tool Yet)
 
-- `parse-smart.js`: parse/sanitize user prompt, detect operation type, return protocol + ABI context.
-- `resolve-smart.js`: build a safe execution plan from parsed LLM output (plan-only; no direct execute mode).
-- `read-smart.js`: dynamically match ABI functions and perform read calls.
-- `invoke-contract.js`: execute a direct contract write call.
-- `avnu-swap.js`: AVNU quote + swap execution flow for DeFi swaps.
-- `vesu-pool.js`: Vesu supply/borrow/position helper mapped to `modify_position`.
+This skill currently bundles direct execution scripts because Typhoon privacy flows are not yet exposed through the Starknet MCP server.
+
+- Use these scripts as a standalone runtime for anonymous account workflows.
+- Do not duplicate equivalent MCP logic for standard wallet operations unless privacy-specific behavior is required.
 
 ## Prerequisites
 
@@ -44,8 +42,8 @@ For standard scripts, configure RPC via:
 - `config.httpRpcUrl` (HTTP JSON-RPC URL)
 - `config.wsRpcUrl` (WebSocket URL)
 
-If neither is provided, scripts fall back to the public Lava mainnet RPC:
-- `https://rpc.starknet.lava.build:443`
+If neither is provided, scripts fall back to the public Sepolia RPC:
+- `https://starknet-sepolia.public.blastapi.io`
 
 ## Starknet.js v8.9.1 quick patterns
 

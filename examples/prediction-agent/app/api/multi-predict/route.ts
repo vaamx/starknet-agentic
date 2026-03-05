@@ -1,52 +1,69 @@
 import { NextRequest } from "next/server";
-import { forecastMarket, extractProbability } from "@/lib/agent-forecaster";
+import { forecastMarket } from "@/lib/agent-forecaster";
+import { agenticForecastMarket, type AgenticForecastEvent } from "@/lib/forecast-tools";
+import { AGENT_PERSONAS } from "@/lib/agent-personas";
 import {
-  AGENT_PERSONAS,
-  simulatePersonaForecast,
-} from "@/lib/agent-personas";
-import { getMarkets, getAgentPredictions, DEMO_QUESTIONS } from "@/lib/market-reader";
+  getMarketById,
+  getAgentPredictions,
+  resolveMarketQuestion,
+  SUPER_BOWL_REGEX,
+} from "@/lib/market-reader";
 import { gatherResearch, buildResearchBrief } from "@/lib/data-sources/index";
 import type { DataSourceName } from "@/lib/data-sources/index";
-import { requireRole } from "@/lib/require-auth";
-import { recordAudit, recordForecast, recordResearchArtifact } from "@/lib/ops-store";
+import { runDebateRound, type Round1Result } from "@/lib/agent-debate";
+import { requireX402 } from "@/lib/x402-middleware";
+import { config } from "@/lib/config";
+import { getLlmConfigurationError } from "@/lib/llm-provider";
+import { z } from "zod";
+import { enforceRateLimit, jsonError } from "@/lib/api-guard";
 
 /**
  * Multi-agent forecast endpoint.
  * Runs all agent personas on a market and streams their reasoning.
- * Each agent produces an independent probability estimate.
- * The final output includes a reputation-weighted consensus.
+ * Round 1: Independent forecasts. Round 2: Debate with revisions.
+ * Final output: reputation-weighted consensus from Round 2 estimates.
  */
+export const maxDuration = 60;
+const multiPredictBodySchema = z.object({
+  marketId: z.number().int().min(1),
+});
+
 export async function POST(request: NextRequest) {
-  const context = requireRole(request, "analyst");
-  if (!context) {
-    return new Response(JSON.stringify({ error: "Forbidden" }), {
-      status: 403,
-      headers: { "Content-Type": "application/json" },
-    });
+  const rateLimited = await enforceRateLimit(request, "multi_predict", {
+    windowMs: 60_000,
+    maxRequests: 12,
+  });
+  if (rateLimited) return rateLimited;
+
+  // Phase C: X-402 payment check — must happen BEFORE opening the SSE stream
+  const paymentResult = await requireX402(request, "multi_predict", config.x402PriceMultiPredict);
+  if (paymentResult instanceof Response) return paymentResult; // HTTP 402
+
+  let marketId: number;
+  try {
+    const body = multiPredictBodySchema.parse(await request.json());
+    marketId = body.marketId;
+  } catch (err: any) {
+    return jsonError("Invalid request body", 400, err?.issues ?? err?.message);
   }
 
-  const body = await request.json();
-  const marketId = body.marketId as number;
-
-  const markets = await getMarkets();
-  const market = markets.find((m) => m.id === marketId);
+  const market = await getMarketById(marketId);
 
   if (!market) {
-    return new Response(JSON.stringify({ error: "Market not found" }), {
-      status: 404,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonError("Market not found", 404);
   }
 
   const predictions = await getAgentPredictions(marketId);
-  const question = DEMO_QUESTIONS[marketId] ?? `Market #${marketId}`;
+  const question = resolveMarketQuestion(marketId, market.questionHash);
 
   const daysUntil = Math.max(
     0,
     Math.floor((market.resolutionTime - Date.now() / 1000) / 86400)
   );
 
-  const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
+  if (!config.llmConfigured) {
+    return jsonError(getLlmConfigurationError(), 400);
+  }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -56,12 +73,49 @@ export async function POST(request: NextRequest) {
           agent: string;
           name: string;
           probability: number;
-          brierScore: number;
+          brierScore: number | null;
         }[] = [];
 
-        // Process each persona
+        const sourceSet = new Set<DataSourceName>();
         for (const persona of AGENT_PERSONAS) {
-          // Signal which agent is starting
+          for (const src of (persona.preferredSources ?? ["polymarket", "coingecko", "news", "social"])) {
+            sourceSet.add(src as DataSourceName);
+          }
+        }
+        if (SUPER_BOWL_REGEX.test(question)) {
+          sourceSet.add("espn");
+        }
+        const sources = Array.from(sourceSet);
+
+        let researchBrief = "";
+        let researchCount = 0;
+        try {
+          const research = await gatherResearch(question, sources);
+          researchCount = research.length;
+          researchBrief = buildResearchBrief(research);
+        } catch {
+          researchBrief = "";
+        }
+
+        // Compute once — same value for all 5 persona iterations.
+        const useToolUse = process.env.AGENT_TOOL_USE_ENABLED !== "false";
+
+        // Base context fields are identical across all personas; only systemPrompt varies.
+        // Factoring avoids re-computing agentPredictions.map() 5× unnecessarily.
+        const baseContext = {
+          currentMarketProb: market.impliedProbYes,
+          totalPool: (market.totalPool / 10n ** 18n).toString(),
+          agentPredictions: predictions.map((p) => ({
+            agent: p.agent.slice(0, 10),
+            prob: p.predictedProb,
+            brier: p.brierScore,
+          })),
+          timeUntilResolution: `${daysUntil} days`,
+          researchBrief,
+        };
+
+        // ======== ROUND 1: Independent Forecasts ========
+        for (const persona of AGENT_PERSONAS) {
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
@@ -76,104 +130,76 @@ export async function POST(request: NextRequest) {
 
           let probability: number;
 
-          if (hasApiKey && persona.id === "alpha") {
-            // Gather research data for the primary agent
-            const sources = (persona.preferredSources ?? ["polymarket", "coingecko", "news", "social"]) as DataSourceName[];
-            let researchBrief = "";
-            try {
-              const research = await gatherResearch(question, sources);
-              researchBrief = buildResearchBrief(research);
-              for (const item of research) {
-                const firstPoint = item.data[0];
-                await recordResearchArtifact({
-                  organizationId: context.membership.organizationId,
-                  marketId,
-                  sourceType: item.source,
-                  sourceUrl: firstPoint?.url,
-                  title: firstPoint?.label,
-                  summary: item.summary,
-                  payloadJson: JSON.stringify(item),
-                });
-              }
-
-              // Stream a research summary event
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({
-                    type: "text",
-                    agentId: persona.id,
-                    content: `[Researched ${research.length} data sources: ${research.map((r) => r.source).join(", ")}]\n\n`,
-                  })}\n\n`
-                )
-              );
-            } catch {
-              // Research failed, continue without it
-            }
-
-            const generator = forecastMarket(question, {
-              currentMarketProb: market.impliedProbYes,
-              totalPool: (market.totalPool / 10n ** 18n).toString(),
-              agentPredictions: predictions.map((p) => ({
-                agent: p.agent.slice(0, 10),
-                prob: p.predictedProb,
-                brier: p.brierScore,
-              })),
-              timeUntilResolution: `${daysUntil} days`,
-              researchBrief,
-            });
-
-            let fullText = "";
-            let result: any;
-
-            while (true) {
-              const { value, done } = await generator.next();
-              if (done) {
-                result = value;
-                break;
-              }
-              fullText += value;
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({
-                    type: "text",
-                    agentId: persona.id,
-                    content: value,
-                  })}\n\n`
-                )
-              );
-            }
-
-            probability = result?.probability ?? extractProbability(fullText);
-          } else {
-            // Simulated forecast for other agents
-            const forecast = simulatePersonaForecast(
-              persona,
-              market.impliedProbYes,
-              question
+          if (researchCount > 0) {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  type: "text",
+                  agentId: persona.id,
+                  content: `[Researched ${researchCount} data sources: ${sources.join(", ")}]\n\n`,
+                })}\n\n`
+              )
             );
-            probability = forecast.probability;
+          }
 
-            // Stream the simulated reasoning in chunks for visual effect
-            const chunks = forecast.reasoning.split(/(?<=\n\n)/);
-            for (const chunk of chunks) {
+          const forecastContext = { ...baseContext, systemPrompt: persona.systemPrompt };
+
+          const generator = useToolUse
+            ? agenticForecastMarket(question, forecastContext)
+            : forecastMarket(question, forecastContext);
+
+          let result: any;
+          while (true) {
+            const { value, done } = await generator.next();
+            if (done) {
+              result = value;
+              break;
+            }
+            if (useToolUse) {
+              const event = value as AgenticForecastEvent;
+              if (event.type === "reasoning_chunk") {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: "text", agentId: persona.id, content: event.content })}\n\n`
+                  )
+                );
+              } else if (event.type === "tool_call") {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: "tool_call", agentId: persona.id, toolName: event.toolName, toolUseId: event.toolUseId, input: event.input })}\n\n`
+                  )
+                );
+              } else if (event.type === "tool_result") {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      type: "tool_result",
+                      agentId: persona.id,
+                      toolName: event.toolName,
+                      toolUseId: event.toolUseId,
+                      result: event.result,
+                      isError: event.isError,
+                      source: event.source,
+                      dataPoints: event.dataPoints,
+                    })}\n\n`
+                  )
+                );
+              }
+            } else {
               controller.enqueue(
                 encoder.encode(
-                  `data: ${JSON.stringify({
-                    type: "text",
-                    agentId: persona.id,
-                    content: chunk,
-                  })}\n\n`
+                  `data: ${JSON.stringify({ type: "text", agentId: persona.id, content: value as string })}\n\n`
                 )
               );
-              await new Promise((r) => setTimeout(r, 100));
             }
           }
 
-          // Find this agent's existing Brier score from predictions
-          const existing = predictions.find(
-            (p) => p.agent === `0x${persona.id.charAt(0).toUpperCase()}${persona.id.slice(1)}`
-          );
-          const brierScore = existing?.brierScore ?? 0.2 + Math.random() * 0.15;
+          if (typeof result?.probability !== "number") {
+            throw new Error(`Forecast missing probability for ${persona.name}`);
+          }
+          probability = result.probability;
+
+          const brierScore = null;
 
           agentResults.push({
             agent: persona.id,
@@ -181,16 +207,7 @@ export async function POST(request: NextRequest) {
             probability,
             brierScore,
           });
-          await recordForecast({
-            organizationId: context.membership.organizationId,
-            marketId,
-            userId: context.user.id,
-            agentId: persona.id,
-            probability,
-            modelName: persona.model,
-          });
 
-          // Signal agent completion
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
@@ -204,18 +221,64 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // Compute reputation-weighted consensus
-        const totalInverseWeight = agentResults.reduce(
-          (sum, a) => sum + (a.brierScore > 0 ? 1 / a.brierScore : 10),
-          0
+        // ======== ROUND 2: Agent Debate ========
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ type: "debate_start" })}\n\n`
+          )
         );
-        const weightedProb = agentResults.reduce(
-          (sum, a) =>
-            sum +
-            a.probability *
-              (a.brierScore > 0 ? 1 / a.brierScore : 10),
-          0
-        ) / totalInverseWeight;
+
+        const round1Results: Round1Result[] = agentResults.map((a) => ({
+          agentId: a.agent,
+          agentName: a.name,
+          probability: a.probability,
+          brierScore: a.brierScore,
+        }));
+
+        const debateResults = await runDebateRound(round1Results, question, Object.fromEntries(
+          AGENT_PERSONAS.map((p) => [p.id, p.systemPrompt])
+        ));
+
+        for (const debate of debateResults) {
+          // Stream debate reasoning
+          const chunks = debate.debateReasoning.split(/(?<=\n\n)/);
+          for (const chunk of chunks) {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  type: "debate_text",
+                  agentId: debate.agentId,
+                  content: chunk,
+                })}\n\n`
+              )
+            );
+            await new Promise((r) => setTimeout(r, 80));
+          }
+
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: "debate_complete",
+                agentId: debate.agentId,
+                agentName: debate.agentName,
+                originalProbability: debate.originalProbability,
+                revisedProbability: debate.revisedProbability,
+              })}\n\n`
+            )
+          );
+
+          // Update probability to revised estimate
+          const idx = agentResults.findIndex((a) => a.agent === debate.agentId);
+          if (idx >= 0) {
+            agentResults[idx].probability = debate.revisedProbability;
+          }
+        }
+
+        // ======== CONSENSUS (from Round 2 revised estimates) ========
+        const totalWeight = agentResults.length || 1;
+        const weightedProb =
+          agentResults.reduce((sum, a) => sum + a.probability, 0) /
+          totalWeight;
 
         const simpleAvg =
           agentResults.reduce((sum, a) => sum + a.probability, 0) /
@@ -233,24 +296,11 @@ export async function POST(request: NextRequest) {
                 name: a.name,
                 probability: a.probability,
                 brierScore: a.brierScore,
-                weight: a.brierScore > 0 ? (1 / a.brierScore / totalInverseWeight) : 0,
+                weight: 1 / totalWeight,
               })),
             })}\n\n`
           )
         );
-
-        await recordAudit({
-          organizationId: context.membership.organizationId,
-          userId: context.user.id,
-          action: "market.multi_predict",
-          targetType: "market",
-          targetId: String(marketId),
-          metadata: {
-            weightedProbability: weightedProb,
-            simpleProbability: simpleAvg,
-            agentCount: agentResults.length,
-          },
-        });
 
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
@@ -270,6 +320,7 @@ export async function POST(request: NextRequest) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }

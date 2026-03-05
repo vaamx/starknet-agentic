@@ -2,6 +2,8 @@
 
 Production-ready skills for AI agents operating on Starknet. Built for the Agent Skills specification, compatible with 35+ agent platforms including Claude Code, Cursor, GitHub Copilot, and more.
 
+V1 baseline is Sepolia-first: examples and defaults target Sepolia until mainnet onboarding is finalized.
+
 ## Available Skills
 
 | Skill | Description | Status |
@@ -95,12 +97,12 @@ All skills require a Starknet RPC endpoint and account credentials:
 
 ```bash
 # Required environment variables
-export STARKNET_RPC_URL="https://starknet-mainnet.g.alchemy.com/v2/YOUR_KEY"
+export STARKNET_RPC_URL="https://starknet-sepolia.g.alchemy.com/v2/YOUR_KEY"
 export STARKNET_ACCOUNT_ADDRESS="0x..."
 export STARKNET_PRIVATE_KEY="0x..."
 
 # Optional: For gasless transactions
-export AVNU_PAYMASTER_URL="https://starknet.paymaster.avnu.fi"
+export AVNU_PAYMASTER_URL="https://sepolia.paymaster.avnu.fi"
 export AVNU_PAYMASTER_API_KEY="your_key"
 ```
 
@@ -147,6 +149,24 @@ Available MCP tools:
 - `starknet_swap` / `starknet_get_quote`
 - `starknet_call_contract` / `starknet_invoke_contract`
 - `starknet_estimate_fee`
+- `starknet_create_payment_link` / `starknet_parse_payment_link`
+- `starknet_create_invoice` / `starknet_get_invoice_status`
+- `starknet_generate_qr`
+- `starknet_get_agent_passport`
+- `x402_starknet_sign_payment_required`
+
+## MCP vs Standalone Skill Pattern (v1)
+
+Use this decision rule when authoring or updating a skill:
+
+1. If MCP already exposes the operation, document it under `MCP Tools Used` and keep execution in MCP.
+2. If MCP does not expose the operation yet, use `Standalone Execution (No MCP Tool Yet)` and explain why.
+3. Keep standalone scripts scoped to local validation or protocol gaps, not duplicate MCP execution paths.
+
+Current examples:
+- `starknet-wallet`, `starknet-defi`, `starknet-identity`: MCP-first patterns.
+- `starknet-anonymous-wallet`, `huginn-onboard`: standalone exceptions with explicit rationale.
+- `starknet-mini-pay`: MCP-first for links/invoices/QR + standalone script fallback.
 
 ## Skill Format
 
@@ -188,9 +208,11 @@ See the main [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines.
 
 1. Create `skills/<skill-name>/SKILL.md`
 2. Follow the frontmatter format above
-3. Include code examples with starknet.js patterns
-4. Add error handling documentation
-5. Submit PR for review
+3. Decide execution pattern using "MCP vs Standalone Skill Pattern (v1)"
+4. Add `MCP Tools Used` or `Standalone Execution (No MCP Tool Yet)` explicitly
+5. Include code examples with starknet.js patterns
+6. Add error handling documentation
+7. Submit PR for review
 
 ## Resources
 

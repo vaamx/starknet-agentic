@@ -7,27 +7,14 @@
  */
 
 import 'dotenv/config';
-import { getQuotes, fetchVerifiedTokenBySymbol } from '@avnu/avnu-sdk';
-
-const TOKENS: Record<string, string> = {
-  ETH: '0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7',
-  STRK: '0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d',
-  USDC: '0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8',
-  USDT: '0x068f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8',
-};
-
-const DECIMALS: Record<string, number> = {
-  ETH: 18, STRK: 18, USDC: 6, USDT: 6,
-};
-
-async function resolveToken(symbol: string): Promise<{ address: string; decimals: number; symbol: string }> {
-  const upper = symbol.toUpperCase();
-  if (TOKENS[upper]) {
-    return { address: TOKENS[upper], decimals: DECIMALS[upper], symbol: upper };
-  }
-  const token = await fetchVerifiedTokenBySymbol(symbol);
-  return { address: token.address, decimals: token.decimals, symbol: token.symbol };
-}
+import { getQuotes } from '@avnu/avnu-sdk';
+import {
+  formatAmount,
+  formatError,
+  formatRoutes,
+  parseDecimalToBigInt,
+  resolveToken,
+} from './_shared.js';
 
 async function main() {
   const pairArg = process.argv[2] || 'ETH/STRK';
@@ -40,15 +27,15 @@ async function main() {
   const sell = await resolveToken(sellSymbol);
   const buy = await resolveToken(buySymbol);
 
-  // Probe multiple amounts to show route depth
-  const amounts = [0.01, 0.1, 1, 10].map(a => ({
-    label: `${a} ${sell.symbol}`,
-    sellAmount: BigInt(Math.floor(a * (10 ** sell.decimals))),
-  }));
+  // Probe multiple amounts to show route depth.
+  const amountInputs = ['0.01', '0.1', '1', '10'];
 
-  console.log(`\nPool info: ${sell.symbol}/${buy.symbol}\n`);
+  console.log(`\nPool info: ${sell.symbol}/${buy.symbol}`);
+  console.log('(quote samples across increasing size)\n');
 
-  for (const { label, sellAmount } of amounts) {
+  for (const amountInput of amountInputs) {
+    const sellAmount = parseDecimalToBigInt(amountInput, sell.decimals);
+    const label = `${amountInput} ${sell.symbol}`;
     try {
       const quotes = await getQuotes({
         sellTokenAddress: sell.address,
@@ -59,14 +46,20 @@ async function main() {
         console.log(`  ${label}: No liquidity`);
         continue;
       }
-      const best = quotes[0];
-      const buyAmount = Number(best.buyAmount) / (10 ** buy.decimals);
-      const routes = best.routes?.map((r: any) => `${r.name}(${(r.percent * 100).toFixed(0)}%)`).join(', ') || 'N/A';
-      console.log(`  ${label.padEnd(16)} → ${buyAmount.toFixed(6).padStart(14)} ${buy.symbol}  | Routes: ${routes}`);
-    } catch {
-      console.log(`  ${label}: Error fetching quote`);
+      const best = quotes[0]!;
+      const buyAmount = formatAmount(BigInt(best.buyAmount), buy.decimals, 8);
+      const routes = formatRoutes(best.routes as Array<{ name: string; percent: number }> | undefined);
+      const priceImpact = best.priceImpact != null ? `${(best.priceImpact / 100).toFixed(2)}%` : 'N/A';
+      console.log(
+        `  ${label.padEnd(12)} -> ${buyAmount.padStart(14)} ${buy.symbol} | impact ${priceImpact.padStart(7)} | routes ${routes}`
+      );
+    } catch (error) {
+      console.log(`  ${label}: ${formatError(error)}`);
     }
   }
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  console.error(`Error: ${formatError(error)}`);
+  process.exit(1);
+});

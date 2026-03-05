@@ -1,56 +1,28 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getDemoLeaderboard } from "@/lib/market-reader";
-import { getDemoAgentIdentities } from "@/lib/agent-identity";
-import { agentSpawner } from "@/lib/agent-spawner";
-import { requireRole } from "@/lib/require-auth";
+import { NextResponse } from "next/server";
+import { getOnChainLeaderboard } from "@/lib/market-reader";
 
-export async function GET(request: NextRequest) {
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallback: T
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
-    const context = requireRole(request, "viewer");
-    if (!context) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 
-    // TODO: Read from on-chain AccuracyTracker when deployed
-    const leaderboard = getDemoLeaderboard();
-    const identities = getDemoAgentIdentities();
-
-    const enriched = leaderboard.map((entry) => {
-      const identity = identities.get(entry.agent);
-      return {
-        ...entry,
-        identity: identity
-          ? {
-              name: identity.name,
-              agentType: identity.agentType,
-              model: identity.model,
-              reputationScore: identity.reputationScore,
-              feedbackCount: identity.feedbackCount,
-            }
-          : null,
-      };
-    });
-
-    // Merge in spawned agents so they appear in the leaderboard
-    const spawned = agentSpawner.list();
-    let nextRank = enriched.length + 1;
-    for (const agent of spawned) {
-      enriched.push({
-        agent: agent.name,
-        avgBrier: 0.5, // No predictions yet
-        predictionCount: agent.stats.predictions,
-        rank: nextRank++,
-        identity: {
-          name: agent.name,
-          agentType: agent.persona.agentType,
-          model: agent.persona.model,
-          reputationScore: 0,
-          feedbackCount: 0,
-        },
-      });
-    }
-
-    return NextResponse.json({ leaderboard: enriched });
+export async function GET() {
+  try {
+    const leaderboard = await withTimeout(getOnChainLeaderboard(), 15_000, []);
+    return NextResponse.json({ leaderboard, stale: leaderboard.length === 0 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

@@ -1,0 +1,22 @@
+name: Agent Heartbeat
+
+# Fallback heartbeat when the Cloudflare Worker is not deployed.
+# Fires every 5 minutes; Cloudflare Worker fires every 1 minute (preferred).
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping heartbeat endpoint
+        run: |
+          curl -s -X POST "${{ secrets.AGENT_APP_URL }}/api/heartbeat" \
+            -H "x-heartbeat-secret: ${{ secrets.HEARTBEAT_SECRET }}" \
+            --max-time 55 \
+            --fail-with-body
+        env:
+          AGENT_APP_URL: ${{ secrets.AGENT_APP_URL }}
+          HEARTBEAT_SECRET: ${{ secrets.HEARTBEAT_SECRET }}

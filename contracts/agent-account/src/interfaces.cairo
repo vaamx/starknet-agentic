@@ -56,6 +56,11 @@ pub trait IAgentAccount<TContractState> {
     // Owner controls
     fn emergency_revoke_all(ref self: TContractState);
     fn get_active_session_key_count(self: @TContractState) -> u32;
+    fn add_allowed_contract(ref self: TContractState, contract: ContractAddress);
+    fn remove_allowed_contract(ref self: TContractState, contract: ContractAddress);
+    fn is_allowed_contract(self: @TContractState, contract: ContractAddress) -> bool;
+    fn set_allow_all_contracts(ref self: TContractState, enabled: bool);
+    fn get_allow_all_contracts(self: @TContractState) -> bool;
 
     // Agent identity
     fn set_agent_id(ref self: TContractState, registry: ContractAddress, agent_id: u256);

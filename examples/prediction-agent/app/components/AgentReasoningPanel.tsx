@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { postJsonWithCsrf } from "@/lib/secure-fetch";
 
 interface AgentResult {
   agentId: string;
@@ -10,24 +11,143 @@ interface AgentResult {
   reasoning: string;
   probability: number | null;
   isComplete: boolean;
+  brierScore: number | null;
 }
 
 interface ConsensusResult {
   weightedProbability: number;
   simpleProbability: number;
   agentCount: number;
+  disagreement: number;
+  confidenceScore: number;
+  confidenceInterval: {
+    low: number;
+    high: number;
+  };
+  marketEdge: number;
+  signal: "high_conviction" | "moderate" | "uncertain";
+  scenarios: Array<{
+    id: "bear" | "base" | "bull";
+    label: string;
+    probability: number;
+  }>;
   agents: {
     id: string;
     name: string;
     probability: number;
-    brierScore: number;
+    brierScore: number | null;
     weight: number;
+    confidence?: number;
+    sourceQuality?: number;
   }[];
 }
 
 interface AgentReasoningPanelProps {
   marketId: number | null;
   question: string;
+}
+
+function clampProbability(value: number): number {
+  return Math.max(0.01, Math.min(0.99, value));
+}
+
+function normalizeConsensus(raw: any): ConsensusResult {
+  const weightedProbability =
+    typeof raw?.weightedProbability === "number"
+      ? clampProbability(raw.weightedProbability)
+      : 0.5;
+  const simpleProbability =
+    typeof raw?.simpleProbability === "number"
+      ? clampProbability(raw.simpleProbability)
+      : weightedProbability;
+  const confidenceInterval =
+    raw?.confidenceInterval &&
+    typeof raw.confidenceInterval.low === "number" &&
+    typeof raw.confidenceInterval.high === "number"
+      ? {
+          low: clampProbability(raw.confidenceInterval.low),
+          high: clampProbability(raw.confidenceInterval.high),
+        }
+      : {
+          low: clampProbability(weightedProbability - 0.15),
+          high: clampProbability(weightedProbability + 0.15),
+        };
+
+  const scenarios = Array.isArray(raw?.scenarios)
+    ? raw.scenarios
+        .filter(
+          (scenario: any) =>
+            scenario &&
+            typeof scenario.id === "string" &&
+            typeof scenario.label === "string" &&
+            typeof scenario.probability === "number"
+        )
+        .map((scenario: any) => ({
+          id: scenario.id as "bear" | "base" | "bull",
+          label: scenario.label,
+          probability: clampProbability(scenario.probability),
+        }))
+    : [
+        {
+          id: "bear" as const,
+          label: "Bear",
+          probability: clampProbability(weightedProbability - 0.1),
+        },
+        { id: "base" as const, label: "Base", probability: weightedProbability },
+        {
+          id: "bull" as const,
+          label: "Bull",
+          probability: clampProbability(weightedProbability + 0.1),
+        },
+      ];
+
+  const agents = Array.isArray(raw?.agents)
+    ? raw.agents
+        .filter(
+          (agent: any) =>
+            agent &&
+            typeof agent.id === "string" &&
+            typeof agent.name === "string" &&
+            typeof agent.probability === "number" &&
+            typeof agent.brierScore === "number" &&
+            typeof agent.weight === "number"
+        )
+        .map((agent: any) => ({
+          id: agent.id,
+          name: agent.name,
+          probability: clampProbability(agent.probability),
+          brierScore: Math.max(0, agent.brierScore),
+          weight: Math.max(0, Math.min(1, agent.weight)),
+          confidence:
+            typeof agent.confidence === "number" ? agent.confidence : undefined,
+          sourceQuality:
+            typeof agent.sourceQuality === "number"
+              ? agent.sourceQuality
+              : undefined,
+        }))
+    : [];
+
+  return {
+    weightedProbability,
+    simpleProbability,
+    agentCount:
+      typeof raw?.agentCount === "number"
+        ? raw.agentCount
+        : agents.length,
+    disagreement: typeof raw?.disagreement === "number" ? raw.disagreement : 0,
+    confidenceScore:
+      typeof raw?.confidenceScore === "number" ? raw.confidenceScore : 0,
+    confidenceInterval,
+    marketEdge: typeof raw?.marketEdge === "number" ? raw.marketEdge : 0,
+    signal:
+      raw?.signal === "high_conviction" ||
+      raw?.signal === "moderate" ||
+      raw?.signal === "uncertain"
+        ? raw.signal
+        : "uncertain",
+    scenarios,
+    agents,
+  };
 }
 
 export default function AgentReasoningPanel({
@@ -38,6 +158,15 @@ export default function AgentReasoningPanel({
   const [reasoning, setReasoning] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [probability, setProbability] = useState<number | null>(null);
+  const [singleConfidence, setSingleConfidence] = useState<number | null>(null);
+  const [singleInterval, setSingleInterval] = useState<{
+    low: number;
+    high: number;
+  } | null>(null);
+  const [singleResearchQuality, setSingleResearchQuality] = useState<
+    number | null
+  >(null);
+  const [singleSkillCount, setSingleSkillCount] = useState<number | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(true);
@@ -51,6 +180,8 @@ export default function AgentReasoningPanel({
   const [activeAgentTab, setActiveAgentTab] = useState<string | null>(null);
   const [consensus, setConsensus] = useState<ConsensusResult | null>(null);
   const [currentAgentId, setCurrentAgentId] = useState<string | null>(null);
+  const [researchQuality, setResearchQuality] = useState<number | null>(null);
+  const [researchSources, setResearchSources] = useState<number>(0);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -65,6 +196,10 @@ export default function AgentReasoningPanel({
 
     setReasoning("");
     setProbability(null);
+    setSingleConfidence(null);
+    setSingleInterval(null);
+    setSingleResearchQuality(null);
+    setSingleSkillCount(null);
     setTxHash(null);
     setError(null);
     setIsStreaming(true);
@@ -77,6 +212,16 @@ export default function AgentReasoningPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ marketId }),
       });
+      if (!response.ok) {
+        let message = `Predict failed (HTTP ${response.status})`;
+        try {
+          const payload = await response.json();
+          message = payload?.error ?? payload?.message ?? message;
+        } catch {
+          // Ignore parse failures.
+        }
+        throw new Error(message);
+      }
 
       const reader = response.body?.getReader();
       if (!reader) throw new Error("No response body");
@@ -84,6 +229,28 @@ export default function AgentReasoningPanel({
       const decoder = new TextDecoder();
       let buffer = "";
       let totalChars = 0;
+      const handleData = (data: string) => {
+        if (data === "[DONE]") {
+          return true;
+        }
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.type === "text") {
+            totalChars += parsed.content.length;
+            setCharCount(totalChars);
+            setReasoning((prev) => prev + parsed.content);
+          } else if (parsed.type === "result") {
+            setProbability(parsed.probability);
+            if (parsed.txHash) setTxHash(parsed.txHash);
+            if (parsed.txError) setError(parsed.txError);
+          } else if (parsed.type === "error") {
+            setError(parsed.message);
+          }
+        } catch {
+          // Skip malformed JSON
+        }
+        return false;
+      };
 
       while (true) {
         const { value, done } = await reader.read();
@@ -95,33 +262,21 @@ export default function AgentReasoningPanel({
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6);
-          if (data === "[DONE]") {
-            setIsStreaming(false);
+          if (handleData(line.slice(6))) {
             return;
-          }
-          try {
-            const parsed = JSON.parse(data);
-            if (parsed.type === "text") {
-              totalChars += parsed.content.length;
-              setCharCount(totalChars);
-              setReasoning((prev) => prev + parsed.content);
-            } else if (parsed.type === "result") {
-              setProbability(parsed.probability);
-              if (parsed.txHash) setTxHash(parsed.txHash);
-              if (parsed.txError) setError(parsed.txError);
-            } else if (parsed.type === "error") {
-              setError(parsed.message);
-            }
-          } catch {
-            // Skip malformed JSON
           }
         }
       }
+
+      const trailing = buffer.trim();
+      if (trailing.startsWith("data: ")) {
+        handleData(trailing.slice(6));
+      }
     } catch (err: any) {
       setError(err.message);
+    } finally {
+      setIsStreaming(false);
     }
-    setIsStreaming(false);
   }, [marketId]);
 
   const startMultiAnalysis = useCallback(async () => {
@@ -132,21 +287,138 @@ export default function AgentReasoningPanel({
     setActiveAgentTab(null);
     setCurrentAgentId(null);
     setError(null);
+    setResearchQuality(null);
+    setResearchSources(0);
     setIsStreaming(true);
     setIsCollapsed(false);
+    setReasoning("");
+    setProbability(null);
+    setTxHash(null);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45_000);
     try {
       const response = await fetch("/api/multi-predict", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({ marketId }),
       });
+      if (!response.ok) {
+        let message = `Swarm analysis failed (HTTP ${response.status})`;
+        try {
+          const payload = await response.json();
+          message = payload?.error ?? payload?.message ?? message;
+        } catch {
+          // Ignore parse failures.
+        }
+        throw new Error(message);
+      }
 
       const reader = response.body?.getReader();
       if (!reader) throw new Error("No response body");
 
       const decoder = new TextDecoder();
       let buffer = "";
+      const handleData = (data: string) => {
+        if (data === "[DONE]") {
+          return true;
+        }
+        try {
+          const parsed = JSON.parse(data);
+
+          if (parsed.type === "agent_start") {
+            setCurrentAgentId(parsed.agentId);
+            setActiveAgentTab((current) => current ?? parsed.agentId);
+            setAgentResults((prev) => {
+              const next = new Map(prev);
+              next.set(parsed.agentId, {
+                agentId: parsed.agentId,
+                agentName: parsed.agentName,
+                agentType: parsed.agentType,
+                model: parsed.model,
+                reasoning: "",
+                probability: null,
+                isComplete: false,
+                brierScore: null,
+              });
+              return next;
+            });
+          } else if (parsed.type === "text" && parsed.agentId) {
+            setAgentResults((prev) => {
+              const next = new Map(prev);
+              const agent = next.get(parsed.agentId);
+              if (agent) {
+                next.set(parsed.agentId, {
+                  ...agent,
+                  reasoning: agent.reasoning + parsed.content,
+                });
+              }
+              return next;
+            });
+          } else if (parsed.type === "agent_complete") {
+            setAgentResults((prev) => {
+              const next = new Map(prev);
+              const agent = next.get(parsed.agentId);
+              if (agent) {
+                next.set(parsed.agentId, {
+                  ...agent,
+                  probability: parsed.probability,
+                  brierScore: parsed.brierScore ?? null,
+                  isComplete: true,
+                });
+              }
+              return next;
+            });
+          } else if (parsed.type === "debate_start") {
+            // Visual separator — append to all agents
+            setAgentResults((prev) => {
+              const next = new Map(prev);
+              for (const [id, agent] of next) {
+                next.set(id, {
+                  ...agent,
+                  reasoning:
+                    agent.reasoning +
+                    "\n\n─── ROUND 2: DEBATE ───\n\n",
+                });
+              }
+              return next;
+            });
+          } else if (parsed.type === "debate_text" && parsed.agentId) {
+            setAgentResults((prev) => {
+              const next = new Map(prev);
+              const agent = next.get(parsed.agentId);
+              if (agent) {
+                next.set(parsed.agentId, {
+                  ...agent,
+                  reasoning: agent.reasoning + parsed.content,
+                });
+              }
+              return next;
+            });
+          } else if (parsed.type === "debate_complete") {
+            setAgentResults((prev) => {
+              const next = new Map(prev);
+              const agent = next.get(parsed.agentId);
+              if (agent) {
+                next.set(parsed.agentId, {
+                  ...agent,
+                  probability: parsed.revisedProbability,
+                });
+              }
+              return next;
+            });
+          } else if (parsed.type === "consensus") {
+            setConsensus(parsed);
+            setCurrentAgentId(null);
+          } else if (parsed.type === "error") {
+            setError(parsed.message);
+          }
+        } catch {
+          // Skip malformed JSON
+        }
+        return false;
+      };
 
       while (true) {
         const { value, done } = await reader.read();
@@ -158,70 +430,27 @@ export default function AgentReasoningPanel({
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6);
-          if (data === "[DONE]") {
-            setIsStreaming(false);
+          if (handleData(line.slice(6))) {
             return;
-          }
-          try {
-            const parsed = JSON.parse(data);
-
-            if (parsed.type === "agent_start") {
-              setCurrentAgentId(parsed.agentId);
-              if (!activeAgentTab) setActiveAgentTab(parsed.agentId);
-              setAgentResults((prev) => {
-                const next = new Map(prev);
-                next.set(parsed.agentId, {
-                  agentId: parsed.agentId,
-                  agentName: parsed.agentName,
-                  agentType: parsed.agentType,
-                  model: parsed.model,
-                  reasoning: "",
-                  probability: null,
-                  isComplete: false,
-                });
-                return next;
-              });
-            } else if (parsed.type === "text" && parsed.agentId) {
-              setAgentResults((prev) => {
-                const next = new Map(prev);
-                const agent = next.get(parsed.agentId);
-                if (agent) {
-                  next.set(parsed.agentId, {
-                    ...agent,
-                    reasoning: agent.reasoning + parsed.content,
-                  });
-                }
-                return next;
-              });
-            } else if (parsed.type === "agent_complete") {
-              setAgentResults((prev) => {
-                const next = new Map(prev);
-                const agent = next.get(parsed.agentId);
-                if (agent) {
-                  next.set(parsed.agentId, {
-                    ...agent,
-                    probability: parsed.probability,
-                    isComplete: true,
-                  });
-                }
-                return next;
-              });
-            } else if (parsed.type === "consensus") {
-              setConsensus(parsed);
-            } else if (parsed.type === "error") {
-              setError(parsed.message);
-            }
-          } catch {
-            // Skip malformed JSON
           }
         }
       }
+
+      const trailing = buffer.trim();
+      if (trailing.startsWith("data: ")) {
+        handleData(trailing.slice(6));
+      }
     } catch (err: any) {
-      setError(err.message);
+      if (err?.name === "AbortError") {
+        setError("Swarm analysis timed out. Switch to Single mode for faster turnaround.");
+      } else {
+        setError(err.message);
+      }
+    } finally {
+      clearTimeout(timeoutId);
+      setIsStreaming(false);
     }
-    setIsStreaming(false);
-  }, [marketId, activeAgentTab]);
+  }, [marketId]);
 
   const fetchResearchData = useCallback(async () => {
     if (!question) return;
@@ -261,7 +490,7 @@ export default function AgentReasoningPanel({
     : null;
 
   return (
-    <div className="border-2 border-black bg-neo-dark shadow-neo-lg overflow-hidden scanlines">
+    <div className="border border-white/10 bg-neo-dark/80 shadow-neo-lg overflow-hidden scanlines rounded-xl">
       {/* Terminal Header Bar */}
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
@@ -283,7 +512,7 @@ export default function AgentReasoningPanel({
             <span className="font-mono text-neo-green text-xs">
               {isStreaming
                 ? mode === "multi"
-                  ? `agents running (${agentResults.size})`
+                  ? `swarm running (${agentResults.size})`
                   : "streaming"
                 : consensus
                   ? "consensus reached"
@@ -301,12 +530,12 @@ export default function AgentReasoningPanel({
 
         <div className="flex items-center gap-3">
           {consensus && (
-            <span className="bg-neo-yellow text-neo-dark px-2.5 py-0.5 text-xs font-black border border-black font-mono">
+            <span className="bg-neo-yellow text-neo-dark px-2.5 py-0.5 text-xs font-black border border-white/10 font-mono rounded-full">
               {Math.round(consensus.weightedProbability * 100)}%
             </span>
           )}
           {!consensus && probability !== null && (
-            <span className="bg-neo-green text-neo-dark px-2.5 py-0.5 text-xs font-black border border-black font-mono">
+            <span className="bg-neo-green text-neo-dark px-2.5 py-0.5 text-xs font-black border border-white/10 font-mono rounded-full">
               {Math.round(probability * 100)}%
             </span>
           )}
@@ -346,7 +575,7 @@ export default function AgentReasoningPanel({
                     : "text-white/30 hover:text-white/50"
                 }`}
               >
-                Multi
+                Swarm
               </button>
               <button
                 onClick={() => setMode("research")}
@@ -425,7 +654,9 @@ export default function AgentReasoningPanel({
               <span className="text-white/20">$ </span>
               <span className="text-white/60">
                 {mode === "multi"
-                  ? `multi-analyze --market ${marketId} --agents 5`
+                  ? `swarm-analyze --market ${marketId} --agents 5`
+                  : mode === "research"
+                    ? `research --market ${marketId}`
                   : `analyze --market ${marketId}`}
               </span>
             </div>
@@ -466,9 +697,9 @@ export default function AgentReasoningPanel({
             ) : activeAgentTab === "consensus" && consensus ? (
               <div className="text-white/85 space-y-3">
                 <div className="text-neo-yellow font-bold">
-                  === REPUTATION-WEIGHTED CONSENSUS ===
+                  === MULTI-AGENT CONSENSUS ===
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3 text-xs">
                   <div>
                     <span className="text-white/40">Weighted avg: </span>
                     <span className="text-neo-yellow font-bold text-lg">
@@ -482,9 +713,67 @@ export default function AgentReasoningPanel({
                     </span>
                   </div>
                 </div>
+
+                <div className="grid grid-cols-2 gap-3 text-[11px]">
+                  <div>
+                    <span className="text-white/40">Confidence band: </span>
+                    <span className="text-neo-green font-bold">
+                      {Math.round(consensus.confidenceInterval.low * 100)}-
+                      {Math.round(consensus.confidenceInterval.high * 100)}%
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-white/40">Signal: </span>
+                    <span className="text-neo-blue font-bold uppercase">
+                      {consensus.signal.replace("_", " ")}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-white/40">Disagreement: </span>
+                    <span className="text-white/80">
+                      {(consensus.disagreement * 100).toFixed(1)} pts
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-white/40">Market edge: </span>
+                    <span
+                      className={
+                        consensus.marketEdge >= 0
+                          ? "text-neo-green font-bold"
+                          : "text-neo-pink font-bold"
+                      }
+                    >
+                      {(consensus.marketEdge >= 0 ? "+" : "") +
+                        (consensus.marketEdge * 100).toFixed(1)}
+                      pts
+                    </span>
+                  </div>
+                </div>
+
+                <div className="border border-white/10 p-2">
+                  <div className="text-white/40 text-xs mb-1">
+                    Scenario bands
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {consensus.scenarios.map((scenario) => (
+                      <div
+                        key={scenario.id}
+                        className="border border-white/10 px-2 py-1"
+                      >
+                        <div className="text-white/40 text-[10px] uppercase">
+                          {scenario.label}
+                        </div>
+                        <div className="text-neo-yellow font-bold">
+                          {Math.round(scenario.probability * 100)}%
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="border-t border-white/10 pt-2 mt-2">
                   <div className="text-white/40 text-xs mb-2">
-                    Agent contributions (by inverse Brier weight):
+                    Agent contributions (equal weight):
                   </div>
                   {consensus.agents.map((a) => (
                     <div key={a.id} className="flex items-center gap-2 py-0.5">
@@ -495,7 +784,7 @@ export default function AgentReasoningPanel({
                         {Math.round(a.probability * 100)}%
                       </span>
                       <span className="text-white/30 w-14 text-right">
-                        B:{a.brierScore.toFixed(3)}
+                        B:{a.brierScore !== null ? a.brierScore.toFixed(3) : "N/A"}
                       </span>
                       <div className="flex-1 h-1.5 bg-white/10 overflow-hidden">
                         <div
@@ -543,6 +832,27 @@ export default function AgentReasoningPanel({
                   <span className="font-mono font-black text-neo-green text-lg leading-none">
                     {Math.round(probability * 100)}%
                   </span>
+                  {singleInterval && (
+                    <span className="text-white/30 text-[10px] font-mono">
+                      CI {Math.round(singleInterval.low * 100)}-
+                      {Math.round(singleInterval.high * 100)}%
+                    </span>
+                  )}
+                  {singleConfidence !== null && (
+                    <span className="text-white/30 text-[10px] font-mono">
+                      Conf {(singleConfidence * 100).toFixed(0)}%
+                    </span>
+                  )}
+                  {singleResearchQuality !== null && (
+                    <span className="text-white/30 text-[10px] font-mono">
+                      RQ {(singleResearchQuality * 100).toFixed(0)}%
+                    </span>
+                  )}
+                  {singleSkillCount !== null && (
+                    <span className="text-white/30 text-[10px] font-mono">
+                      Skills {singleSkillCount}
+                    </span>
+                  )}
                 </div>
               )}
               {mode === "multi" && consensus && (
@@ -555,6 +865,10 @@ export default function AgentReasoningPanel({
                   </span>
                   <span className="text-white/20 text-[10px] font-mono">
                     ({consensus.agentCount} agents)
+                  </span>
+                  <span className="text-white/30 text-[10px] font-mono">
+                    CI {Math.round(consensus.confidenceInterval.low * 100)}-
+                    {Math.round(consensus.confidenceInterval.high * 100)}%
                   </span>
                 </div>
               )}
@@ -576,7 +890,7 @@ export default function AgentReasoningPanel({
               )}
             </div>
             <div className="flex items-center gap-2 text-[10px] font-mono text-white/20">
-              <span>{mode === "multi" ? "multi-agent" : "claude-sonnet-4.5"}</span>
+              <span>{mode === "multi" ? "swarm" : "single-agent"}</span>
               <span>|</span>
               <span>ERC-8004</span>
             </div>

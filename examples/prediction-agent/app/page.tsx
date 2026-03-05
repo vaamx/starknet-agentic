@@ -1,56 +1,21 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import MarketCard from "./components/MarketCard";
-import AgentLeaderboard from "./components/AgentLeaderboard";
+import { useCallback, useDeferredValue, useMemo, useState } from "react";
+import SimpleHeader from "./components/SimpleHeader";
+import CategoryNav from "./components/CategoryNav";
+import FeaturedHero from "./components/FeaturedHero";
+import MarketList from "./components/MarketList";
 import BetForm from "./components/BetForm";
-import TradeLog from "./components/TradeLog";
-import AgentIdentityCard from "./components/AgentIdentityCard";
-import MarketCreator from "./components/MarketCreator";
-import AgentActivityFeed from "./components/AgentActivityFeed";
-import AgentSpawnerForm from "./components/AgentSpawnerForm";
 import AnalyzeModal from "./components/AnalyzeModal";
-import WalletConnect from "./components/WalletConnect";
-import MarketLifecycleModal from "./components/MarketLifecycleModal";
-import QuantAnalyticsPanel from "./components/QuantAnalyticsPanel";
-
-interface Market {
-  id: number;
-  question: string;
-  address: string;
-  impliedProbYes: number;
-  impliedProbNo: number;
-  totalPool: string;
-  yesPool: string;
-  noPool: string;
-  status: number;
-  resolutionTime: number;
-  feeBps: number;
-  collateralToken: string;
-  winningOutcome?: number;
-}
-
-interface LeaderboardEntry {
-  agent: string;
-  avgBrier: number;
-  predictionCount: number;
-  rank: number;
-  identity?: {
-    name: string;
-    agentType: string;
-    model: string;
-    reputationScore: number;
-    feedbackCount: number;
-  } | null;
-}
-
-interface AgentPrediction {
-  agent: string;
-  marketId: number;
-  predictedProb: number;
-  brierScore: number;
-  predictionCount: number;
-}
+import MarketCreator from "./components/MarketCreator";
+import useMarkets from "./hooks/useMarkets";
+import { computeDisagreement, safeBigInt } from "./components/dashboard/utils";
+import {
+  categorizeMarket,
+  estimateEngagementScore,
+  getCategoryCounts,
+} from "@/lib/categories";
+import type { MarketCategory } from "./components/dashboard/types";
 
 interface SessionUser {
   id: string;
@@ -85,6 +50,31 @@ interface QuantAnalytics {
     source: string;
     count: number;
   }>;
+  sourceReliability: Array<{
+    source: string;
+    samples: number;
+    markets: number;
+    avgBrier: number;
+    calibrationBias: number;
+    reliabilityScore: number;
+    confidence: number;
+  }>;
+  agentCalibration: Array<{
+    agentId: string;
+    samples: number;
+    avgBrier: number;
+    calibrationBias: number;
+    reliabilityScore: number;
+    confidence: number;
+    memoryStrength: number;
+  }>;
+  forecastQuality: {
+    avgBrier: number;
+    avgLogLoss: number;
+    sharpness: number;
+    calibrationGap: number;
+    brierSkillScore: number;
+  };
   strategy: {
     totalExecutions: number;
     successRate: number;
@@ -107,418 +97,317 @@ interface ModelCalibrationComparisonRow {
 }
 
 export default function Dashboard() {
-  const [markets, setMarkets] = useState<Market[]>([]);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [predictions, setPredictions] = useState<
-    Record<number, AgentPrediction[]>
-  >({});
-  const [analyzeMarketId, setAnalyzeMarketId] = useState<number | null>(null);
+  const {
+    markets,
+    predictions,
+    weightedProbs,
+    latestTakes,
+    loading,
+    loadError,
+    isRefreshing,
+    refreshData,
+    marketDataSource,
+    marketDataStale,
+    marketDataWarning,
+    survivalTier,
+    agentWalletAddress,
+  } = useMarkets();
+
+  // UI state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState<MarketCategory>("all");
   const [betMarketId, setBetMarketId] = useState<number | null>(null);
+  const [betPreselectedOutcome, setBetPreselectedOutcome] = useState<
+    0 | 1 | undefined
+  >(undefined);
+  const [analyzeMarketId, setAnalyzeMarketId] = useState<number | null>(null);
   const [showCreator, setShowCreator] = useState(false);
-  const [showSpawner, setShowSpawner] = useState(false);
-  const [lifecycleAction, setLifecycleAction] = useState<{
-    marketId: number;
-    action: "resolve" | "finalize" | "claim";
-  } | null>(null);
-  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [autonomousMode, setAutonomousMode] = useState(false);
-  const [loopToggling, setLoopToggling] = useState(false);
-  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
-  const [sessionContext, setSessionContext] = useState<SessionContext | null>(null);
-  const [analytics, setAnalytics] = useState<QuantAnalytics | null>(null);
-  const [calibrationByModel, setCalibrationByModel] = useState<
-    ModelCalibrationComparisonRow[]
-  >([]);
+  const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
 
-  const loadData = useCallback(async () => {
-    try {
-      const [marketsRes, leaderboardRes] = await Promise.all([
-        fetch("/api/markets"),
-        fetch("/api/leaderboard"),
-      ]);
+  const deferredQuery = useDeferredValue(searchQuery);
+  const normalizedQuery = deferredQuery.trim().toLowerCase();
 
-      if (marketsRes.status === 401 || leaderboardRes.status === 401) {
-        window.location.href = "/login";
-        return;
-      }
+  const categoryCounts = useMemo(
+    () => getCategoryCounts(markets),
+    [markets]
+  );
 
-      const marketsData = await marketsRes.json();
-      const leaderboardData = await leaderboardRes.json();
+  const categoryTabs = useMemo(
+    () => [
+      { id: "all" as MarketCategory, label: "All", count: categoryCounts.all },
+      {
+        id: "sports" as MarketCategory,
+        label: "Sports",
+        count: categoryCounts.sports,
+      },
+      {
+        id: "crypto" as MarketCategory,
+        label: "Crypto",
+        count: categoryCounts.crypto,
+      },
+      {
+        id: "politics" as MarketCategory,
+        label: "Politics",
+        count: categoryCounts.politics,
+      },
+      {
+        id: "tech" as MarketCategory,
+        label: "Tech",
+        count: categoryCounts.tech,
+      },
+      {
+        id: "other" as MarketCategory,
+        label: "World",
+        count: categoryCounts.other,
+      },
+    ],
+    [categoryCounts]
+  );
 
-      setMarkets(marketsData.markets ?? []);
-      setLeaderboard(leaderboardData.leaderboard ?? []);
+  const filteredMarkets = useMemo(() => {
+    return markets.filter((market) => {
+      if (
+        normalizedQuery &&
+        !market.question.toLowerCase().includes(normalizedQuery) &&
+        !String(market.id).includes(normalizedQuery)
+      )
+        return false;
+      if (activeCategory === "all") return true;
+      return categorizeMarket(market.question) === activeCategory;
+    });
+  }, [markets, normalizedQuery, activeCategory]);
 
-      const predsMap: Record<number, AgentPrediction[]> = {};
-      for (const market of marketsData.markets ?? []) {
-        try {
-          const res = await fetch(`/api/markets/${market.id}`);
-          const data = await res.json();
-          predsMap[market.id] = data.predictions ?? [];
-        } catch {
-          predsMap[market.id] = [];
-        }
-      }
-      setPredictions(predsMap);
-    } catch (err) {
-      console.error("Failed to load data:", err);
-    }
-    setLoading(false);
+  const sortedMarkets = useMemo(() => {
+    return [...filteredMarkets].sort((a, b) => {
+      const disagreeA = computeDisagreement(predictions[a.id] ?? []);
+      const disagreeB = computeDisagreement(predictions[b.id] ?? []);
+      const engA =
+        estimateEngagementScore(a.question, a.resolutionTime) +
+        disagreeA * 0.35;
+      const engB =
+        estimateEngagementScore(b.question, b.resolutionTime) +
+        disagreeB * 0.35;
+      if (engA !== engB) return engB - engA;
+      const poolA = safeBigInt(a.totalPool);
+      const poolB = safeBigInt(b.totalPool);
+      if (poolA === poolB) return 0;
+      return poolB > poolA ? 1 : -1;
+    });
+  }, [filteredMarkets, predictions]);
+
+  const handleBet = useCallback((marketId: number, outcome?: 0 | 1) => {
+    setBetMarketId(marketId);
+    setBetPreselectedOutcome(outcome);
   }, []);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  useEffect(() => {
-    fetch("/api/me/context")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data?.user) {
-          setSessionUser(data.user);
-          setSessionContext(data);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    fetch("/api/analytics/overview")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data?.analytics) {
-          setAnalytics(data.analytics);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    fetch("/api/analytics/calibration-models")
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data?.rows)) {
-          setCalibrationByModel(data.rows);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  // Check loop status on mount
-  useEffect(() => {
-    fetch("/api/agent-loop")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.status?.isRunning) setAutonomousMode(true);
-      })
-      .catch(() => {});
-  }, []);
-
-  const toggleAutonomousMode = async () => {
-    setLoopToggling(true);
-    try {
-      const action = autonomousMode ? "stop" : "start";
-      const res = await fetch("/api/agent-loop", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, intervalMs: 60_000 }), // 1 min for demo
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setAutonomousMode(!autonomousMode);
-      }
-    } catch (err) {
-      console.error("Failed to toggle loop:", err);
-    }
-    setLoopToggling(false);
-  };
-
-  const handleLogout = async () => {
-    try {
-      await fetch("/api/auth/logout", { method: "POST" });
-    } finally {
-      window.location.href = "/login";
-    }
-  };
-
-  const analyzeMarket = markets.find((m) => m.id === analyzeMarketId);
   const betMarket = markets.find((m) => m.id === betMarketId);
-  const selectedEntry = leaderboard.find((e) => e.agent === selectedAgent);
+  const analyzeMarket = markets.find((m) => m.id === analyzeMarketId);
+
+  const activeLabel =
+    activeCategory === "all"
+      ? "All Markets"
+      : categoryTabs.find((t) => t.id === activeCategory)?.label ?? "Markets";
 
   return (
-    <div className="min-h-screen bg-cream bg-grid">
-      {/* ═══ Header ═══ */}
-      <header className="border-b-2 border-black bg-white sticky top-0 z-50">
-        <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            {/* Logo mark */}
-            <div className="w-8 h-8 bg-neo-dark border-2 border-black flex items-center justify-center">
-              <span className="text-neo-green font-mono font-black text-sm">
-                AP
-              </span>
+    <div className="min-h-screen bg-cream">
+      <SimpleHeader
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        onOpenCreator={() => setShowCreator(true)}
+        marketDataSource={marketDataSource}
+        marketDataStale={marketDataStale}
+      />
+
+      {/* Horizontal category nav */}
+      <CategoryNav
+        tabs={categoryTabs}
+        activeCategory={activeCategory}
+        onSetCategory={setActiveCategory}
+      />
+
+      {/* Main content */}
+      <main className="max-w-[1400px] mx-auto px-3 sm:px-4 lg:px-5 py-4">
+          {/* Featured hero section — only on "all" category */}
+          {activeCategory === "all" && !loading && sortedMarkets.length > 0 && (
+            <FeaturedHero
+              markets={sortedMarkets}
+              predictions={predictions}
+              weightedProbs={weightedProbs}
+              latestTakes={latestTakes}
+              onBet={handleBet}
+            />
+          )}
+
+          {/* Section heading with view toggle */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-1 h-6 rounded-full bg-neo-brand/60" />
+              <div>
+                <h2 className="font-heading text-[18px] font-bold text-white tracking-tight">
+                  {activeCategory === "all" ? "All markets" : activeLabel}
+                </h2>
+                <p className="text-[11px] text-white/25 mt-0.5 font-mono tabular-nums">
+                  {filteredMarkets.length} market{filteredMarkets.length !== 1 ? "s" : ""}
+                  {activeCategory !== "all" && ` in ${activeLabel}`}
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="font-heading font-bold text-lg tracking-tight leading-none">
-                Agentic Predictions
-              </h1>
-              <p className="text-[10px] font-mono text-gray-400 tracking-wider uppercase mt-0.5">
-                AI Superforecasters on Starknet
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Autonomous Mode Toggle */}
-            <button
-              onClick={toggleAutonomousMode}
-              disabled={loopToggling}
-              className={`flex items-center gap-2 px-3 py-1.5 border-2 text-xs font-mono transition-colors ${
-                autonomousMode
-                  ? "border-neo-green bg-neo-green/10 text-neo-green"
-                  : "border-gray-300 text-gray-500 hover:border-gray-400"
-              } ${loopToggling ? "opacity-50 cursor-not-allowed" : ""}`}
-            >
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  autonomousMode
-                    ? "bg-neo-green animate-pulse"
-                    : "bg-gray-300"
-                }`}
-              />
-              {loopToggling
-                ? "..."
-                : autonomousMode
-                  ? "Autonomous ON"
-                  : "Autonomous OFF"}
-            </button>
-
-            {/* Spawn Agent */}
-            <button
-              onClick={() => setShowSpawner(true)}
-              className="neo-btn-primary text-xs py-2 px-4 bg-neo-purple border-2 border-black text-white hover:bg-neo-purple/90"
-            >
-              + Spawn Agent
-            </button>
-
-            {/* Wallet */}
-            <WalletConnect />
-
-            {sessionUser && (
-              <div className="hidden lg:flex items-center gap-2 border-2 border-black bg-white px-2.5 py-1.5">
-                <span className="text-[11px] font-mono text-gray-500">
-                  {sessionUser.name}
-                </span>
-                {sessionContext && (
-                  <span className="text-[10px] font-mono text-gray-400">
-                    {sessionContext.organization.name} ({sessionContext.role})
-                  </span>
-                )}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-0.5 bg-white/[0.03] border border-white/[0.06] rounded-lg p-0.5">
                 <button
-                  onClick={handleLogout}
-                  className="text-[10px] font-bold uppercase tracking-wide text-neo-pink hover:underline"
+                  type="button"
+                  onClick={() => setViewMode("grid")}
+                  className={`p-1.5 rounded-md transition-colors ${viewMode === "grid" ? "bg-white/[0.08] text-white" : "text-white/25 hover:text-white/50"}`}
+                  aria-label="Grid view"
                 >
-                  Logout
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("table")}
+                  className={`p-1.5 rounded-md transition-colors ${viewMode === "table" ? "bg-white/[0.08] text-white" : "text-white/25 hover:text-white/50"}`}
+                  aria-label="Table view"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 5.25h16.5m-16.5 4.5h16.5m-16.5 4.5h16.5m-16.5 4.5h16.5" />
+                  </svg>
                 </button>
               </div>
-            )}
-
-            {/* Network indicator */}
-            <div className="neo-badge bg-cream text-[10px] py-0.5 gap-1.5">
-              <span className="relative w-2 h-2 rounded-full bg-neo-green pulse-ring" />
-              <span className="font-mono">Sepolia</span>
             </div>
+          </div>
 
-            <button
-              onClick={() => setShowCreator(true)}
-              className="neo-btn-primary text-xs py-2 px-4"
+          {/* Error banner */}
+          {loadError && (
+            <div
+              className="rounded-xl border border-red-500/20 bg-red-500/[0.06] p-4 mb-4"
+              role="alert"
             >
-              + New Market
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* ═══ Stats Bar ═══ */}
-      <div className="border-b-2 border-black bg-neo-dark text-white">
-        <div className="max-w-[1400px] mx-auto px-6 py-2 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <Stat label="Markets" value={markets.length.toString()} />
-            <Stat
-              label="Total Volume"
-              value={formatVolume(markets)}
-              accent
-            />
-            <Stat label="Active Agents" value={leaderboard.length.toString()} />
-            {autonomousMode && (
-              <Stat label="Mode" value="AUTONOMOUS" accent />
-            )}
-          </div>
-          <div className="flex items-center gap-4 text-[10px] font-mono text-white/30">
-            <span>ERC-8004</span>
-            <span>|</span>
-            <span>Agent Account</span>
-            <span>|</span>
-            <span>MCP</span>
-            <span>|</span>
-            <span>Data Sources</span>
-          </div>
-        </div>
-      </div>
-
-      <main className="max-w-[1400px] mx-auto px-6 py-6">
-        {/* ═══ Main Grid: Markets + Sidebar ═══ */}
-        <div className="flex gap-6 items-start">
-          {/* Left: Markets */}
-          <div className="flex-1 min-w-0 space-y-4">
-            <div className="flex items-center justify-between mb-1">
-              <h2 className="font-heading font-bold text-sm uppercase tracking-wider text-gray-500">
-                Active Markets
-              </h2>
-              <span className="font-mono text-[10px] text-gray-400">
-                {markets.length} markets
-              </span>
-            </div>
-
-            {loading ? (
-              <div className="neo-card p-16 text-center">
-                <div className="inline-flex items-center gap-2">
-                  <span className="w-2 h-2 bg-neo-dark rounded-full animate-bounce" />
-                  <span className="w-2 h-2 bg-neo-dark rounded-full animate-bounce [animation-delay:0.1s]" />
-                  <span className="w-2 h-2 bg-neo-dark rounded-full animate-bounce [animation-delay:0.2s]" />
-                </div>
-                <p className="font-mono text-xs text-gray-400 mt-3">
-                  Loading markets...
-                </p>
-              </div>
-            ) : markets.length === 0 ? (
-              <div className="neo-card p-16 text-center">
-                <div className="w-16 h-16 mx-auto mb-4 bg-neo-yellow border-2 border-black flex items-center justify-center">
-                  <span className="text-3xl">?</span>
-                </div>
-                <p className="font-heading font-bold text-lg mb-1">
-                  No markets yet
-                </p>
-                <p className="text-sm text-gray-500">
-                  Deploy contracts to create your first prediction market.
-                </p>
-              </div>
-            ) : (
-              markets.map((market, i) => {
-                const marketPreds = predictions[market.id] ?? [];
-                const agentConsensus =
-                  marketPreds.length > 0
-                    ? marketPreds.reduce(
-                        (sum, p) => sum + p.predictedProb,
-                        0
-                      ) / marketPreds.length
-                    : undefined;
-
-                return (
-                  <div
-                    key={market.id}
-                    className={`animate-enter stagger-${Math.min(i + 1, 5)}`}
-                  >
-                    <MarketCard
-                      id={market.id}
-                      question={market.question}
-                      impliedProbYes={market.impliedProbYes}
-                      impliedProbNo={market.impliedProbNo}
-                      totalPool={market.totalPool}
-                      status={market.status}
-                      resolutionTime={market.resolutionTime}
-                      agentConsensus={agentConsensus}
-                      predictions={marketPreds}
-                      onAnalyze={(id) => setAnalyzeMarketId(id)}
-                      onBet={(id) => setBetMarketId(id)}
-                      onResolve={(id) =>
-                        setLifecycleAction({ marketId: id, action: "resolve" })
-                      }
-                      onFinalize={(id) =>
-                        setLifecycleAction({ marketId: id, action: "finalize" })
-                      }
-                      onClaim={(id) =>
-                        setLifecycleAction({ marketId: id, action: "claim" })
-                      }
-                    />
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center shrink-0">
+                    <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                    </svg>
                   </div>
-                );
-              })
-            )}
-          </div>
+                  <div>
+                    <p className="font-heading font-semibold text-sm text-red-400">
+                      Data sync failed
+                    </p>
+                    <p className="text-xs text-white/50 mt-0.5">{loadError}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={refreshData}
+                  disabled={isRefreshing}
+                  className="shrink-0 px-4 py-2 rounded-xl text-xs font-semibold text-red-400 bg-red-500/10 border border-red-500/20 hover:bg-red-500/15 disabled:opacity-50 transition-all"
+                >
+                  {isRefreshing ? "Retrying..." : "Retry"}
+                </button>
+              </div>
+            </div>
+          )}
 
-          {/* Right: Sidebar */}
-          <div className="w-[320px] shrink-0 space-y-4 sticky top-20">
-            <AgentLeaderboard
-              entries={leaderboard}
-              selectedAgent={selectedAgent}
-              onSelectAgent={(agent) =>
-                setSelectedAgent(
-                  selectedAgent === agent ? null : agent
-                )
-              }
-            />
+          {/* Warning banner */}
+          {!loadError && marketDataWarning && (
+            <div
+              className="rounded-xl border border-amber-500/15 bg-amber-500/[0.04] px-4 py-3 mb-4 flex items-center gap-3"
+              role="status"
+            >
+              <svg className="w-4 h-4 text-amber-400/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+              <p className="text-xs text-amber-400/70">
+                {marketDataWarning}
+              </p>
+            </div>
+          )}
 
-            {selectedEntry && (
-              <AgentIdentityCard
-                agent={selectedEntry.agent}
-                avgBrier={selectedEntry.avgBrier}
-                predictionCount={selectedEntry.predictionCount}
-                rank={selectedEntry.rank}
-                identity={selectedEntry.identity}
-              />
-            )}
-          </div>
-        </div>
+          {/* Agent wallet unfunded banner */}
+          {survivalTier === "dead" && agentWalletAddress && (
+            <div
+              className="rounded-xl border border-amber-500/15 bg-amber-500/[0.04] p-5 mb-4"
+              role="status"
+            >
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
+                    <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="font-heading font-semibold text-sm text-amber-300">
+                      Agent wallet is unfunded
+                    </p>
+                    <p className="text-xs text-white/50 mt-1">
+                      Predictions and bets are paused. Send Sepolia STRK to activate.
+                    </p>
+                    <p className="text-[11px] text-white/30 mt-1.5 font-mono break-all leading-relaxed">
+                      {agentWalletAddress}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(agentWalletAddress)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 transition-all"
+                  >
+                    Copy
+                  </button>
+                  <a
+                    href="https://starknet-faucet.vercel.app/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 transition-all no-underline"
+                  >
+                    Faucet &rarr;
+                  </a>
+                </div>
+              </div>
+            </div>
+          )}
 
-        {/* ═══ Agent Activity Feed ═══ */}
-        <div className="mt-6">
-          <QuantAnalyticsPanel
-            analytics={analytics}
-            calibrationByModel={calibrationByModel}
+          {/* Market grid */}
+          <MarketList
+            markets={sortedMarkets}
+            predictions={predictions}
+            weightedProbs={weightedProbs}
+            latestTakes={latestTakes}
+            loading={loading}
+            isRefreshing={isRefreshing}
+            onRefresh={refreshData}
+            onBet={handleBet}
+            viewMode={viewMode}
           />
-        </div>
-
-        {/* ═══ Agent Activity Feed ═══ */}
-        <div className="mt-6">
-          <AgentActivityFeed isLoopRunning={autonomousMode} />
-        </div>
-
-        {/* ═══ Trade Log ═══ */}
-        <div className="mt-6">
-          <TradeLog />
-        </div>
       </main>
 
-      {/* ═══ Modals ═══ */}
-      {showSpawner && (
-        <AgentSpawnerForm
-          onClose={() => setShowSpawner(false)}
-          onSpawned={() => {
-            fetch("/api/leaderboard")
-              .then((r) => r.json())
-              .then((data) => setLeaderboard(data.leaderboard ?? []))
-              .catch(() => {});
-          }}
-        />
-      )}
-
+      {/* Modals */}
       {showCreator && (
         <MarketCreator
           onClose={() => setShowCreator(false)}
-          onCreated={loadData}
+          onCreated={refreshData}
         />
       )}
 
       {betMarket && (
         <BetForm
           marketId={betMarket.id}
+          marketAddress={betMarket.address}
           question={betMarket.question}
           yesPool={betMarket.yesPool}
           noPool={betMarket.noPool}
           totalPool={betMarket.totalPool}
           feeBps={betMarket.feeBps}
           impliedProbYes={betMarket.impliedProbYes}
-          onClose={() => setBetMarketId(null)}
+          preselectedOutcome={betPreselectedOutcome}
+          onClose={() => {
+            setBetMarketId(null);
+            setBetPreselectedOutcome(undefined);
+          }}
         />
       )}
 
@@ -530,57 +419,6 @@ export default function Dashboard() {
         />
       )}
 
-      {lifecycleAction && (
-        <MarketLifecycleModal
-          marketId={lifecycleAction.marketId}
-          question={
-            markets.find((m) => m.id === lifecycleAction.marketId)?.question ??
-            `Market #${lifecycleAction.marketId}`
-          }
-          action={lifecycleAction.action}
-          onClose={() => setLifecycleAction(null)}
-          onSuccess={loadData}
-        />
-      )}
     </div>
   );
-}
-
-/* ═══ Helper Components ═══ */
-
-function Stat({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-[10px] font-mono uppercase tracking-wider text-white/40">
-        {label}
-      </span>
-      <span
-        className={`font-mono font-bold text-sm tabular-nums ${
-          accent ? "text-neo-yellow" : "text-white"
-        }`}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function formatVolume(markets: { totalPool: string }[]): string {
-  const total = markets.reduce((sum, m) => {
-    try {
-      return sum + Number(BigInt(m.totalPool)) / 1e18;
-    } catch {
-      return sum;
-    }
-  }, 0);
-  if (total >= 1000) return `${(total / 1000).toFixed(1)}K STRK`;
-  return `${total.toLocaleString(undefined, { maximumFractionDigits: 0 })} STRK`;
 }
