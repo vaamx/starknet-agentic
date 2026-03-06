@@ -26,7 +26,11 @@ import {
   type ResearchEvent,
 } from "./research-agent";
 import { discoverMarkets } from "./market-discovery";
-import { gatherResearch, type DataSourceName } from "./data-sources";
+import {
+  gatherResearch,
+  type DataSourceName,
+  type DataSourceResult,
+} from "./data-sources";
 import { fetchCryptoPrices } from "./data-sources/crypto-prices";
 import {
   categorizeMarket,
@@ -75,6 +79,7 @@ import {
 import { ensureAgentSpawnerHydrated, persistAgentSpawner } from "./agent-persistence";
 import { deriveConsensusAutotuneProfile } from "./consensus-autotune";
 import { tryResolveMarket } from "./resolution-oracle";
+import { recordAgentComment, recordResearchArtifact } from "./ops-store";
 import {
   appendPersistedLoopAction,
   getPersistedLoopActions,
@@ -175,6 +180,11 @@ export interface LoopStatus {
   defiEnabled: boolean;
   defiAutoTrade: boolean;
   debateEnabled: boolean;
+}
+
+interface TickExecutionContext {
+  organizationId?: string;
+  userId?: string;
 }
 
 type LoopListener = (action: AgentAction) => void;
@@ -554,12 +564,120 @@ class AgentLoop {
     };
   }
 
+  private persistResearchArtifacts(
+    executionContext: TickExecutionContext | undefined,
+    params: {
+      marketId: number;
+      question: string;
+      agentName: string;
+      results: DataSourceResult[];
+    }
+  ): void {
+    const organizationId = executionContext?.organizationId?.trim();
+    if (!organizationId) return;
+
+    const nowIso = new Date().toISOString();
+    for (const result of params.results) {
+      const sourceType = (result.source || "unknown").toString().trim();
+      if (!sourceType) continue;
+      const nonEmptyData = Array.isArray(result.data)
+        ? result.data.filter((point) => {
+            const label = String(point.label ?? "").trim();
+            const value =
+              typeof point.value === "string"
+                ? point.value.trim()
+                : String(point.value ?? "").trim();
+            return label.length > 0 || value.length > 0;
+          })
+        : [];
+      if (!result.summary && nonEmptyData.length === 0) continue;
+
+      const sourceUrl = nonEmptyData.find((point) => !!point.url)?.url;
+      const payloadJson = JSON.stringify({
+        query: result.query,
+        source: result.source,
+        summary: result.summary,
+        quality: result.quality ?? null,
+        points: nonEmptyData.slice(0, 8),
+        actor: params.agentName,
+        userId: executionContext?.userId ?? null,
+        capturedAt: nowIso,
+      });
+
+      void recordResearchArtifact({
+        organizationId,
+        marketId: params.marketId,
+        sourceType,
+        sourceUrl,
+        title: `${params.question.slice(0, 120)} (${sourceType})`,
+        summary: result.summary?.slice(0, 240),
+        payloadJson,
+      }).catch(() => {
+        // Research persistence is best-effort and must not break loop ticks.
+      });
+    }
+  }
+
+  private persistActionComment(
+    executionContext: TickExecutionContext | undefined,
+    action: AgentAction
+  ): void {
+    const organizationId = executionContext?.organizationId?.trim();
+    if (!organizationId) return;
+    if (typeof action.marketId !== "number" || !Number.isFinite(action.marketId)) {
+      return;
+    }
+    if (
+      action.type !== "prediction" &&
+      action.type !== "debate" &&
+      action.type !== "research" &&
+      action.type !== "bet" &&
+      action.type !== "market_creation"
+    ) {
+      return;
+    }
+
+    const content = action.detail.trim();
+    if (!content) return;
+
+    const sourceType =
+      action.type === "debate"
+        ? "debate"
+        : action.type === "prediction"
+          ? "forecast"
+          : action.type === "bet"
+            ? "bet"
+            : action.type === "market_creation"
+              ? "market"
+              : "research";
+
+    void recordAgentComment({
+      organizationId,
+      marketId: action.marketId,
+      userId: executionContext?.userId ?? null,
+      agentId: action.agentId || null,
+      actorName: action.agentName,
+      content,
+      sourceType,
+      metadataJson: JSON.stringify({
+        actionId: action.id,
+        actionType: action.type,
+        probability: action.probability ?? null,
+        debateTarget: action.debateTarget ?? null,
+        txHash: action.txHash ?? null,
+        reasoningHash: action.reasoningHash ?? null,
+      }),
+    }).catch(() => {
+      // Comment persistence should never interrupt loop execution.
+    });
+  }
+
   /**
    * Stateless tick — called by the client-driven polling endpoint or heartbeat.
    * Picks one agent from the rotation and one random market, runs forecast.
    * Returns the actions generated during this tick.
    */
-  async singleTick(): Promise<AgentAction[]> {
+  async singleTick(context?: TickExecutionContext): Promise<AgentAction[]> {
     await ensureAgentSpawnerHydrated();
     this.tickCount++;
     this.lastTickAt = Date.now();
@@ -579,6 +697,7 @@ class AgentLoop {
     const origEmit = this.emit.bind(this);
     const captureEmit = (action: AgentAction) => {
       tickActions.push(action);
+      this.persistActionComment(context, action);
       origEmit(action);
     };
 
@@ -864,7 +983,8 @@ class AgentLoop {
         target,
         actor.spawned,
         captureEmit,
-        survival
+        survival,
+        context
       );
     }
 
@@ -946,9 +1066,17 @@ class AgentLoop {
   private async runAgentOnMarket(
     persona: AgentPersona,
     target: MarketState,
-    spawned?: SpawnedAgent
+    spawned?: SpawnedAgent,
+    context?: TickExecutionContext
   ) {
-    await this.runAgentOnMarketWithEmit(persona, target, spawned, this.emit.bind(this), this.lastSurvival ?? undefined);
+    await this.runAgentOnMarketWithEmit(
+      persona,
+      target,
+      spawned,
+      this.emit.bind(this),
+      this.lastSurvival ?? undefined,
+      context
+    );
   }
 
   private async runAgentOnMarketWithEmit(
@@ -956,7 +1084,8 @@ class AgentLoop {
     target: MarketState,
     spawned: SpawnedAgent | undefined,
     emit: (action: AgentAction) => void,
-    survival?: SurvivalState
+    survival?: SurvivalState,
+    executionContext?: TickExecutionContext
   ) {
     const agentId = spawned?.id ?? persona.id;
     const agentName = spawned?.name ?? persona.name;
@@ -1107,6 +1236,12 @@ class AgentLoop {
         const event = value as ResearchEvent;
         if (event.type === "research_complete" && event.results) {
           researchCoverage = assessResearchCoverage(event.results);
+          this.persistResearchArtifacts(executionContext, {
+            marketId: target.id,
+            question,
+            agentName,
+            results: event.results,
+          });
           emit(
             this.createAction({
               agentId,

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { getAgentVoiceByName } from "@/lib/agent-voices";
+import SiteHeader from "@/components/SiteHeader";
+import Footer from "@/components/Footer";
 import TamagotchiLoader from "@/components/TamagotchiLoader";
 import TamagotchiEmptyState from "@/components/TamagotchiEmptyState";
 import TamagotchiBadge from "@/components/dashboard/TamagotchiBadge";
@@ -137,6 +139,30 @@ function probabilityPolyline(values: number[], width = 320, height = 84): string
     })
     .join(" ");
 }
+
+/* ─── Data source metadata for persona-based research visualization ─── */
+const DATA_SOURCE_META: Record<string, { label: string; icon: string; color: string; description: string }> = {
+  polymarket: { label: "Polymarket", icon: "📊", color: "#8b5cf6", description: "Prediction market odds" },
+  coingecko: { label: "CoinGecko", icon: "🪙", color: "#f59e0b", description: "Token prices & volume" },
+  news: { label: "News", icon: "📰", color: "#3b82f6", description: "Headline aggregation" },
+  web: { label: "Web Search", icon: "🌐", color: "#06b6d4", description: "General web intelligence" },
+  tavily: { label: "Tavily", icon: "🔍", color: "#10b981", description: "AI-powered search" },
+  social: { label: "Social", icon: "💬", color: "#ec4899", description: "Sentiment & trends" },
+  espn: { label: "ESPN", icon: "🏈", color: "#ef4444", description: "Live sports data" },
+  github: { label: "GitHub", icon: "⌨️", color: "#a3a3a3", description: "Dev activity & commits" },
+  onchain: { label: "On-Chain", icon: "⛓", color: "#f97316", description: "Starknet state & txns" },
+  rss: { label: "RSS Feeds", icon: "📡", color: "#6366f1", description: "Curated feed pipeline" },
+  x: { label: "X / Twitter", icon: "𝕏", color: "#a3a3a3", description: "Real-time social signals" },
+  telegram: { label: "Telegram", icon: "✈️", color: "#0ea5e9", description: "Group signal mining" },
+};
+
+const PERSONA_SOURCES: Record<string, string[]> = {
+  alphaforecaster: ["polymarket", "coingecko", "news", "web", "social", "onchain", "rss"],
+  betaanalyst: ["coingecko", "polymarket", "onchain", "github"],
+  gammatrader: ["polymarket", "social", "rss"],
+  deltascout: ["news", "web", "social", "github", "onchain"],
+  epsilonoracle: ["news", "web", "polymarket", "rss"],
+};
 
 function classifyDomain(question?: string): "Crypto" | "Politics" | "Sports" | "Tech" | "World" {
   const q = String(question ?? "").toLowerCase();
@@ -470,16 +496,19 @@ export default function AgentPage() {
   }, [allActivities, aliasSet]);
 
   if (loading) return (
-    <div className="min-h-screen bg-cream">
-      <div className="max-w-3xl mx-auto px-4 pt-8">
+    <div className="min-h-screen bg-cream flex flex-col">
+      <SiteHeader />
+      <div className="max-w-3xl mx-auto px-4 pt-8 flex-1">
         <TamagotchiLoader size="large" text={`Loading ${displayLabel}...`} />
       </div>
+      <Footer />
     </div>
   );
 
   if (error || !entry) return (
-    <div className="min-h-screen bg-cream">
-      <div className="max-w-3xl mx-auto px-4 pt-8">
+    <div className="min-h-screen bg-cream flex flex-col">
+      <SiteHeader />
+      <div className="max-w-3xl mx-auto px-4 pt-8 flex-1">
         <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-white/50 hover:text-white/80 transition-colors mb-6">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
@@ -488,6 +517,7 @@ export default function AgentPage() {
         </Link>
         <TamagotchiEmptyState message={error ?? "Agent not found"} />
       </div>
+      <Footer />
     </div>
   );
 
@@ -580,18 +610,17 @@ export default function AgentPage() {
   const cliSearch = registryAgentId ?? displayLabel;
 
   return (
-    <div className="min-h-screen bg-cream">
-      <div className="mx-auto max-w-6xl px-3 sm:px-6 py-4 sm:py-6 pb-20 space-y-4 sm:space-y-5">
-        {/* Back navigation */}
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1.5 text-xs sm:text-sm text-white/50 hover:text-white/80 transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+    <div className="min-h-screen bg-cream flex flex-col">
+      <SiteHeader />
+      <div className="mx-auto w-full max-w-6xl flex-1 px-3 sm:px-6 py-4 sm:py-6 pb-12 space-y-4 sm:space-y-5">
+        {/* Breadcrumb */}
+        <nav className="flex items-center gap-1.5 text-xs text-white/40">
+          <Link href="/" className="hover:text-white/70 transition-colors no-underline">Markets</Link>
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
           </svg>
-          Back to Dashboard
-        </Link>
+          <span className="text-white/60 font-medium truncate max-w-[200px]">{displayLabel}</span>
+        </nav>
 
         {/* Agent Profile Hero */}
         <div className="neo-card overflow-hidden relative">
@@ -703,6 +732,167 @@ export default function AgentPage() {
             <p className="text-xs text-white/40 mb-1">Debates</p>
             <p className="font-mono font-bold text-base sm:text-lg text-white">{debateActions}</p>
           </div>
+        </div>
+
+        {/* Research Sources + Wallet Operations */}
+        <div className="grid grid-cols-1 xl:grid-cols-[1.6fr,1fr] gap-4">
+          {/* Research Data Sources */}
+          <section className="neo-card overflow-hidden">
+            <div className="px-4 sm:px-5 py-2.5 sm:py-3 border-b border-white/[0.07] bg-white/[0.03] flex items-center justify-between">
+              <div>
+                <h2 className="font-heading font-bold text-sm text-white">Research Sources</h2>
+                <p className="text-[10px] text-white/35 mt-0.5">Data oracles this agent queries during forecasting</p>
+              </div>
+              <span className="text-[10px] font-mono text-white/40">
+                {(PERSONA_SOURCES[displayName.toLowerCase()] ?? Object.keys(DATA_SOURCE_META)).length} active
+              </span>
+            </div>
+            <div className="p-3 sm:p-4">
+              {(() => {
+                const agentSources = PERSONA_SOURCES[displayName.toLowerCase()] ?? Object.keys(DATA_SOURCE_META);
+                const allSourceKeys = Object.keys(DATA_SOURCE_META);
+                return (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {allSourceKeys.map((key) => {
+                        const meta = DATA_SOURCE_META[key];
+                        const isActive = agentSources.includes(key);
+                        return (
+                          <div
+                            key={key}
+                            className={`rounded-lg border p-2.5 transition-all ${
+                              isActive
+                                ? "border-white/[0.12] bg-white/[0.04]"
+                                : "border-white/[0.05] bg-white/[0.01] opacity-35"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm leading-none">{meta.icon}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-[11px] font-semibold ${isActive ? "text-white/80" : "text-white/40"}`}>
+                                  {meta.label}
+                                </p>
+                                <p className="text-[9px] text-white/30 truncate">{meta.description}</p>
+                              </div>
+                              {isActive && (
+                                <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: meta.color }} />
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5">
+                      <p className="text-[10px] uppercase tracking-widest text-white/35 mb-1.5">Quality Scoring Formula</p>
+                      <div className="grid grid-cols-4 gap-2 text-center">
+                        <div>
+                          <p className="text-[10px] text-white/30">Reliability</p>
+                          <p className="text-xs font-mono font-semibold text-white/70">40%</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-white/30">Freshness</p>
+                          <p className="text-xs font-mono font-semibold text-white/70">25%</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-white/30">Confidence</p>
+                          <p className="text-xs font-mono font-semibold text-white/70">20%</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-white/30">Coverage</p>
+                          <p className="text-xs font-mono font-semibold text-white/70">15%</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </section>
+
+          {/* Wallet & Operations */}
+          <section className="neo-card overflow-hidden">
+            <div className="px-4 sm:px-5 py-2.5 sm:py-3 border-b border-white/[0.07] bg-white/[0.03]">
+              <h2 className="font-heading font-bold text-sm text-white">Wallet & Operations</h2>
+              <p className="text-[10px] text-white/35 mt-0.5">Starknet account abstraction</p>
+            </div>
+            <div className="p-3 sm:p-4 space-y-3">
+              {profileWalletAddress ? (
+                <>
+                  <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+                    <p className="text-[10px] uppercase tracking-widest text-white/35 mb-1">Wallet Address</p>
+                    <p className="text-[11px] font-mono text-neo-cyan break-all leading-relaxed">{profileWalletAddress}</p>
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      <a
+                        href={`https://sepolia.voyager.online/contract/${profileWalletAddress}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-md border border-neo-cyan/30 bg-neo-cyan/10 px-2 py-1 text-[10px] font-mono text-neo-cyan hover:bg-neo-cyan/20 transition-colors"
+                      >
+                        Voyager
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => navigator.clipboard.writeText(profileWalletAddress)}
+                        className="inline-flex items-center gap-1 rounded-md border border-white/15 bg-white/[0.05] px-2 py-1 text-[10px] font-mono text-white/60 hover:bg-white/[0.1] transition-colors"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5">
+                      <p className="text-[10px] text-white/35 uppercase tracking-wide">Account Type</p>
+                      <p className="mt-1 text-xs font-semibold text-white/75">Smart Contract</p>
+                      <p className="text-[9px] text-white/30 mt-0.5">AA-native</p>
+                    </div>
+                    <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5">
+                      <p className="text-[10px] text-white/35 uppercase tracking-wide">Network</p>
+                      <p className="mt-1 text-xs font-semibold text-white/75">{identityNetwork}</p>
+                      <p className="text-[9px] text-white/30 mt-0.5">V3 transactions</p>
+                    </div>
+                    <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5">
+                      <p className="text-[10px] text-white/35 uppercase tracking-wide">Session Keys</p>
+                      <p className="mt-1 text-xs font-semibold text-white/75">Supported</p>
+                      <p className="text-[9px] text-white/30 mt-0.5">Time-bounded</p>
+                    </div>
+                    <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5">
+                      <p className="text-[10px] text-white/35 uppercase tracking-wide">Gas</p>
+                      <p className="mt-1 text-xs font-semibold text-white/75">STRK / Paymaster</p>
+                      <p className="text-[9px] text-white/30 mt-0.5">avnu paymaster</p>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4 text-center">
+                  <p className="text-xs text-white/50">No wallet address resolved</p>
+                  <p className="text-[10px] text-white/30 mt-1">
+                    This agent may not have an on-chain wallet yet. Deploy via Fleet to assign one.
+                  </p>
+                  <Link
+                    href="/fleet"
+                    className="inline-flex mt-3 items-center gap-1 rounded-md border border-neo-brand/30 bg-neo-brand/12 px-3 py-1.5 text-[11px] text-neo-brand hover:bg-neo-brand/20 transition-colors"
+                  >
+                    Open Fleet
+                  </Link>
+                </div>
+              )}
+
+              <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5">
+                <p className="text-[10px] uppercase tracking-widest text-white/35 mb-1.5">Capabilities</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {["Forecast", "Bet", "Debate", "Research", "Resolve"].map((cap) => (
+                    <span
+                      key={cap}
+                      className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/55"
+                    >
+                      {cap}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
 
         {/* Charts + Debate Thread Visualization */}
@@ -1170,6 +1360,7 @@ export default function AgentPage() {
           </div>
         </section>
       </div>
+      <Footer />
     </div>
   );
 }

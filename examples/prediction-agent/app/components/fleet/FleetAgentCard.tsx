@@ -24,9 +24,24 @@ interface FleetAgentSummary {
 }
 
 const STATUS_DOT: Record<string, string> = {
-  running: "bg-green-400",
-  paused: "bg-yellow-400",
-  stopped: "bg-red-400",
+  running: "bg-neo-green",
+  paused: "bg-neo-yellow",
+  stopped: "bg-neo-red",
+};
+
+const SOURCE_ICONS: Record<string, { icon: string; color: string }> = {
+  polymarket: { icon: "📊", color: "#8b5cf6" },
+  coingecko: { icon: "🪙", color: "#f59e0b" },
+  news: { icon: "📰", color: "#3b82f6" },
+  web: { icon: "🌐", color: "#06b6d4" },
+  tavily: { icon: "🔍", color: "#10b981" },
+  social: { icon: "💬", color: "#ec4899" },
+  espn: { icon: "🏈", color: "#ef4444" },
+  github: { icon: "⌨️", color: "#a3a3a3" },
+  onchain: { icon: "⛓", color: "#f97316" },
+  rss: { icon: "📡", color: "#6366f1" },
+  x: { icon: "𝕏", color: "#a3a3a3" },
+  telegram: { icon: "✈️", color: "#0ea5e9" },
 };
 
 function timeAgo(ts: number | null): string {
@@ -54,7 +69,14 @@ export default function FleetAgentCard({
   const pnlWei = BigInt(agent.stats.pnl || "0");
   const pnlStrk = Number(pnlWei) / 1e18;
   const pnlSign = pnlStrk >= 0 ? "+" : "";
-  const pnlColor = pnlStrk >= 0 ? "text-green-400" : "text-red-400";
+  const pnlColor = pnlStrk >= 0 ? "text-neo-green" : "text-neo-red";
+  const walletLabel = agent.walletAddress
+    ? agent.balanceStrk !== null
+      ? `${agent.balanceStrk.toFixed(1)} STRK`
+      : "checking balance..."
+    : agent.isBuiltIn
+      ? "template agent"
+      : "wallet required";
 
   return (
     <div
@@ -83,11 +105,7 @@ export default function FleetAgentCard({
       <div className="mb-3 flex items-center gap-2">
         <TierBadge tier={agent.tier} />
         <span className="font-mono text-xs text-white/70">
-          {agent.walletAddress
-            ? agent.balanceStrk !== null
-              ? `${agent.balanceStrk.toFixed(1)} STRK`
-              : "loading..."
-            : "No wallet"}
+          {walletLabel}
         </span>
       </div>
 
@@ -97,12 +115,12 @@ export default function FleetAgentCard({
           <div
             className={`h-full rounded-full transition-all ${
               agent.tier === "thriving"
-                ? "bg-purple-400"
+                ? "bg-neo-purple"
                 : agent.tier === "healthy"
-                  ? "bg-green-400"
+                  ? "bg-neo-green"
                   : agent.tier === "low"
-                    ? "bg-yellow-400"
-                    : "bg-red-400"
+                    ? "bg-neo-yellow"
+                    : "bg-neo-red"
             }`}
             style={{
               width: `${Math.min(100, (agent.balanceStrk / 1000) * 100)}%`,
@@ -133,6 +151,64 @@ export default function FleetAgentCard({
         </div>
       </div>
 
+      {/* Data sources + confidence */}
+      {agent.preferredSources.length > 0 && (
+        <div className="mb-3 space-y-2">
+          <div className="flex flex-wrap gap-1.5">
+            {agent.preferredSources.slice(0, 6).map((src) => {
+              const meta = SOURCE_ICONS[src];
+              return (
+                <span
+                  key={src}
+                  className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-white/60"
+                >
+                  {meta && (
+                    <span
+                      className="inline-block h-1.5 w-1.5 rounded-full"
+                      style={{ backgroundColor: meta.color }}
+                    />
+                  )}
+                  {src}
+                </span>
+              );
+            })}
+            {agent.preferredSources.length > 6 && (
+              <span className="rounded-md border border-white/[0.06] bg-white/[0.02] px-1.5 py-0.5 text-[9px] text-white/30">
+                +{agent.preferredSources.length - 6}
+              </span>
+            )}
+          </div>
+
+          {/* Confidence + bias bar */}
+          <div className="flex items-center gap-2">
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-0.5">
+                <span className="text-[9px] text-white/30">Confidence</span>
+                <span className="text-[9px] font-mono text-white/50">
+                  {Math.round(agent.confidence * 100)}%
+                </span>
+              </div>
+              <div className="h-1 w-full rounded-full bg-white/[0.06] overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-neo-brand/60 transition-all"
+                  style={{ width: `${Math.round(agent.confidence * 100)}%` }}
+                />
+              </div>
+            </div>
+            {agent.biasFactor !== 0 && (
+              <span
+                className={`text-[9px] font-mono ${
+                  agent.biasFactor > 0 ? "text-neo-green/70" : "text-neo-red/70"
+                }`}
+                title="Bias factor"
+              >
+                {agent.biasFactor > 0 ? "+" : ""}{agent.biasFactor.toFixed(2)} bias
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Footer: last action + quick actions */}
       <div className="flex items-center justify-between border-t border-white/[0.05] pt-2">
         <span className="text-[10px] text-muted">
@@ -153,7 +229,7 @@ export default function FleetAgentCard({
           {!agent.isBuiltIn && agent.status === "running" && (
             <button
               onClick={onPause}
-              className="rounded px-2 py-0.5 text-[10px] font-medium text-yellow-400 hover:bg-yellow-400/10"
+              className="rounded px-2 py-0.5 text-[10px] font-medium text-neo-yellow hover:bg-neo-yellow/10"
             >
               Pause
             </button>
@@ -161,7 +237,7 @@ export default function FleetAgentCard({
           {!agent.isBuiltIn && agent.status === "paused" && (
             <button
               onClick={onResume}
-              className="rounded px-2 py-0.5 text-[10px] font-medium text-green-400 hover:bg-green-400/10"
+              className="rounded px-2 py-0.5 text-[10px] font-medium text-neo-green hover:bg-neo-green/10"
             >
               Resume
             </button>

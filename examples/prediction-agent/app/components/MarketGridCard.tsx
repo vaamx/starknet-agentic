@@ -1,28 +1,90 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { categorizeMarket } from "@/lib/categories";
 import { safeBigInt } from "./dashboard/utils";
 import type { AgentPrediction, LatestAgentTake, Market } from "./dashboard/types";
+
+export type MarketExecutionSurface = "starkzap" | "avnu" | "direct";
+export type MarketAutomationCadence = "5m" | "15m" | "1h";
+export type HeartbeatSource = "x" | "espn" | "rss" | "onchain";
+export type HeartbeatFreshness = "fresh" | "stale" | "missing";
+
+export interface MarketAutomationState {
+  enabled: boolean;
+  cadence: MarketAutomationCadence;
+  executionSurface: MarketExecutionSurface;
+  updatedAt?: number;
+}
+
+export interface MarketSourceHeartbeat {
+  marketId: number;
+  lastSeenAt: number | null;
+  freshness: HeartbeatFreshness;
+  sources: Record<
+    HeartbeatSource,
+    {
+      lastSeenAt: number | null;
+      freshness: HeartbeatFreshness;
+    }
+  >;
+}
+
+export interface MarketRoutePolicyMeta {
+  selectedSurface: MarketExecutionSurface | null;
+  routeCandidates: MarketExecutionSurface[];
+  routeReason: string;
+  backtestConfidence: number | null;
+  signalConfidence: number | null;
+  executionProfile: string | null;
+  policyBinding: {
+    cadenceMinutes: number;
+    maxStakeStrk: number;
+    riskLimitStrk: number;
+    stopLossPct: number;
+    confidenceThreshold: number;
+    preferredSurface: MarketExecutionSurface;
+    allowFallbackToDirect: boolean;
+  } | null;
+}
+
+export interface MarketCommentPreview {
+  id: string;
+  marketId: number;
+  parentId: string | null;
+  actorName: string;
+  content: string;
+  sourceType: string;
+  reliabilityScore: number | null;
+  backtestConfidence: number | null;
+  createdAt: number;
+}
 
 interface MarketGridCardProps {
   market: Market;
   predictions?: AgentPrediction[];
   weightedProb?: number | null;
   latestTake?: LatestAgentTake | null;
+  sourceHeartbeat?: MarketSourceHeartbeat | null;
   onBet: (marketId: number, outcome?: 0 | 1) => void;
+  onAnalyze: (marketId: number, question: string) => void;
+  automationState: MarketAutomationState;
+  routePolicy?: MarketRoutePolicyMeta | null;
+  commentPreview?: MarketCommentPreview | null;
+  onOpenAutomation: (marketId: number) => void;
+  onOpenAgentBrief: (marketId: number) => void;
   index: number;
 }
 
 const CAT_META: Record<string, { icon: string; label: string; color: string; border: string; bg: string; text: string }> = {
   sports: {
     icon: "\u{1F3C8}", label: "Sports", color: "#10b981",
-    border: "border-emerald-500/20", bg: "bg-emerald-500/[0.06]", text: "text-emerald-400",
+    border: "border-neo-green/20", bg: "bg-neo-green/[0.06]", text: "text-neo-green",
   },
   crypto: {
     icon: "\u20BF", label: "Crypto", color: "#f59e0b",
-    border: "border-amber-500/20", bg: "bg-amber-500/[0.06]", text: "text-amber-400",
+    border: "border-neo-orange/20", bg: "bg-neo-orange/[0.06]", text: "text-neo-orange",
   },
   politics: {
     icon: "\u{1F3DB}\uFE0F", label: "Politics", color: "#6366f1",
@@ -38,6 +100,36 @@ const CAT_META: Record<string, { icon: string; label: string; color: string; bor
   },
 };
 
+const SURFACE_META: Record<
+  MarketExecutionSurface,
+  { label: string; tone: string; chip: string }
+> = {
+  starkzap: {
+    label: "StarkZap",
+    tone: "text-fuchsia-200",
+    chip: "border-fuchsia-300/35 bg-fuchsia-400/15",
+  },
+  avnu: {
+    label: "AVNU",
+    tone: "text-cyan-200",
+    chip: "border-cyan-300/35 bg-cyan-400/15",
+  },
+  direct: {
+    label: "Direct",
+    tone: "text-white/75",
+    chip: "border-white/20 bg-white/[0.08]",
+  },
+};
+
+const HEARTBEAT_SOURCES: HeartbeatSource[] = ["x", "espn", "rss", "onchain"];
+
+const SOURCE_BADGE_META: Record<HeartbeatSource, { label: string; icon: string }> = {
+  x: { label: "X", icon: "𝕏" },
+  espn: { label: "ESPN", icon: "🏈" },
+  rss: { label: "RSS", icon: "📰" },
+  onchain: { label: "Onchain", icon: "⛓" },
+};
+
 function formatVolume(poolWei: bigint): string {
   const whole = poolWei / 10n ** 18n;
   const num = Number(whole);
@@ -47,16 +139,54 @@ function formatVolume(poolWei: bigint): string {
   return "\u2014";
 }
 
-function formatTimeLeft(resolutionTime: number): { label: string; urgent: boolean; isNew: boolean } {
+type MarketLifecycle = "seeding" | "active" | "closing" | "ended" | "resolving";
+
+function formatTimeLeft(resolutionTime: number): { label: string; urgent: boolean; isNew: boolean; lifecycle: MarketLifecycle } {
   const secsLeft = resolutionTime - Date.now() / 1000;
-  if (secsLeft <= 0) return { label: "Ended", urgent: true, isNew: false };
+  if (secsLeft <= 0) return { label: "Ended", urgent: true, isNew: false, lifecycle: "ended" };
   const days = Math.floor(secsLeft / 86400);
   const hours = Math.floor(secsLeft / 3600);
   const isNew = days > 25;
-  if (days > 30) return { label: `${Math.floor(days / 30)}mo`, urgent: false, isNew };
-  if (days > 0) return { label: `${days}d`, urgent: days <= 3, isNew: false };
-  if (hours > 0) return { label: `${hours}h`, urgent: true, isNew: false };
-  return { label: `${Math.floor(secsLeft / 60)}m`, urgent: true, isNew: false };
+  const lifecycle: MarketLifecycle = days <= 1 ? "closing" : isNew ? "seeding" : "active";
+  if (days > 30) return { label: `${Math.floor(days / 30)}mo`, urgent: false, isNew, lifecycle };
+  if (days > 0) return { label: `${days}d`, urgent: days <= 3, isNew: false, lifecycle };
+  if (hours > 0) return { label: `${hours}h`, urgent: true, isNew: false, lifecycle: "closing" };
+  return { label: `${Math.floor(secsLeft / 60)}m`, urgent: true, isNew: false, lifecycle: "closing" };
+}
+
+const LIFECYCLE_META: Record<MarketLifecycle, { label: string; tone: string }> = {
+  seeding: { label: "Seeding", tone: "border-violet-300/25 bg-violet-400/10 text-violet-200" },
+  active: { label: "Active", tone: "border-neo-green/25 bg-neo-green/10 text-neo-green" },
+  closing: { label: "Closing", tone: "border-orange-300/25 bg-orange-400/10 text-orange-200" },
+  ended: { label: "Ended", tone: "border-white/15 bg-white/[0.06] text-white/50" },
+  resolving: { label: "Resolving", tone: "border-cyan-300/25 bg-cyan-400/10 text-cyan-200" },
+};
+
+function timeAgo(ts: number): string {
+  const delta = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (delta < 60) return `${delta}s ago`;
+  if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
+  if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`;
+  return `${Math.floor(delta / 86400)}d ago`;
+}
+
+function formatHeartbeatAge(timestampSec: number | null): string {
+  if (!timestampSec) return "no signal";
+  const delta = Math.max(0, Math.floor(Date.now() / 1000) - timestampSec);
+  if (delta < 60) return `${delta}s`;
+  if (delta < 3600) return `${Math.floor(delta / 60)}m`;
+  if (delta < 86_400) return `${Math.floor(delta / 3600)}h`;
+  return `${Math.floor(delta / 86_400)}d`;
+}
+
+function heartbeatTone(freshness: HeartbeatFreshness): string {
+  if (freshness === "fresh") {
+    return "border-neo-green/30 bg-neo-green/14 text-neo-green";
+  }
+  if (freshness === "stale") {
+    return "border-neo-yellow/30 bg-neo-yellow/14 text-neo-yellow";
+  }
+  return "border-white/15 bg-white/[0.06] text-white/65";
 }
 
 /* ─── Seeded pseudo-random for deterministic charts ─── */
@@ -190,7 +320,14 @@ export default function MarketGridCard({
   predictions = [],
   weightedProb,
   latestTake,
+  sourceHeartbeat = null,
   onBet,
+  onAnalyze,
+  automationState,
+  routePolicy = null,
+  commentPreview = null,
+  onOpenAutomation,
+  onOpenAgentBrief,
   index,
 }: MarketGridCardProps) {
   const baseYesPct = Math.round(market.impliedProbYes * 100);
@@ -222,6 +359,72 @@ export default function MarketGridCard({
   const aiDiff = aiProb !== null ? aiProb - yesPct : 0;
   const chartColor = yesPct >= 50 ? "#10b981" : "#3b82f6";
   const tradeCount = typeof market.tradeCount === "number" ? market.tradeCount : Math.floor(seededRand(market.id, 77) * 200 + 12);
+  const surface = SURFACE_META[automationState.executionSurface];
+
+  const forecastSummary = useMemo(() => {
+    if (predictions.length === 0) {
+      const baseline = aiProb ?? yesPct;
+      return {
+        consensusPct: baseline,
+        spread: 0,
+        consensusLabel: "Booting",
+        consensusTone: "text-white/60 border-white/15 bg-white/[0.06]",
+        confidence: 58,
+      };
+    }
+    const probs = predictions.map((entry) => Math.round(entry.predictedProb * 100));
+    const maxProb = Math.max(...probs);
+    const minProb = Math.min(...probs);
+    const spread = maxProb - minProb;
+    const consensusPct = Math.round(
+      probs.reduce((sum, p) => sum + p, 0) / probs.length
+    );
+    const avgBrier =
+      predictions.reduce((sum, p) => sum + p.brierScore, 0) / predictions.length;
+    const confidence = Math.max(
+      45,
+      Math.min(96, Math.round((1 - avgBrier) * 100))
+    );
+    if (spread <= 10) {
+      return {
+        consensusPct,
+        spread,
+        consensusLabel: "Aligned",
+        consensusTone: "text-neo-green border-neo-green/30 bg-neo-green/15",
+        confidence,
+      };
+    }
+    if (spread <= 22) {
+      return {
+        consensusPct,
+        spread,
+        consensusLabel: "Mixed",
+        consensusTone: "text-neo-yellow border-neo-yellow/30 bg-neo-yellow/15",
+        confidence,
+      };
+    }
+    return {
+      consensusPct,
+      spread,
+      consensusLabel: "Split",
+      consensusTone: "text-rose-200 border-rose-300/30 bg-rose-400/15",
+      confidence,
+    };
+  }, [aiProb, predictions, yesPct]);
+
+  const latestTakeExcerpt = useMemo(() => {
+    if (!latestTake?.reasoning) return null;
+    const clean = latestTake.reasoning.trim().replace(/\s+/g, " ");
+    if (clean.length <= 90) return clean;
+    return `${clean.slice(0, 87)}...`;
+  }, [latestTake?.reasoning]);
+
+  const commentExcerpt = useMemo(() => {
+    if (!commentPreview?.content) return null;
+    const clean = commentPreview.content.trim().replace(/\s+/g, " ");
+    if (clean.length <= 96) return clean;
+    return `${clean.slice(0, 93)}...`;
+  }, [commentPreview?.content]);
 
   return (
     <Link
@@ -237,13 +440,25 @@ export default function MarketGridCard({
         <div className="p-4 pb-2.5 flex-1">
           {/* Top row: category + badges + time */}
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
               <span className={`inline-flex items-center gap-1.5 px-2 py-[3px] rounded-md text-[10px] font-semibold uppercase tracking-wider ${cat.bg} ${cat.text}`}>
                 <span className="text-[11px] leading-none">{cat.icon}</span>
                 {cat.label}
               </span>
+              {automationState.enabled && (
+                <span className="inline-flex items-center gap-1 rounded-md border border-neo-green/30 bg-neo-green/15 px-2 py-[3px] text-[9px] font-semibold uppercase tracking-wider text-neo-green">
+                  🤖 Auto {automationState.cadence}
+                </span>
+              )}
+              {automationState.enabled && (
+                <span
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-[3px] text-[9px] font-semibold uppercase tracking-wider ${surface.chip} ${surface.tone}`}
+                >
+                  ⚡ {surface.label}
+                </span>
+              )}
               {isLive && (
-                <span className="flex items-center gap-1 px-2 py-[3px] rounded-md text-[9px] font-bold uppercase bg-red-500/[0.12] text-red-400 border border-red-500/15">
+                <span className="flex items-center gap-1 px-2 py-[3px] rounded-md text-[9px] font-bold uppercase bg-neo-red/[0.12] text-neo-red border border-neo-red/15">
                   <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-live-breathe" />
                   LIVE
                 </span>
@@ -272,7 +487,7 @@ export default function MarketGridCard({
           {/* ─── Probability + AI comparison row ─── */}
           <div className="flex items-end justify-between mb-0.5">
             <div className="flex items-baseline gap-1.5">
-              <span className={`text-[28px] font-heading font-extrabold tabular-nums leading-none ${yesPct >= 50 ? "text-emerald-400" : "text-red-400"} ${ticked ? "animate-prob-tick" : ""}`}
+              <span className={`text-[28px] font-heading font-extrabold tabular-nums leading-none ${yesPct >= 50 ? "text-neo-green" : "text-neo-red"} ${ticked ? "animate-prob-tick" : ""}`}
                     key={yesPct}>
                 {yesPct}%
               </span>
@@ -284,7 +499,7 @@ export default function MarketGridCard({
                   <span className="text-[9px] text-white/25 font-heading font-semibold uppercase tracking-wider">AI</span>
                   <span className="text-[13px] font-heading font-bold text-white/60 tabular-nums">{aiProb}%</span>
                   {aiDiff !== 0 && (
-                    <span className={`text-[10px] font-mono tabular-nums ${aiDiff > 0 ? "text-emerald-400/70" : "text-red-400/70"}`}>
+                    <span className={`text-[10px] font-mono tabular-nums ${aiDiff > 0 ? "text-neo-green/70" : "text-neo-red/70"}`}>
                       {aiDiff > 0 ? "\u25B2" : "\u25BC"}{Math.abs(aiDiff)}
                     </span>
                   )}
@@ -303,6 +518,155 @@ export default function MarketGridCard({
             <span>Yes {yesPct}%</span>
             <span>No {noPct}%</span>
           </div>
+
+          {/* Agentic integration strip */}
+          <div className="mb-2 rounded-xl border border-white/[0.08] bg-[#11172a]/70 p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
+                Superforecast Swarm
+              </p>
+              <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold ${forecastSummary.consensusTone}`}>
+                {forecastSummary.consensusLabel}
+              </span>
+            </div>
+            <div className="mt-1.5 grid grid-cols-3 gap-1.5 text-[11px]">
+              <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-2 py-1.5">
+                <p className="text-white/35">Consensus</p>
+                <p className="font-semibold text-white/85">{forecastSummary.consensusPct}% YES</p>
+              </div>
+              <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-2 py-1.5">
+                <p className="text-white/35">Spread</p>
+                <p className="font-semibold text-white/85">{forecastSummary.spread}pt</p>
+              </div>
+              <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-2 py-1.5">
+                <p className="text-white/35">Confidence</p>
+                <p className="font-semibold text-white/85">{forecastSummary.confidence}%</p>
+              </div>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onAnalyze(market.id, market.question);
+                }}
+                className="rounded-lg border border-sky-300/30 bg-sky-400/15 px-2 py-1.5 text-[11px] font-semibold text-sky-100 transition-colors hover:bg-sky-400/25"
+              >
+                🧠 Forecast
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onOpenAutomation(market.id);
+                }}
+                className={`rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-colors ${
+                  automationState.enabled
+                    ? "border-neo-green/35 bg-neo-green/15 text-neo-green hover:bg-neo-green/25"
+                    : "border-white/20 bg-white/[0.05] text-white/70 hover:bg-white/[0.1]"
+                }`}
+              >
+                {automationState.enabled ? "🤖 Configure" : "🤖 Automate"}
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onOpenAgentBrief(market.id);
+                }}
+                className="rounded-lg border border-fuchsia-300/30 bg-fuchsia-400/14 px-2 py-1.5 text-[11px] font-semibold text-fuchsia-100 transition-colors hover:bg-fuchsia-400/22"
+              >
+                📘 Agent Brief
+              </button>
+            </div>
+            {routePolicy && (
+              <div className="mt-2 rounded-lg border border-white/[0.08] bg-black/20 px-2 py-1.5">
+                <div className="flex items-center justify-between gap-2 text-[10px]">
+                  <span className="font-semibold uppercase tracking-[0.12em] text-white/35">
+                    Route Policy
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-white/55">
+                    {routePolicy.selectedSurface ? (
+                      <span className="rounded border border-white/15 bg-white/[0.08] px-1.5 py-0.5 font-semibold uppercase">
+                        {routePolicy.selectedSurface}
+                      </span>
+                    ) : null}
+                    {typeof routePolicy.backtestConfidence === "number" ? (
+                      <span className="text-neo-green/85">
+                        BT {Math.round(routePolicy.backtestConfidence * 100)}%
+                      </span>
+                    ) : null}
+                  </span>
+                </div>
+                <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-white/55">
+                  {routePolicy.routeReason}
+                </p>
+                {routePolicy.policyBinding && (
+                  <p className="mt-1 text-[10px] text-white/45">
+                    Cadence {routePolicy.policyBinding.cadenceMinutes}m · Risk {routePolicy.policyBinding.riskLimitStrk.toFixed(1)} STRK · Stop-loss {routePolicy.policyBinding.stopLossPct.toFixed(0)}%
+                  </p>
+                )}
+              </div>
+            )}
+            {latestTakeExcerpt && (
+              <p className="mt-2 line-clamp-2 text-[10px] leading-relaxed text-white/55">
+                “{latestTakeExcerpt}”
+                {latestTake?.timestamp ? (
+                  <span className="ml-1 text-white/35">• {timeAgo(latestTake.timestamp)}</span>
+                ) : null}
+              </p>
+            )}
+            {commentExcerpt && commentPreview && (
+              <p className="mt-1.5 line-clamp-2 text-[10px] leading-relaxed text-white/50">
+                💬 <span className="font-semibold text-white/65">{commentPreview.actorName}:</span>{" "}
+                {commentExcerpt}
+                {typeof commentPreview.backtestConfidence === "number" ? (
+                  <span className="ml-1 text-cyan-200/70">
+                    · BT {Math.round(commentPreview.backtestConfidence * 100)}%
+                  </span>
+                ) : null}
+              </p>
+            )}
+            {sourceHeartbeat && (
+              <div className="mt-2 rounded-lg border border-white/[0.08] bg-black/20 px-2 py-1.5">
+                <div className="mb-1 flex items-center justify-between text-[10px]">
+                  <span className="font-semibold uppercase tracking-[0.1em] text-white/35">
+                    Source Freshness
+                  </span>
+                  <span
+                    className={`rounded border px-1.5 py-0.5 font-semibold ${heartbeatTone(
+                      sourceHeartbeat.freshness
+                    )}`}
+                  >
+                    {sourceHeartbeat.freshness}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {HEARTBEAT_SOURCES.map((source) => {
+                    const status = sourceHeartbeat.sources[source];
+                    const meta = SOURCE_BADGE_META[source];
+                    return (
+                      <span
+                        key={`${market.id}-${source}`}
+                        className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${heartbeatTone(
+                          status.freshness
+                        )}`}
+                      >
+                        <span>{meta.icon}</span>
+                        <span>{meta.label}</span>
+                        <span className="font-mono text-[9px] opacity-80">
+                          {formatHeartbeatAge(status.lastSeenAt)}
+                        </span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ─── Trade buttons ─── */}
@@ -311,14 +675,14 @@ export default function MarketGridCard({
             <button
               type="button"
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); onBet(market.id, 1); }}
-              className="flex-1 py-2.5 rounded-xl text-[13px] font-heading font-bold bg-emerald-500/[0.1] text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/[0.18] hover:border-emerald-400/[0.35] active:scale-[0.98] transition-all"
+              className="flex-1 py-2.5 rounded-xl text-[13px] font-heading font-bold bg-neo-green/[0.1] text-neo-green border border-neo-green/20 hover:bg-neo-green/[0.18] hover:border-neo-green/[0.35] active:scale-[0.98] transition-all"
             >
               Yes {yesPct}¢
             </button>
             <button
               type="button"
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); onBet(market.id, 0); }}
-              className="flex-1 py-2.5 rounded-xl text-[13px] font-heading font-bold bg-red-500/[0.1] text-red-400 border border-red-500/20 hover:bg-red-500/[0.18] hover:border-red-400/[0.35] active:scale-[0.98] transition-all"
+              className="flex-1 py-2.5 rounded-xl text-[13px] font-heading font-bold bg-neo-red/[0.1] text-neo-red border border-neo-red/20 hover:bg-neo-red/[0.18] hover:border-neo-red/[0.35] active:scale-[0.98] transition-all"
             >
               No {noPct}¢
             </button>
@@ -332,9 +696,22 @@ export default function MarketGridCard({
           </div>
         )}
 
-        {/* ─── Footer: agents + volume + trades ─── */}
+        {/* ─── Footer: agents + lifecycle + volume + trades ─── */}
         <div className="px-4 py-2.5 border-t border-white/[0.04] flex items-center gap-3 relative z-10">
           <AgentAvatars predictions={predictions} />
+          {(() => {
+            const lc = LIFECYCLE_META[time.lifecycle];
+            return (
+              <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${lc.tone}`}>
+                {lc.label}
+              </span>
+            );
+          })()}
+          {automationState.enabled && (
+            <span className="inline-flex items-center gap-1 rounded-md border border-neo-green/25 bg-neo-green/10 px-1.5 py-0.5 text-[9px] font-semibold text-neo-green">
+              🤖 {automationState.cadence}
+            </span>
+          )}
           <div className="flex-1" />
           <span className="text-[10px] font-mono text-white/20 tabular-nums flex items-center gap-1.5">
             <svg className="w-3 h-3 text-white/12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

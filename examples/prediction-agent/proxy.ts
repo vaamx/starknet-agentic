@@ -13,7 +13,6 @@ function isPublicAsset(pathname: string): boolean {
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const hasSessionCookie = Boolean(request.cookies.get("hc_session")?.value);
 
   if (
     pathname.startsWith("/api/auth") ||
@@ -23,18 +22,8 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (hasSessionCookie) {
-    return NextResponse.next();
-  }
-
-  if (pathname.startsWith("/api")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const loginUrl = request.nextUrl.clone();
-  loginUrl.pathname = "/login";
-  loginUrl.searchParams.set("next", pathname);
-  return NextResponse.redirect(loginUrl);
+  // Keep main app navigation public; route handlers enforce role/session where required.
+  return NextResponse.next();
 }
 
 export const config = {

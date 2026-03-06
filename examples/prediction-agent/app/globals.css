@@ -25,7 +25,7 @@
   }
 
   html {
-    scroll-behavior: smooth;
+    /* scroll-behavior moved to data-scroll-behavior attr on <html> to avoid Next.js warning */
   }
 
   body {
@@ -197,6 +197,20 @@
   }
   .hide-scrollbar::-webkit-scrollbar {
     display: none;
+  }
+
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .mobile-nav-pad {
+    padding-bottom: 4rem; /* 64px — height of mobile nav */
+  }
+
+  @media (min-width: 768px) {
+    .mobile-nav-pad {
+      padding-bottom: 0;
+    }
   }
 }
 

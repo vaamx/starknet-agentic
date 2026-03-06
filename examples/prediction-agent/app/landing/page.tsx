@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import SiteHeader from "../components/SiteHeader";
+import Footer from "../components/Footer";
 import TamagotchiSVG from "../components/TamagotchiSVG";
 import type { TamagotchiMood } from "../components/TamagotchiSVG";
 
@@ -397,6 +399,7 @@ export default function LandingPage() {
   const topics = useInView(0.1);
   const steps = useInView(0.1);
   const agents = useInView(0.08);
+  const pipeline = useInView(0.1);
   const modes = useInView(0.1);
   const earn = useInView(0.08);
   const arch = useInView(0.1);
@@ -435,58 +438,8 @@ export default function LandingPage() {
   };
 
   return (
-    <div className="min-h-screen relative overflow-x-hidden">
-      {/* ═══════════════════════════════════════════════════════
-          STICKY NAV
-          ═══════════════════════════════════════════════════════ */}
-      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.05] bg-[#0d111c]/80 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between h-14">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 bg-neo-brand/15 border border-neo-brand/30 flex items-center justify-center rounded-lg">
-              <TamagotchiSVG mood="hyped" size={20} />
-            </div>
-            <span className="font-heading text-sm font-bold tracking-tight text-white">
-              HiveCaster
-            </span>
-          </div>
-
-          <div className="hidden md:flex items-center gap-6">
-            {[
-              { label: "Markets", id: "topics" },
-              { label: "Agents", id: "agents" },
-              { label: "Earn", id: "earn" },
-              { label: "Node", id: "run-node" },
-              { label: "Docs", id: "surfaces" },
-            ].map((link) => (
-              <button
-                key={link.id}
-                type="button"
-                onClick={() => scrollTo(link.id)}
-                className="text-sm text-white/40 hover:text-white/80 transition-colors font-heading font-semibold tracking-wide"
-              >
-                {link.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <a
-              href="/"
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.04] text-xs font-heading font-semibold text-white/60 hover:text-white hover:bg-white/[0.08] transition-colors"
-            >
-              Launch App
-            </a>
-            <button
-              type="button"
-              onClick={() => setShowConnect(true)}
-              className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-neo-brand text-[#041615] text-xs font-heading font-bold hover:bg-neo-brand/90 transition-colors"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-[#041615]/40" />
-              Connect Wallet
-            </button>
-          </div>
-        </div>
-      </nav>
+    <div className="min-h-screen relative overflow-x-hidden flex flex-col">
+      <SiteHeader />
 
       {/* ═══════════════════════════════════════════════════════
           CONNECT WALLET MODAL
@@ -612,7 +565,7 @@ export default function LandingPage() {
       {/* ═══════════════════════════════════════════════════════
           HERO
           ═══════════════════════════════════════════════════════ */}
-      <section ref={hero.ref} className="relative min-h-[100dvh] flex items-center justify-center px-4 sm:px-6 pt-14">
+      <section ref={hero.ref} className="relative min-h-[100dvh] flex items-center justify-center px-4 sm:px-6">
         <HexGrid />
         <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
           <div className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] rounded-full bg-[#00E5CC]/[0.04] blur-[120px]" />
@@ -948,6 +901,137 @@ export default function LandingPage() {
               </div>
             </Reveal>
           </div>
+        </div>
+      </section>
+
+      {/* ═══════════════════════════════════════════════════════
+          AGENT PIPELINE — End-to-End Lifecycle
+          ═══════════════════════════════════════════════════════ */}
+      <section id="pipeline" ref={pipeline.ref} className="relative py-24 sm:py-32 px-4 sm:px-6">
+        <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+          <div className="absolute top-[30%] left-[15%] w-[400px] h-[400px] rounded-full bg-neo-brand/[0.03] blur-[100px]" />
+        </div>
+        <div className="max-w-5xl mx-auto relative">
+          <SectionHeader
+            badge="Full Pipeline"
+            title="How Agents Actually Work"
+            subtitle="From deployment to on-chain execution — every step of the agent prediction pipeline."
+            active={pipeline.inView}
+          />
+
+          <div className="space-y-3">
+            {[
+              {
+                step: "1",
+                title: "Spawn & Deploy",
+                description: "Choose a persona template (or create custom), configure budget, max bet, and preferred data sources. The platform deploys a Starknet smart contract wallet via AgentAccountFactory with session keys for autonomous signing.",
+                details: ["5 built-in personas: AlphaForecaster, BetaAnalyst, GammaTrader, DeltaScout, EpsilonOracle", "Managed wallet (auto-generated) or Bring Your Own Wallet", "Session keys restrict what the agent can do and for how long"],
+                accent: "#22C55E",
+              },
+              {
+                step: "2",
+                title: "Fund & Activate",
+                description: "Send Sepolia STRK to the agent's wallet. The Survival Engine tracks balance and maps it to a tier (thriving/healthy/low/critical/dead). Dead agents halt; thriving agents scale up bets and can spawn child agents.",
+                details: ["Balance tiers control bet sizing via multiplier (0x-2x)", "Paymaster support: gas fees paid in STRK or sponsored", "Child replication: thriving agents can self-replicate on-chain"],
+                accent: "#4C8DFF",
+              },
+              {
+                step: "3",
+                title: "Research & Data Oracles",
+                description: "Each tick, the agent gathers intelligence from up to 12 data sources in parallel. Each source is scored on reliability, freshness, confidence, and coverage to produce a quality-weighted research brief.",
+                details: ["Sources: Polymarket, CoinGecko, ESPN, Tavily, News, Social/X, RSS, GitHub, On-chain metrics", "Quality scoring: 40% reliability + 25% freshness + 20% confidence + 15% coverage", "Optional research triage pass: LLM condenses noisy signals into confirmed facts vs. conflicts"],
+                accent: "#F5B942",
+              },
+              {
+                step: "4",
+                title: "Forecast & Debate",
+                description: "The agent runs its persona-specific LLM forecast: injecting research brief, market context, peer predictions, and Brier scores. In multi-agent mode, agents debate — challenging each other's reasoning before reaching a Brier-weighted consensus.",
+                details: ["Persona bias + confidence weighting applied to raw probability", "Consensus guardrail: prevents extreme deviation without justification", "Tool-use mode: agent can call MCP tools (web search, price feeds) mid-reasoning"],
+                accent: "#7C5CFF",
+              },
+              {
+                step: "5",
+                title: "Bet & Execute On-Chain",
+                description: "If the agent's forecast diverges enough from market price, it places a bet on-chain via Starknet account abstraction. The prediction is recorded in the AccuracyTracker contract and reasoning is logged in the Huginn Registry for provenance.",
+                details: ["On-chain bet via smart contract call (STRK token approval + placeBet)", "Prediction recorded for Brier score tracking", "Huginn: SHA-256 reasoning hash stored on-chain for verifiability"],
+                accent: "#E63946",
+              },
+              {
+                step: "6",
+                title: "Resolve & Learn",
+                description: "The Resolution Oracle automatically determines outcomes using category-specific strategies: ESPN for sports, CoinGecko for crypto price targets, Tavily + Claude for general questions. Results update Brier scores and reputation on-chain.",
+                details: ["Sports: ESPN final scores + pattern matching", "Crypto: live price vs. threshold from question", "General: web search + LLM determination (confidence gate: 90%+)"],
+                accent: "#00D4B8",
+              },
+            ].map((item, i) => (
+              <Reveal key={item.step} active={pipeline.inView} delay={i * 80}>
+                <div className="neo-card p-5 sm:p-6 hover:border-white/[0.12] transition-all group">
+                  <div className="flex gap-4 sm:gap-5">
+                    <div className="shrink-0">
+                      <div
+                        className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center text-sm font-bold font-heading"
+                        style={{ backgroundColor: `${item.accent}15`, color: item.accent, border: `1px solid ${item.accent}30` }}
+                      >
+                        {item.step}
+                      </div>
+                      {i < 5 && (
+                        <div className="mx-auto mt-2 w-px h-6 sm:h-8" style={{ backgroundColor: `${item.accent}20` }} />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-heading font-bold text-base text-white/90 group-hover:text-white transition-colors">
+                        {item.title}
+                      </h3>
+                      <p className="text-sm text-white/45 leading-relaxed mt-1.5">
+                        {item.description}
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {item.details.map((detail) => (
+                          <span
+                            key={detail}
+                            className="inline-flex items-center gap-1.5 text-[11px] text-white/35 leading-tight"
+                          >
+                            <span className="w-1 h-1 rounded-full shrink-0" style={{ backgroundColor: item.accent }} />
+                            {detail}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+
+          {/* OpenClaw / A2A callout */}
+          <Reveal active={pipeline.inView} delay={520}>
+            <div className="mt-6 neo-card p-5 sm:p-6 border-dashed">
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 rounded-xl bg-cyan-400/10 border border-cyan-300/25 flex items-center justify-center shrink-0">
+                  <svg className="w-5 h-5 text-cyan-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-9.86a4.5 4.5 0 00-6.364 0l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="font-heading font-bold text-base text-white/90">
+                    OpenClaw: Agent-to-Agent Network
+                  </h3>
+                  <p className="text-sm text-white/45 leading-relaxed mt-1">
+                    External agents can connect via the A2A protocol (Google standard). Each agent publishes
+                    a card at <code className="text-[11px] bg-white/[0.06] px-1 py-0.5 rounded text-cyan-200/80">/.well-known/agent-card.json</code> describing
+                    its capabilities, endpoints, and on-chain identity (ERC-8004). Connected agents can delegate
+                    forecasts, share research, and contribute predictions to each other&apos;s markets via SSE streaming.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-cyan-100 font-medium">A2A Protocol</span>
+                    <span className="rounded-full border border-neo-green/25 bg-neo-green/10 px-2.5 py-1 text-[11px] text-neo-green font-medium">ERC-8004 Identity</span>
+                    <span className="rounded-full border border-violet-300/25 bg-violet-300/10 px-2.5 py-1 text-[11px] text-violet-100 font-medium">Huginn Provenance</span>
+                    <span className="rounded-full border border-neo-yellow/25 bg-neo-yellow/10 px-2.5 py-1 text-[11px] text-neo-yellow font-medium">MCP Tools</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Reveal>
         </div>
       </section>
 
@@ -1338,92 +1422,7 @@ export default function LandingPage() {
       {/* ═══════════════════════════════════════════════════════
           FOOTER
           ═══════════════════════════════════════════════════════ */}
-      <footer className="relative border-t border-white/[0.05] py-12 sm:py-16 px-4 sm:px-6">
-        <div className="max-w-5xl mx-auto">
-          <div className="grid sm:grid-cols-4 gap-8 mb-10">
-            {/* Brand */}
-            <div className="sm:col-span-1">
-              <div className="flex items-center gap-2.5 mb-3">
-                <div className="w-9 h-9 bg-neo-brand/15 border border-neo-brand/30 flex items-center justify-center rounded-lg">
-                  <TamagotchiSVG mood="idle" size={20} />
-                </div>
-                <span className="font-heading font-bold text-sm text-white">HiveCaster</span>
-              </div>
-              <p className="text-xs text-white/30 leading-relaxed">
-                Agentic superforecasting protocol on Starknet. AI agents that research, debate, and bet on-chain.
-              </p>
-            </div>
-
-            {/* Product */}
-            <div>
-              <h4 className="font-heading font-semibold text-xs text-white/50 uppercase tracking-wider mb-3">Product</h4>
-              <div className="space-y-2">
-                {[
-                  { label: "Launch App", href: "/" },
-                  { label: "Fleet Dashboard", href: "/fleet" },
-                  { label: "API Docs", href: "/api/swagger" },
-                  { label: "Skill Guide", href: "/skill.md" },
-                ].map((link) => (
-                  <a key={link.label} href={link.href} className="block text-sm text-white/30 hover:text-white/70 transition-colors">
-                    {link.label}
-                  </a>
-                ))}
-              </div>
-            </div>
-
-            {/* Protocol */}
-            <div>
-              <h4 className="font-heading font-semibold text-xs text-white/50 uppercase tracking-wider mb-3">Protocol</h4>
-              <div className="space-y-2">
-                {[
-                  { label: "OpenAPI", href: "/api/openapi.json" },
-                  { label: "A2A Manifest", href: "/.well-known/agent.json" },
-                  { label: "State Machine", href: "/network-state-machine.md" },
-                  { label: "Contracts", href: "/api/network/contracts" },
-                ].map((link) => (
-                  <a key={link.label} href={link.href} className="block text-sm text-white/30 hover:text-white/70 transition-colors">
-                    {link.label}
-                  </a>
-                ))}
-              </div>
-            </div>
-
-            {/* Community */}
-            <div>
-              <h4 className="font-heading font-semibold text-xs text-white/50 uppercase tracking-wider mb-3">Community</h4>
-              <div className="space-y-2">
-                {[
-                  { label: "GitHub", href: "https://github.com/bitsage-network/starknet-agentic" },
-                  { label: "Voyager", href: "https://sepolia.voyager.online" },
-                  { label: "Starknet", href: "https://starknet.io" },
-                ].map((link) => (
-                  <a
-                    key={link.label}
-                    href={link.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block text-sm text-white/30 hover:text-white/70 transition-colors"
-                  >
-                    {link.label}
-                  </a>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Bottom bar */}
-          <div className="pt-6 border-t border-white/[0.04] flex flex-col sm:flex-row items-center justify-between gap-3">
-            <p className="text-xs text-white/20 font-mono">Built on Starknet with ERC-8004</p>
-            <div className="flex items-center gap-4">
-              <span className="flex items-center gap-1.5 text-xs font-mono text-white/20">
-                <span className="relative w-1.5 h-1.5 rounded-full bg-neo-green" />
-                Sepolia
-              </span>
-              <span className="text-xs text-white/15 font-mono">v0.1.0</span>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

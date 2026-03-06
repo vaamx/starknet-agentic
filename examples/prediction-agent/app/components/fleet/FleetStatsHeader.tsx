@@ -10,10 +10,10 @@ interface FleetStats {
 }
 
 const TIER_COLORS: Record<string, string> = {
-  thriving: "bg-purple-400",
-  healthy: "bg-green-400",
-  low: "bg-yellow-400",
-  critical: "bg-red-400",
+  thriving: "bg-neo-purple",
+  healthy: "bg-neo-green",
+  low: "bg-neo-yellow",
+  critical: "bg-neo-red",
   dead: "bg-white/20",
 };
 
@@ -67,7 +67,12 @@ export default function FleetStatsHeader({ stats }: { stats: FleetStats | null }
     return (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
         {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="neo-card h-20 animate-pulse p-3" />
+          <div key={i} className="neo-card relative overflow-hidden p-3 h-20">
+            <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/[0.03] to-transparent" />
+            <div className="h-2.5 w-16 rounded bg-white/[0.05] animate-pulse mb-2" />
+            <div className="h-5 w-12 rounded bg-white/[0.07] animate-pulse mb-1.5" />
+            <div className="h-2 w-20 rounded bg-white/[0.03] animate-pulse" />
+          </div>
         ))}
       </div>
     );
@@ -76,7 +81,10 @@ export default function FleetStatsHeader({ stats }: { stats: FleetStats | null }
   const pnlWei = BigInt(stats.fleetPnl || "0");
   const pnlStrk = Number(pnlWei) / 1e18;
   const pnlSign = pnlStrk >= 0 ? "+" : "";
-  const pnlColor = pnlStrk >= 0 ? "text-green-400" : "text-red-400";
+  const pnlColor = pnlStrk >= 0 ? "text-neo-green" : "text-neo-red";
+  const runRate = stats.totalAgents > 0
+    ? Math.round((stats.runningAgents / stats.totalAgents) * 100)
+    : 0;
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
@@ -84,30 +92,32 @@ export default function FleetStatsHeader({ stats }: { stats: FleetStats | null }
         label="Total Agents"
         value={String(stats.totalAgents)}
         sub={`${stats.runningAgents} running`}
-      />
+      >
+        {/* Run rate bar */}
+        <div className="h-1 w-full rounded-full bg-white/[0.06] overflow-hidden mt-0.5">
+          <div
+            className="h-full rounded-full bg-neo-brand/50 transition-all"
+            style={{ width: `${runRate}%` }}
+          />
+        </div>
+      </StatCard>
       <StatCard
         label="STRK Under Mgmt"
-        value={
-          stats.totalStrkHuman > 0
-            ? stats.totalStrkHuman.toLocaleString(undefined, {
-                maximumFractionDigits: 1,
-              })
-            : "–"
-        }
+        value={stats.totalStrkHuman.toLocaleString(undefined, { maximumFractionDigits: 1 })}
         sub="across all wallets"
       >
         <TierDistBar dist={stats.tierDistribution} />
       </StatCard>
       <StatCard
         label="Avg Brier Score"
-        value={stats.avgBrierScore !== null ? stats.avgBrierScore.toFixed(3) : "–"}
-        sub={stats.avgBrierScore !== null ? "lower is better" : "no data yet"}
+        value={stats.avgBrierScore !== null ? stats.avgBrierScore.toFixed(3) : "Pending"}
+        sub={stats.avgBrierScore !== null ? "lower is better" : "waiting for resolved markets"}
       />
       <StatCard
         label="Fleet P&L"
         value={`${pnlSign}${Math.abs(pnlStrk).toFixed(1)} STRK`}
       >
-        <span className={`text-xs font-mono ${pnlColor}`}>
+        <span className={`text-xs font-mono font-bold ${pnlColor}`}>
           {pnlSign}{Math.abs(pnlStrk).toFixed(2)}
         </span>
       </StatCard>

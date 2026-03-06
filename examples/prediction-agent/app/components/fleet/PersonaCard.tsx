@@ -26,9 +26,9 @@ export default function PersonaCard({
         : "Neutral";
   const biasColor =
     persona.biasFactor > 0.02
-      ? "text-green-400"
+      ? "text-neo-green"
       : persona.biasFactor < -0.02
-        ? "text-red-400"
+        ? "text-neo-red"
         : "text-white/60";
 
   return (
@@ -72,21 +72,34 @@ export default function PersonaCard({
       </div>
 
       {/* Sources */}
-      <div className="flex flex-wrap gap-1">
-        {persona.preferredSources.slice(0, 4).map((src) => (
-          <span
-            key={src}
-            className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[8px] text-muted"
-          >
-            {src}
-          </span>
-        ))}
-        {persona.preferredSources.length > 4 && (
-          <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[8px] text-muted">
-            +{persona.preferredSources.length - 4}
-          </span>
-        )}
-      </div>
+      {(() => {
+        const SRC_COLORS: Record<string, string> = {
+          polymarket: "bg-[#8b5cf6]",
+          coingecko: "bg-[#f59e0b]",
+          news: "bg-[#3b82f6]",
+          social: "bg-[#ec4899]",
+          tavily: "bg-[#06b6d4]",
+          espn: "bg-[#ef4444]",
+        };
+        return (
+          <div className="flex flex-wrap gap-1">
+            {persona.preferredSources.slice(0, 4).map((src) => (
+              <span
+                key={src}
+                className="inline-flex items-center gap-1 rounded-md bg-white/[0.05] border border-white/[0.06] px-1.5 py-0.5 text-[8px] text-white/55"
+              >
+                <span className={`w-1 h-1 rounded-full ${SRC_COLORS[src] ?? "bg-white/25"}`} />
+                {src}
+              </span>
+            ))}
+            {persona.preferredSources.length > 4 && (
+              <span className="rounded-md bg-white/[0.05] border border-white/[0.06] px-1.5 py-0.5 text-[8px] text-white/40">
+                +{persona.preferredSources.length - 4}
+              </span>
+            )}
+          </div>
+        );
+      })()}
     </button>
   );
 }

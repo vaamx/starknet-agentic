@@ -58,6 +58,17 @@ const ALL_SOURCES = [
   "rss",
 ] as const;
 
+const SOURCE_COLORS: Record<string, string> = {
+  polymarket: "#8b5cf6",
+  coingecko: "#f59e0b",
+  news: "#3b82f6",
+  web: "#06b6d4",
+  social: "#ec4899",
+  onchain: "#f97316",
+  github: "#a3a3a3",
+  rss: "#6366f1",
+};
+
 const SESSION_DURATIONS = [
   { label: "1 day", value: "1d" },
   { label: "1 week", value: "1w" },
@@ -65,6 +76,7 @@ const SESSION_DURATIONS = [
 ] as const;
 
 type Step = 1 | 2 | 3;
+type DeploymentMode = "managed" | "byo";
 
 interface DeployWizardProps {
   open: boolean;
@@ -94,6 +106,10 @@ export default function DeployWizard({
     "social",
   ]);
   const [sessionDuration, setSessionDuration] = useState("1w");
+  const [deploymentMode, setDeploymentMode] = useState<DeploymentMode>("managed");
+  const [walletAddress, setWalletAddress] = useState("");
+  const [walletPrivateKey, setWalletPrivateKey] = useState("");
+  const [spawnServer, setSpawnServer] = useState(true);
 
   // Step 3: deploy
   const [deploying, setDeploying] = useState(false);
@@ -102,6 +118,7 @@ export default function DeployWizard({
     agentId: string;
     walletAddress?: string;
     txHash?: string;
+    warnings?: string[];
   } | null>(null);
   const [deployError, setDeployError] = useState<string | null>(null);
 
@@ -114,6 +131,10 @@ export default function DeployWizard({
     setMaxBetStrk(10);
     setSources(["polymarket", "coingecko", "news", "social"]);
     setSessionDuration("1w");
+    setDeploymentMode("managed");
+    setWalletAddress("");
+    setWalletPrivateKey("");
+    setSpawnServer(true);
     setDeploying(false);
     setDeployStep(0);
     setDeployResult(null);
@@ -149,6 +170,11 @@ export default function DeployWizard({
   }
 
   async function handleDeploy() {
+    if (deploymentMode === "byo" && !walletAddress.trim()) {
+      setDeployError("Wallet address is required for Bring Your Own Wallet mode.");
+      return;
+    }
+
     setDeploying(true);
     setDeployError(null);
     setDeployStep(1);
@@ -165,6 +191,13 @@ export default function DeployWizard({
           budgetStrk,
           maxBetStrk,
           preferredSources: sources,
+          spawnServer,
+          walletAddress:
+            deploymentMode === "byo" ? walletAddress.trim() || undefined : undefined,
+          walletPrivateKey:
+            deploymentMode === "byo" && walletPrivateKey.trim()
+              ? walletPrivateKey.trim()
+              : undefined,
         }),
       });
 
@@ -190,6 +223,9 @@ export default function DeployWizard({
         agentId: data.id ?? data.agent?.id ?? "unknown",
         walletAddress: data.walletAddress ?? data.agent?.walletAddress,
         txHash: data.txHash ?? data.agent?.txHash,
+        warnings: Array.isArray(data.warnings)
+          ? data.warnings.map((warning: unknown) => String(warning))
+          : undefined,
       });
     } catch (err: any) {
       setDeployError(err.message ?? "Unknown error");
@@ -240,15 +276,34 @@ export default function DeployWizard({
           </button>
         </div>
 
-        {/* Step indicator */}
-        <div className="flex gap-1 px-5 py-2">
-          {[1, 2, 3].map((s) => (
+        {/* Quick flow step indicator — BROBET-inspired */}
+        <div className="flex items-stretch border-b border-white/[0.07]">
+          {([
+            { num: 1, label: "Persona" },
+            { num: 2, label: "Configure" },
+            { num: 3, label: "Deploy" },
+          ] as const).map((s) => (
             <div
-              key={s}
-              className={`h-1 flex-1 rounded-full ${
-                s <= step ? "bg-neo-brand" : "bg-white/[0.08]"
+              key={s.num}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-[10px] font-semibold uppercase tracking-wider border-r border-white/[0.06] last:border-r-0 transition-colors ${
+                s.num === step
+                  ? "bg-neo-brand/10 text-neo-brand"
+                  : s.num < step
+                    ? "text-white/40"
+                    : "text-white/20"
               }`}
-            />
+            >
+              <span className={`w-4.5 h-4.5 rounded-full text-[9px] flex items-center justify-center font-bold ${
+                s.num < step
+                  ? "bg-neo-brand/30 text-neo-brand"
+                  : s.num === step
+                    ? "bg-neo-brand/25 text-neo-brand"
+                    : "bg-white/[0.06] text-white/20"
+              }`}>
+                {s.num < step ? "\u2713" : s.num}
+              </span>
+              {s.label}
+            </div>
           ))}
         </div>
 
@@ -347,17 +402,23 @@ export default function DeployWizard({
                 <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-muted">
                   Data Sources
                 </label>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1.5">
                   {ALL_SOURCES.map((src) => (
                     <button
                       key={src}
                       onClick={() => toggleSource(src)}
-                      className={`rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors ${
+                      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold transition-all ${
                         sources.includes(src)
-                          ? "bg-neo-brand/20 text-neo-brand"
-                          : "bg-white/[0.04] text-muted hover:bg-white/[0.08]"
+                          ? "border-white/[0.15] bg-white/[0.08] text-white"
+                          : "border-white/[0.06] bg-white/[0.02] text-white/35 hover:border-white/[0.1] hover:text-white/50"
                       }`}
                     >
+                      <span
+                        className={`inline-block h-2 w-2 rounded-full transition-opacity ${
+                          sources.includes(src) ? "opacity-100" : "opacity-30"
+                        }`}
+                        style={{ backgroundColor: SOURCE_COLORS[src] ?? "#6b7280" }}
+                      />
                       {src}
                     </button>
                   ))}
@@ -384,6 +445,81 @@ export default function DeployWizard({
                   ))}
                 </div>
               </div>
+
+              <div>
+                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-muted">
+                  Wallet Mode
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeploymentMode("managed")}
+                    className={`rounded-md px-2 py-1.5 text-[10px] font-medium transition-colors ${
+                      deploymentMode === "managed"
+                        ? "bg-neo-brand/20 text-neo-brand"
+                        : "bg-white/[0.04] text-muted hover:bg-white/[0.08]"
+                    }`}
+                  >
+                    Managed Wallet
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeploymentMode("byo")}
+                    className={`rounded-md px-2 py-1.5 text-[10px] font-medium transition-colors ${
+                      deploymentMode === "byo"
+                        ? "bg-neo-brand/20 text-neo-brand"
+                        : "bg-white/[0.04] text-muted hover:bg-white/[0.08]"
+                    }`}
+                  >
+                    Bring Your Wallet
+                  </button>
+                </div>
+                <p className="mt-1 text-[10px] text-muted">
+                  Managed: platform deploys agent wallet. BYO: attach your existing Starknet wallet.
+                </p>
+              </div>
+
+              {deploymentMode === "byo" && (
+                <div className="space-y-3 rounded-lg border border-white/[0.08] bg-white/[0.02] p-3">
+                  <div>
+                    <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-muted">
+                      Wallet Address
+                    </label>
+                    <input
+                      type="text"
+                      value={walletAddress}
+                      onChange={(e) => setWalletAddress(e.target.value)}
+                      placeholder="0x..."
+                      className="neo-input w-full text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-muted">
+                      Wallet Private Key (optional)
+                    </label>
+                    <input
+                      type="password"
+                      value={walletPrivateKey}
+                      onChange={(e) => setWalletPrivateKey(e.target.value)}
+                      placeholder="0x... for signed bets"
+                      className="neo-input w-full text-xs"
+                    />
+                    <p className="mt-1 text-[10px] text-muted">
+                      Without key, the agent can research and forecast but cannot execute on-chain bets.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <label className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-[11px] text-white/75">
+                <input
+                  type="checkbox"
+                  checked={spawnServer}
+                  onChange={(e) => setSpawnServer(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-white/25 bg-transparent accent-[var(--accent)]"
+                />
+                Provision runtime server for this agent
+              </label>
             </div>
           )}
 
@@ -429,6 +565,24 @@ export default function DeployWizard({
                       <span className="text-muted">Session</span>
                       <span className="text-white">{sessionDuration}</span>
                     </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted">Wallet Mode</span>
+                      <span className="text-white">
+                        {deploymentMode === "managed" ? "Managed" : "Bring Your Wallet"}
+                      </span>
+                    </div>
+                    {deploymentMode === "byo" && walletAddress.trim() && (
+                      <div className="flex justify-between gap-3 text-xs">
+                        <span className="text-muted">Wallet</span>
+                        <span className="truncate font-mono text-white/80">
+                          {walletAddress.trim()}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted">Runtime</span>
+                      <span className="text-white">{spawnServer ? "Provision" : "No runtime"}</span>
+                    </div>
                   </div>
                 </>
               )}
@@ -439,7 +593,7 @@ export default function DeployWizard({
                   {DEPLOY_STEPS.slice(0, deployStep + 1).map((s, i) => (
                     <div key={i} className="flex items-center gap-2 text-xs">
                       {i < deployStep ? (
-                        <span className="text-green-400">&#x2713;</span>
+                        <span className="text-neo-green">&#x2713;</span>
                       ) : (
                         <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-neo-brand border-t-transparent" />
                       )}
@@ -458,8 +612,8 @@ export default function DeployWizard({
               {/* Success */}
               {deployResult && (
                 <div className="space-y-3">
-                  <div className="rounded-lg border border-green-500/20 bg-green-500/10 p-3">
-                    <p className="text-xs font-medium text-green-300">
+                  <div className="rounded-lg border border-neo-green/20 bg-neo-green/10 p-3">
+                    <p className="text-xs font-medium text-neo-green">
                       Agent deployed successfully!
                     </p>
                     <p className="mt-1 font-mono text-[10px] text-muted">
@@ -476,16 +630,28 @@ export default function DeployWizard({
                       </a>
                     )}
                   </div>
+                  {deployResult.warnings && deployResult.warnings.length > 0 && (
+                    <div className="rounded-lg border border-neo-yellow/20 bg-neo-yellow/10 p-3">
+                      <p className="text-xs font-medium text-neo-yellow">
+                        Deployment warnings
+                      </p>
+                      <ul className="mt-1 list-disc space-y-1 pl-4 text-[10px] text-neo-yellow/90">
+                        {deployResult.warnings.map((warning) => (
+                          <li key={warning}>{warning}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Error */}
               {deployError && (
-                <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3">
-                  <p className="text-xs font-medium text-red-300">
+                <div className="rounded-lg border border-neo-red/20 bg-neo-red/10 p-3">
+                  <p className="text-xs font-medium text-neo-red">
                     Deployment failed
                   </p>
-                  <p className="mt-1 text-[10px] text-red-400">
+                  <p className="mt-1 text-[10px] text-neo-red">
                     {deployError}
                   </p>
                 </div>

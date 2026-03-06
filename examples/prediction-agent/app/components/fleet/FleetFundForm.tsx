@@ -60,8 +60,8 @@ export default function FleetFundForm({
   if (txHash) {
     return (
       <div className="space-y-3">
-        <div className="rounded-lg border border-green-500/20 bg-green-500/10 p-3">
-          <p className="text-xs font-medium text-green-300">Transfer submitted</p>
+        <div className="rounded-lg border border-neo-green/20 bg-neo-green/10 p-3">
+          <p className="text-xs font-medium text-neo-green">Transfer submitted</p>
           <a
             href={`https://sepolia.starkscan.co/tx/${txHash}`}
             target="_blank"
@@ -105,13 +105,17 @@ export default function FleetFundForm({
       </div>
 
       {/* Quick amounts */}
-      <div className="flex gap-1">
+      <div className="flex gap-1.5">
         {[10, 50, 100, 500].map((v) => (
           <button
             key={v}
             type="button"
             onClick={() => setAmount(String(v))}
-            className="rounded-md bg-white/[0.04] px-2 py-1 text-[10px] text-muted hover:bg-white/[0.08] hover:text-white"
+            className={`rounded-lg border px-2.5 py-1 text-[10px] font-mono font-semibold transition-colors ${
+              numAmount === v
+                ? "border-neo-brand/30 bg-neo-brand/10 text-neo-brand"
+                : "border-white/[0.08] bg-white/[0.04] text-white/50 hover:bg-white/[0.08] hover:text-white/70"
+            }`}
           >
             {v}
           </button>
@@ -119,14 +123,14 @@ export default function FleetFundForm({
       </div>
 
       {error && (
-        <p className="text-[10px] text-red-400">{error}</p>
+        <p className="rounded-lg border border-neo-red/20 bg-neo-red/5 px-2.5 py-1.5 text-[10px] text-neo-red">{error}</p>
       )}
 
       <div className="flex gap-2">
         <button
           type="button"
           onClick={onCancel}
-          className="neo-btn flex-1 text-xs"
+          className="flex-1 rounded-xl border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-xs font-semibold text-white/60 transition-colors hover:bg-white/[0.08] hover:text-white/80"
           disabled={loading}
         >
           Cancel
@@ -134,7 +138,7 @@ export default function FleetFundForm({
         <button
           type="submit"
           disabled={!valid || loading}
-          className="neo-btn-primary flex-1 text-xs disabled:opacity-50"
+          className="flex-1 rounded-xl border border-neo-green/30 bg-neo-green/10 px-3 py-2 text-xs font-semibold text-neo-green transition-colors hover:bg-neo-green/20 disabled:opacity-40"
         >
           {loading ? "Sending..." : `Send ${valid ? numAmount : "–"} STRK`}
         </button>

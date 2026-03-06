@@ -146,9 +146,31 @@ export default function BetForm({
         </div>
 
         <div className="p-5">
-          <p className="text-xs text-white/50 mb-4 line-clamp-2 leading-relaxed">
+          <p className="text-xs text-white/50 mb-3 line-clamp-2 leading-relaxed">
             {question}
           </p>
+
+          {/* Agent consensus hint */}
+          <div className="flex items-center gap-2 mb-3 rounded-lg border border-white/[0.07] bg-white/[0.02] px-3 py-2">
+            <div className="flex -space-x-1">
+              {["#10b981", "#3b82f6", "#f59e0b"].map((c, i) => (
+                <div key={i} className="w-4 h-4 rounded-full border border-white/20 flex items-center justify-center text-[7px] font-bold text-white/80" style={{ backgroundColor: c }}>
+                  {["A", "B", "G"][i]}
+                </div>
+              ))}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-white/35">Agent consensus</span>
+                <span className="font-mono text-[11px] font-bold text-neo-brand">
+                  {Math.round(impliedProbYes * 100)}% Yes
+                </span>
+              </div>
+              <div className="h-1 w-full rounded-full bg-white/[0.06] overflow-hidden mt-0.5">
+                <div className="h-full rounded-full bg-neo-brand/50 transition-all" style={{ width: `${Math.round(impliedProbYes * 100)}%` }} />
+              </div>
+            </div>
+          </div>
 
           {/* Account Info */}
           <div className="border border-white/[0.07] p-2.5 mb-4 bg-white/[0.03] rounded-lg">
@@ -224,38 +246,41 @@ export default function BetForm({
 
           {/* Payout Preview */}
           {amountBigInt > 0n && (
-            <div className="border border-white/[0.07] p-3 mb-4 space-y-1.5 bg-white/[0.03] rounded-lg">
-              <div className="flex justify-between text-xs">
-                <span className="text-white/50">Potential payout</span>
-                <span className="font-mono font-bold text-white/80">
-                  {(Number(estPayout) / 1e18).toFixed(2)} STRK
-                </span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-white/50">Multiplier</span>
-                <span className="font-mono font-bold text-neo-green">
-                  {estMultiple.toFixed(2)}x
-                </span>
-              </div>
-              {poolSharePct && (
-                <div className="flex justify-between text-xs">
-                  <span className="text-white/50">Your pool share</span>
-                  <span className="font-mono text-white/60">{poolSharePct}%</span>
-                </div>
-              )}
-              {probShift !== 0 && (
-                <div className="flex justify-between text-xs">
-                  <span className="text-white/50">Price impact</span>
-                  <span
-                    className={`font-mono font-bold ${
-                      probShift > 0 ? "text-neo-green" : "text-neo-red"
-                    }`}
-                  >
-                    {probShift > 0 ? "+" : ""}
-                    {probShift}pt
+            <div className="border border-white/[0.07] p-3 mb-4 bg-white/[0.03] rounded-lg space-y-2">
+              {/* Hero multiplier */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] text-white/40 block">If {outcome === 1 ? "YES" : "NO"} wins</span>
+                  <span className="font-mono text-lg font-black text-white">
+                    {(Number(estPayout) / 1e18).toFixed(2)} STRK
                   </span>
                 </div>
-              )}
+                <div className={`rounded-xl px-3 py-1.5 border ${
+                  estMultiple >= 2 ? "border-neo-green/30 bg-neo-green/10" : "border-white/[0.1] bg-white/[0.04]"
+                }`}>
+                  <span className={`font-mono text-sm font-black ${
+                    estMultiple >= 2 ? "text-neo-green" : "text-white/70"
+                  }`}>
+                    {estMultiple.toFixed(2)}x
+                  </span>
+                </div>
+              </div>
+
+              {/* Details row */}
+              <div className="flex items-center gap-3 text-[10px] font-mono text-white/40">
+                {poolSharePct && (
+                  <span>Pool share: <span className="text-white/60">{poolSharePct}%</span></span>
+                )}
+                {probShift !== 0 && (
+                  <span>
+                    Impact:{" "}
+                    <span className={probShift > 0 ? "text-neo-green" : "text-neo-red"}>
+                      {probShift > 0 ? "+" : ""}{probShift}pt
+                    </span>
+                  </span>
+                )}
+                <span>Fee: <span className="text-white/60">{(feeBps / 100).toFixed(1)}%</span></span>
+              </div>
             </div>
           )}
 

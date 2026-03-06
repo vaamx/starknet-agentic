@@ -14,11 +14,11 @@ interface MarketRowProps {
 }
 
 const CAT_STYLE: Record<string, string> = {
-  sports: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  sports: "bg-neo-green/10 text-neo-green border-neo-green/20",
   crypto: "bg-blue-500/10 text-blue-400 border-blue-500/20",
   politics: "bg-rose-500/10 text-rose-400 border-rose-500/20",
   tech: "bg-violet-500/10 text-violet-400 border-violet-500/20",
-  other: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+  other: "bg-neo-orange/10 text-neo-orange border-neo-orange/20",
 };
 
 function formatVolume(poolWei: bigint): string {
@@ -100,12 +100,12 @@ export default function MarketRow({
               }}
               className="w-full group/yes"
             >
-              <span className="block text-[15px] font-heading font-bold text-emerald-400 tabular-nums group-hover/yes:text-emerald-300 transition-colors">
+              <span className="block text-[15px] font-heading font-bold text-neo-green tabular-nums group-hover/yes:text-neo-green/80 transition-colors">
                 {yesCents}¢
               </span>
               <div className="mt-1 h-[3px] rounded-full bg-white/[0.04] overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-emerald-500 prob-fill-yes"
+                  className="h-full rounded-full bg-neo-green prob-fill-yes"
                   style={{ width: `${yesPct}%` }}
                 />
               </div>
@@ -127,7 +127,7 @@ export default function MarketRow({
               }}
               className="w-full group/no"
             >
-              <span className="block text-[15px] font-heading font-bold text-red-400 tabular-nums group-hover/no:text-red-300 transition-colors">
+              <span className="block text-[15px] font-heading font-bold text-neo-red tabular-nums group-hover/no:text-neo-red/80 transition-colors">
                 {noCents}¢
               </span>
               <div className="mt-1 h-[3px] rounded-full bg-white/[0.04] overflow-hidden">
