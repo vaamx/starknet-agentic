@@ -10,10 +10,10 @@ interface AgentSpawnerFormProps {
 }
 
 const DATA_SOURCES = [
-  { id: "polymarket", label: "Polymarket", desc: "Prediction market odds" },
-  { id: "coingecko", label: "CoinGecko", desc: "Crypto prices & trends" },
-  { id: "news", label: "News", desc: "Headlines & articles" },
-  { id: "social", label: "Social", desc: "Trending topics & sentiment" },
+  { id: "polymarket", label: "Polymarket", desc: "Prediction market odds", color: "#8b5cf6" },
+  { id: "coingecko", label: "CoinGecko", desc: "Crypto prices & trends", color: "#f59e0b" },
+  { id: "news", label: "News", desc: "Headlines & articles", color: "#3b82f6" },
+  { id: "social", label: "Social", desc: "Trending topics & sentiment", color: "#ec4899" },
 ];
 
 export default function AgentSpawnerForm({
@@ -189,13 +189,20 @@ export default function AgentSpawnerForm({
       {/* Modal */}
       <div className="relative z-10 w-full max-w-md mx-4 neo-card shadow-neo-lg animate-modal-in">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10 bg-white/5">
-          <span className="font-heading font-bold text-sm text-white uppercase tracking-wider">
-            Deploy Agent
-          </span>
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.07] bg-white/[0.03]">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-neo-green/10 border border-neo-green/20 flex items-center justify-center">
+              <svg className="w-3.5 h-3.5 text-neo-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+              </svg>
+            </div>
+            <span className="font-heading font-bold text-sm text-white">
+              Deploy Agent
+            </span>
+          </div>
           <button
             onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center border border-white/20 text-white hover:bg-white/10 text-xs font-mono transition-colors rounded-md"
+            className="w-7 h-7 flex items-center justify-center rounded-lg border border-white/15 text-white/50 hover:bg-white/[0.08] hover:text-white/80 text-xs font-mono transition-colors"
           >
             ESC
           </button>
@@ -280,36 +287,37 @@ export default function AgentSpawnerForm({
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-xs text-white/70">
-                  <input
-                    type="checkbox"
-                    checked={useByoWallet}
-                    onChange={(e) => setUseByoWallet(e.target.checked)}
-                    className="h-4 w-4"
-                  />
-                  Register BYO wallet (existing agent account)
-                </label>
-                <label className="flex items-center gap-2 text-xs text-white/70">
-                  <input
-                    type="checkbox"
-                    checked={sovereignMode}
-                    disabled={useByoWallet}
-                    onChange={(e) => setSovereignMode(e.target.checked)}
-                    className="h-4 w-4 disabled:opacity-40"
-                  />
-                  Deploy as sovereign child (on-chain wallet + autonomous identity)
-                </label>
-                <label className="flex items-center gap-2 text-xs text-white/60">
-                  <input
-                    type="checkbox"
-                    checked={spawnServer}
-                    disabled={!sovereignMode}
-                    onChange={(e) => setSpawnServer(e.target.checked)}
-                    className="h-4 w-4 disabled:opacity-40"
-                  />
-                  Provision dedicated server runtime
-                </label>
+              <div className="space-y-2.5 rounded-lg border border-white/[0.07] bg-white/[0.02] p-3">
+                <button
+                  type="button"
+                  onClick={() => setUseByoWallet(!useByoWallet)}
+                  className="w-full flex items-center justify-between gap-2 text-xs text-white/70"
+                >
+                  <span>Register BYO wallet (existing agent account)</span>
+                  <span className={`w-8 h-4.5 rounded-full p-0.5 transition-colors ${useByoWallet ? "bg-neo-brand" : "bg-white/15"}`}>
+                    <span className={`block w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${useByoWallet ? "translate-x-3.5" : ""}`} />
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => !useByoWallet && setSovereignMode(!sovereignMode)}
+                  className={`w-full flex items-center justify-between gap-2 text-xs ${useByoWallet ? "text-white/30" : "text-white/70"}`}
+                >
+                  <span>Deploy as sovereign child (on-chain wallet + identity)</span>
+                  <span className={`w-8 h-4.5 rounded-full p-0.5 transition-colors ${sovereignMode && !useByoWallet ? "bg-neo-green" : "bg-white/15"}`}>
+                    <span className={`block w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${sovereignMode && !useByoWallet ? "translate-x-3.5" : ""}`} />
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => sovereignMode && setSpawnServer(!spawnServer)}
+                  className={`w-full flex items-center justify-between gap-2 text-xs ${!sovereignMode ? "text-white/30" : "text-white/60"}`}
+                >
+                  <span>Provision dedicated server runtime</span>
+                  <span className={`w-8 h-4.5 rounded-full p-0.5 transition-colors ${spawnServer && sovereignMode ? "bg-neo-blue" : "bg-white/15"}`}>
+                    <span className={`block w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${spawnServer && sovereignMode ? "translate-x-3.5" : ""}`} />
+                  </span>
+                </button>
               </div>
 
               {useByoWallet && (
@@ -368,26 +376,30 @@ export default function AgentSpawnerForm({
                       <button
                         key={source.id}
                         onClick={() => toggleSource(source.id)}
-                        className={`flex items-center gap-2 px-3 py-2.5 border text-left transition-all rounded-lg ${
+                        className={`flex items-center gap-2.5 px-3 py-2.5 border text-left transition-all rounded-lg ${
                           isSelected
-                            ? "border-neo-purple/40 bg-neo-purple/10 shadow-neo-sm"
-                            : "border-white/10 hover:border-white/30"
+                            ? "border-white/15 bg-white/[0.06]"
+                            : "border-white/[0.06] bg-white/[0.02] hover:border-white/15"
                         }`}
                       >
                         <span
-                          className={`w-4 h-4 border flex items-center justify-center text-[9px] font-bold shrink-0 rounded ${
+                          className={`w-4 h-4 border flex items-center justify-center text-[9px] font-bold shrink-0 rounded-sm transition-all ${
                             isSelected
-                              ? "border-neo-purple/40 bg-neo-purple text-white"
+                              ? "border-transparent text-white"
                               : "border-white/20"
                           }`}
+                          style={isSelected ? { backgroundColor: source.color } : undefined}
                         >
                           {isSelected ? "\u2713" : ""}
                         </span>
                         <div className="min-w-0">
-                          <span className="font-heading font-bold text-xs block text-white/80">
-                            {source.label}
-                          </span>
-                          <span className="text-[9px] text-white/40">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: source.color }} />
+                            <span className="font-heading font-bold text-xs text-white/80">
+                              {source.label}
+                            </span>
+                          </div>
+                          <span className="text-[9px] text-white/35 ml-3">
                             {source.desc}
                           </span>
                         </div>

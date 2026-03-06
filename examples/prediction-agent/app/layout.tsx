@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import StarknetProvider from "./providers/StarknetProvider";
+import MobileNav from "./components/MobileNav";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -14,7 +15,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" data-scroll-behavior="smooth">
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
@@ -27,8 +28,11 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-screen bg-cream antialiased">
-        <StarknetProvider>{children}</StarknetProvider>
+      <body className="min-h-screen bg-cream antialiased mobile-nav-pad">
+        <StarknetProvider>
+          {children}
+          <MobileNav />
+        </StarknetProvider>
       </body>
     </html>
   );

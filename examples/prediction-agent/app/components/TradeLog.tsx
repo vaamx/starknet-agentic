@@ -198,34 +198,37 @@ export default function TradeLog({ isLoopRunning = false }: TradeLogProps) {
       {/* Header */}
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className="w-full flex items-center justify-between px-4 py-2.5 bg-white/5 border-b border-white/10 hover:bg-white/10 transition-colors"
+        className="w-full flex items-center justify-between px-4 py-2.5 bg-white/[0.03] border-b border-white/[0.07] hover:bg-white/[0.05] transition-colors"
       >
         <div className="flex items-center gap-2">
-          <div
-            className={`w-1.5 h-1.5 rounded-full ${
-              isConnected
-                ? "bg-neo-green animate-pulse"
-                : hasActivities
-                  ? "bg-neo-yellow"
-                  : "bg-white/30"
-            }`}
-          />
+          <div className="w-5 h-5 rounded-md bg-white/[0.06] border border-white/[0.08] flex items-center justify-center">
+            <div
+              className={`w-1.5 h-1.5 rounded-full ${
+                isConnected
+                  ? "bg-neo-green animate-pulse"
+                  : hasActivities
+                    ? "bg-neo-yellow"
+                    : "bg-white/30"
+              }`}
+            />
+          </div>
           <h3 className="font-heading font-bold text-xs">Activity Feed</h3>
-          <span className="text-[9px] font-mono text-white/50 bg-white/10 px-1.5 py-0.5 border border-white/10 rounded-full">
+          <span className="text-[9px] font-mono text-white/40 bg-white/[0.04] px-1.5 py-0.5 border border-white/[0.08] rounded-md">
             ON-CHAIN + AGENT
           </span>
           {isConnected && (
-            <span className="text-[9px] font-mono text-neo-green bg-neo-green/10 px-1.5 py-0.5 border border-neo-green/20 rounded-full">
+            <span className="flex items-center gap-1 text-[9px] font-mono text-neo-green bg-neo-green/10 px-1.5 py-0.5 border border-neo-green/20 rounded-md">
+              <span className="w-1 h-1 rounded-full bg-neo-green animate-pulse" />
               LIVE
             </span>
           )}
         </div>
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] text-white/40">
-            {activities.length} events
+          <span className="font-mono text-[10px] text-white/30">
+            {activities.length}
           </span>
           <svg
-            className={`w-3.5 h-3.5 text-white/50 transition-transform ${isCollapsed ? "" : "rotate-180"}`}
+            className={`w-3.5 h-3.5 text-white/40 transition-transform ${isCollapsed ? "" : "rotate-180"}`}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -349,7 +352,7 @@ export default function TradeLog({ isLoopRunning = false }: TradeLogProps) {
                       )}
                       {a.reasoningHash && (
                         <span
-                          className="text-[8px] text-neo-purple/70 bg-neo-purple/10 border border-neo-purple/20 px-1 py-0.5 cursor-help shrink-0"
+                          className="text-[8px] text-neo-purple/80 bg-neo-purple/10 border border-neo-purple/20 px-1.5 py-0.5 cursor-help shrink-0 rounded-sm font-bold"
                           title={`Proof of reasoning: ${a.reasoningHash}`}
                         >
                           PROOF

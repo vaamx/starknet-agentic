@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * Scrolling live news headline feed — Polymarket-style.
@@ -12,6 +12,12 @@ interface NewsItem {
   sourceColor: string;
   timeAgo: string;
   headline: string;
+  url?: string;
+  reliability?: {
+    label: string;
+    reliabilityScore: number;
+    backtestConfidence: number;
+  };
 }
 
 /* ── Headline pools keyed by question regex ── */
@@ -89,22 +95,147 @@ interface VisibleHeadline extends NewsItem {
   isNew: boolean;
 }
 
-export default function LiveNewsFeed({ question }: { question: string }) {
-  const pool = getHeadlinePool(question);
+interface IntelNewsEntry {
+  source?: string;
+  headline?: string;
+  color?: string;
+  timestamp?: number;
+  url?: string;
+  reliability?: {
+    label?: string;
+    reliabilityScore?: number;
+    backtestConfidence?: number;
+  };
+}
+
+interface IntelFeedResponse {
+  mode?: "live" | "fallback";
+  news?: IntelNewsEntry[];
+}
+
+function normalizeReliability(value: IntelNewsEntry["reliability"]) {
+  if (!value || typeof value !== "object") return undefined;
+  if (
+    typeof value.reliabilityScore !== "number" ||
+    !Number.isFinite(value.reliabilityScore) ||
+    typeof value.backtestConfidence !== "number" ||
+    !Number.isFinite(value.backtestConfidence)
+  ) {
+    return undefined;
+  }
+  return {
+    label:
+      typeof value.label === "string" && value.label.trim().length > 0
+        ? value.label.trim()
+        : "SOURCE",
+    reliabilityScore: Math.max(0, Math.min(1, value.reliabilityScore)),
+    backtestConfidence: Math.max(0, Math.min(1, value.backtestConfidence)),
+  };
+}
+
+function formatTimeAgo(timestamp: number): string {
+  const delta = Math.max(0, Date.now() - timestamp);
+  const sec = Math.floor(delta / 1000);
+  if (sec < 60) return "just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ago`;
+}
+
+export default function LiveNewsFeed({
+  question,
+  marketId,
+}: {
+  question: string;
+  marketId?: number;
+}) {
+  const fallbackPool = useMemo(() => getHeadlinePool(question), [question]);
+  const [livePool, setLivePool] = useState<NewsItem[]>(fallbackPool);
+  const pool = useMemo(
+    () => (livePool.length > 0 ? livePool : fallbackPool),
+    [livePool, fallbackPool]
+  );
   const [headlines, setHeadlines] = useState<VisibleHeadline[]>([]);
   const [nextIdx, setNextIdx] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const idCounter = useRef(0);
 
+  useEffect(() => {
+    setLivePool(fallbackPool);
+  }, [fallbackPool]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadIntel = async () => {
+      try {
+        const params = new URLSearchParams({
+          question,
+          limit: "6",
+        });
+        if (typeof marketId === "number") {
+          params.set("marketId", String(marketId));
+        }
+        const response = await fetch(`/api/intel/feed?${params.toString()}`, {
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const payload = (await response.json()) as IntelFeedResponse;
+        const news = Array.isArray(payload.news) ? payload.news : [];
+        if (news.length === 0) return;
+
+        const mapped: NewsItem[] = [];
+        for (const entry of news) {
+          const source = (entry.source ?? "").trim();
+          const headline = (entry.headline ?? "").trim();
+          if (!source || !headline) continue;
+          mapped.push({
+            source,
+            headline,
+            url: entry.url?.trim() || undefined,
+            sourceColor: entry.color ?? "#64748b",
+            timeAgo:
+              typeof entry.timestamp === "number"
+                ? formatTimeAgo(entry.timestamp)
+                : "just now",
+            reliability: normalizeReliability(entry.reliability),
+          });
+        }
+
+        if (cancelled || mapped.length === 0) return;
+        setLivePool(mapped);
+      } catch {
+        // Keep graceful fallback pool when intel feed is unavailable.
+      }
+    };
+
+    void loadIntel();
+    const intervalId = setInterval(() => {
+      void loadIntel();
+    }, 45_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [question, marketId]);
+
   // Phase 1: Stream initial 3 headlines in with staggered timing
   useEffect(() => {
+    if (pool.length === 0) return;
     let cancelled = false;
     const initialCount = 3;
     let currentIdx = 0;
+    setHeadlines([]);
+    setNextIdx(0);
+    idCounter.current = 0;
 
     function addNext() {
       if (cancelled || currentIdx >= initialCount) return;
       const item = pool[currentIdx % pool.length];
+      if (!item) return;
       const id = ++idCounter.current;
       setHeadlines(prev => [...prev, { ...item, id, isNew: true }]);
       currentIdx++;
@@ -130,8 +261,10 @@ export default function LiveNewsFeed({ question }: { question: string }) {
   // Phase 2: New headlines every 6-10s, max 4 visible (prevents card growth)
   useEffect(() => {
     if (nextIdx < 3) return;
+    if (pool.length === 0) return;
     const interval = setInterval(() => {
       const item = pool[nextIdx % pool.length];
+      if (!item) return;
       const id = ++idCounter.current;
       setHeadlines(prev => {
         const next = [...prev, { ...item, id, isNew: true }];
@@ -179,24 +312,44 @@ export default function LiveNewsFeed({ question }: { question: string }) {
               </span>
               <span className="text-[11px] text-white/25 font-mono">&middot;</span>
               <span className="text-[11px] text-white/25 font-mono">{h.timeAgo}</span>
+              {h.reliability && (
+                <>
+                  <span className="text-[11px] text-white/20 font-mono">&middot;</span>
+                  <span className="rounded border border-cyan-300/25 bg-cyan-400/10 px-1.5 py-[1px] text-[9px] font-mono text-cyan-100/90">
+                    {h.reliability.label} R{Math.round(h.reliability.reliabilityScore * 100)} B
+                    {Math.round(h.reliability.backtestConfidence * 100)}
+                  </span>
+                </>
+              )}
             </div>
             {/* Headline text — brighter like Polymarket */}
-            <p className="text-[13px] text-white/70 leading-relaxed line-clamp-2 group-hover/headline:text-white/90 transition-colors">
-              {h.headline}
-            </p>
+            {h.url ? (
+              <a
+                href={h.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[13px] text-white/70 leading-relaxed line-clamp-2 group-hover/headline:text-white/90 transition-colors hover:underline"
+              >
+                {h.headline}
+              </a>
+            ) : (
+              <p className="text-[13px] text-white/70 leading-relaxed line-clamp-2 group-hover/headline:text-white/90 transition-colors">
+                {h.headline}
+              </p>
+            )}
           </div>
         ))}
       </div>
 
       {/* Thin separator bar — Polymarket style */}
       <div className="shrink-0 mt-2 mb-1">
-        <div className="w-5 h-[2px] rounded-full bg-red-400/40" />
+        <div className="w-5 h-[2px] rounded-full bg-neo-red/40" />
       </div>
 
       {/* Live indicator */}
       <div className="shrink-0 flex items-center gap-1.5 pb-1">
-        <span className="relative w-1.5 h-1.5 rounded-full bg-emerald-400">
-          <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75" />
+        <span className="relative w-1.5 h-1.5 rounded-full bg-neo-green">
+          <span className="absolute inset-0 rounded-full bg-neo-green animate-ping opacity-75" />
         </span>
         <span className="text-[10px] font-heading font-medium text-white/25 tracking-wider uppercase">Live News</span>
       </div>

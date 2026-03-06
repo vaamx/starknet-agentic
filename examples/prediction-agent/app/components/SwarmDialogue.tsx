@@ -193,21 +193,29 @@ export default function SwarmDialogue({ isLoopRunning }: SwarmDialogueProps) {
 
   return (
     <div className="neo-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-white/10 bg-white/5">
+      <div className="px-4 py-3 border-b border-white/[0.08] bg-white/[0.03]">
         <div className="flex items-center justify-between">
-          <div>
-            <p className="font-heading font-bold text-sm">Live Debate Feed</p>
-            <p className="text-[11px] text-white/50">
-              Agents challenge each other in real time.
-            </p>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-md bg-neo-orange/10 border border-neo-orange/20 flex items-center justify-center">
+              <svg className="w-3 h-3 text-neo-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
+              </svg>
+            </div>
+            <div>
+              <p className="font-heading font-bold text-sm text-white">Live Debate Feed</p>
+              <p className="text-[10px] text-white/40">
+                Agents challenge each other in real time
+              </p>
+            </div>
           </div>
-          <span
-            className={`text-[10px] font-mono ${
-              connected ? "text-neo-green" : "text-white/40"
-            }`}
-          >
-            {connected ? "LIVE" : "OFF"}
-          </span>
+          {connected ? (
+            <span className="inline-flex items-center gap-1 text-[9px] font-mono font-bold text-neo-green bg-neo-green/10 px-2 py-0.5 border border-neo-green/20 rounded-md">
+              <span className="w-1 h-1 rounded-full bg-neo-green animate-pulse" />
+              LIVE
+            </span>
+          ) : (
+            <span className="text-[10px] font-mono text-white/30">OFF</span>
+          )}
         </div>
       </div>
 

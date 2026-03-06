@@ -5,9 +5,9 @@ import BrierGradeBadge from "./BrierGradeBadge";
 import type { FleetAgentSummary } from "./FleetAgentCard";
 
 const STATUS_DOT: Record<string, string> = {
-  running: "bg-green-400",
-  paused: "bg-yellow-400",
-  stopped: "bg-red-400",
+  running: "bg-neo-green",
+  paused: "bg-neo-yellow",
+  stopped: "bg-neo-red",
 };
 
 function timeAgo(ts: number | null): string {
@@ -32,7 +32,7 @@ export default function FleetAgentRow({
 }) {
   const pnlWei = BigInt(agent.stats.pnl || "0");
   const pnlStrk = Number(pnlWei) / 1e18;
-  const pnlColor = pnlStrk >= 0 ? "text-green-400" : "text-red-400";
+  const pnlColor = pnlStrk >= 0 ? "text-neo-green" : "text-neo-red";
 
   return (
     <tr
@@ -76,7 +76,7 @@ export default function FleetAgentRow({
         {!agent.isBuiltIn && agent.status === "running" && (
           <button
             onClick={onPause}
-            className="rounded px-2 py-0.5 text-[10px] text-yellow-400 hover:bg-yellow-400/10"
+            className="rounded-md border border-neo-yellow/20 bg-neo-yellow/5 px-2 py-0.5 text-[10px] font-semibold text-neo-yellow hover:bg-neo-yellow/15 transition-colors"
           >
             Pause
           </button>
@@ -84,7 +84,7 @@ export default function FleetAgentRow({
         {!agent.isBuiltIn && agent.status === "paused" && (
           <button
             onClick={onResume}
-            className="rounded px-2 py-0.5 text-[10px] text-green-400 hover:bg-green-400/10"
+            className="rounded-md border border-neo-green/20 bg-neo-green/5 px-2 py-0.5 text-[10px] font-semibold text-neo-green hover:bg-neo-green/15 transition-colors"
           >
             Resume
           </button>

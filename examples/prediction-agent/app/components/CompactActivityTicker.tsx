@@ -124,23 +124,28 @@ export default function CompactActivityTicker({
     <div className="neo-card overflow-hidden">
       <div className="px-4 py-2.5 border-b border-white/[0.07] bg-white/[0.03] flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span
-            className={`w-1.5 h-1.5 rounded-full ${
-              isConnected ? "bg-neo-green animate-pulse" : "bg-white/30"
-            }`}
-          />
+          <div className="w-5 h-5 rounded-md bg-white/[0.06] border border-white/[0.08] flex items-center justify-center">
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                isConnected ? "bg-neo-green animate-pulse" : activities.length > 0 ? "bg-neo-yellow" : "bg-white/30"
+              }`}
+            />
+          </div>
           <h3 className="font-heading font-bold text-xs text-white">Activity</h3>
           {isConnected && (
-            <span className="text-[10px] font-mono text-neo-green/70">LIVE</span>
+            <span className="flex items-center gap-1 text-[9px] font-mono text-neo-green bg-neo-green/10 px-1.5 py-0.5 border border-neo-green/20 rounded-md">
+              <span className="w-1 h-1 rounded-full bg-neo-green animate-pulse" />
+              LIVE
+            </span>
           )}
         </div>
         {onViewAll && (
           <button
             type="button"
             onClick={onViewAll}
-            className="text-xs text-neo-brand hover:underline"
+            className="text-[11px] font-semibold text-neo-brand/80 hover:text-neo-brand transition-colors"
           >
-            View All
+            View All →
           </button>
         )}
       </div>

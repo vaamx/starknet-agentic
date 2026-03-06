@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server";
+import { getUserFromSessionToken, sessionCookieName } from "@/lib/auth";
+import { getPrimaryMembership } from "@/lib/rbac";
 import {
   isManualAuthConfigured,
   readWalletSession,
@@ -7,13 +9,27 @@ import {
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
+  const sessionToken = request.cookies.get(sessionCookieName())?.value;
+  const user = sessionToken ? getUserFromSessionToken(sessionToken) : null;
+  const membership = user ? getPrimaryMembership(user.id) : null;
+
   const configured = isManualAuthConfigured();
-  const session = readWalletSession(request);
-  if (!configured || !session) {
+  const walletSession = readWalletSession(request);
+  if (!configured || !walletSession) {
     return Response.json({
       ok: true,
       configured,
       authenticated: false,
+      userAuthenticated: Boolean(user),
+      user,
+      organization: membership
+        ? {
+            id: membership.organizationId,
+            name: membership.organizationName,
+            slug: membership.organizationSlug,
+          }
+        : null,
+      role: membership?.role ?? null,
     });
   }
 
@@ -21,8 +37,18 @@ export async function GET(request: NextRequest) {
     ok: true,
     configured: true,
     authenticated: true,
-    walletAddress: session.walletAddress,
-    expiresAt: session.expiresAt,
-    scopes: session.scopes,
+    walletAddress: walletSession.walletAddress,
+    expiresAt: walletSession.expiresAt,
+    scopes: walletSession.scopes,
+    userAuthenticated: Boolean(user),
+    user,
+    organization: membership
+      ? {
+          id: membership.organizationId,
+          name: membership.organizationName,
+          slug: membership.organizationSlug,
+        }
+      : null,
+    role: membership?.role ?? null,
   });
 }

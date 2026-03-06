@@ -10,28 +10,51 @@ interface MarketCreatorProps {
   onCreated?: () => Promise<void> | void;
 }
 
-export default function MarketCreator({ onClose }: MarketCreatorProps) {
+const DURATION_PRESETS = [
+  { label: "7d", days: 7 },
+  { label: "14d", days: 14 },
+  { label: "30d", days: 30 },
+  { label: "90d", days: 90 },
+];
+
+const FEE_PRESETS = [
+  { label: "1%", bps: 100 },
+  { label: "2%", bps: 200 },
+  { label: "3%", bps: 300 },
+  { label: "5%", bps: 500 },
+];
+
+export default function MarketCreator({ onClose, onCreated }: MarketCreatorProps) {
   const { address, isConnected } = useAccount();
   const { sendAsync, isPending } = useSendTransaction({});
 
   const [question, setQuestion] = useState("");
-  const [days, setDays] = useState("30");
-  const [feeBps, setFeeBps] = useState("200");
+  const [days, setDays] = useState(30);
+  const [feeBps, setFeeBps] = useState(200);
   const [result, setResult] = useState<{
     txHash?: string;
     error?: string;
   } | null>(null);
 
-  const parsedDays = Number.parseInt(days || "0", 10);
-  const parsedFeeBps = Number.parseInt(feeBps || "0", 10);
-  const validDays =
-    Number.isFinite(parsedDays) && parsedDays >= 1 && parsedDays <= 3650;
-  const validFee =
-    Number.isFinite(parsedFeeBps) && parsedFeeBps >= 0 && parsedFeeBps <= 1000;
+  const validDays = Number.isFinite(days) && days >= 1 && days <= 3650;
+  const validFee = Number.isFinite(feeBps) && feeBps >= 0 && feeBps <= 1000;
   const resolutionDate = validDays
-    ? new Date(Date.now() + parsedDays * 86_400_000)
+    ? new Date(Date.now() + days * 86_400_000)
     : null;
   const review = reviewMarketQuestion(question);
+
+  const qualityColor = review.score >= 80
+    ? "text-neo-green"
+    : review.score >= 60
+      ? "text-neo-yellow"
+      : "text-neo-red";
+  const qualityBarColor = review.score >= 80
+    ? "bg-neo-green"
+    : review.score >= 60
+      ? "bg-neo-yellow"
+      : "bg-neo-red";
+
+  const canDeploy = question.trim().length > 0 && validDays && validFee && isConnected && !isPending;
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -49,21 +72,11 @@ export default function MarketCreator({ onClose }: MarketCreatorProps) {
   }, []);
 
   const handleDeploy = async () => {
-    if (!question.trim() || isPending || !isConnected || !address) return;
-
+    if (!canDeploy || !address) return;
     setResult(null);
-
     try {
-      const calls = buildCreateMarketCalls(
-        question.trim(),
-        parseInt(days) || 30,
-        parseInt(feeBps) || 200,
-        address
-      );
-
+      const calls = buildCreateMarketCalls(question.trim(), days, feeBps, address);
       const response = await sendAsync(calls);
-
-      // Register the question text server-side (no signing, just bookkeeping)
       try {
         await fetch("/api/markets/register-question", {
           method: "POST",
@@ -76,8 +89,8 @@ export default function MarketCreator({ onClose }: MarketCreatorProps) {
       } catch {
         // Registration is best-effort
       }
-
       setResult({ txHash: response.transaction_hash });
+      if (onCreated) void onCreated();
     } catch (err: any) {
       setResult({ error: err.message || "Transaction rejected" });
     }
@@ -86,29 +99,65 @@ export default function MarketCreator({ onClose }: MarketCreatorProps) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/55 backdrop-blur-sm"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal */}
-      <div className="relative z-10 w-full max-w-lg neo-card shadow-neo-lg animate-modal-in">
+      <div className="relative z-10 w-full max-w-lg neo-card shadow-neo-lg animate-modal-in overflow-hidden">
+        {/* Quick Flow Steps */}
+        <div className="flex items-stretch border-b border-white/[0.07]">
+          {["Create", "Deploy", "Trade", "Resolve"].map((step, i) => (
+            <div
+              key={step}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-[11px] font-semibold uppercase tracking-wider border-r border-white/[0.06] last:border-r-0 ${
+                i === 0
+                  ? "bg-neo-brand/10 text-neo-brand"
+                  : "text-white/30"
+              }`}
+            >
+              <span className={`w-5 h-5 rounded-full text-[10px] flex items-center justify-center font-bold ${
+                i === 0
+                  ? "bg-neo-brand/25 text-neo-brand"
+                  : "bg-white/[0.06] text-white/25"
+              }`}>
+                {i + 1}
+              </span>
+              {step}
+            </div>
+          ))}
+        </div>
+
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 bg-white/5 border-b border-white/10">
-          <h3 className="font-heading font-bold text-sm text-white uppercase tracking-wider">
-            New Prediction Market
-          </h3>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.07]">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-neo-green/10 border border-neo-green/20 flex items-center justify-center shrink-0">
+              <svg className="w-4 h-4 text-neo-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="font-heading font-bold text-base text-white">
+                Create Market
+              </h3>
+              <p className="text-[11px] text-white/40 mt-0.5">
+                Deploy a prediction market on Starknet Sepolia
+              </p>
+            </div>
+          </div>
           <button
             onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center border border-white/20 text-white hover:bg-white/10 text-xs font-mono transition-colors rounded-md"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-white/15 text-white/50 hover:bg-white/[0.08] hover:text-white/80 transition-colors"
+            aria-label="Close"
           >
-            ESC
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
         </div>
 
         <div className="p-5 space-y-4">
+          {/* Question */}
           <div>
-            <label className="block text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1.5">
+            <label className="block text-xs font-semibold text-white/60 mb-1.5">
               Question
             </label>
             <input
@@ -118,167 +167,143 @@ export default function MarketCreator({ onClose }: MarketCreatorProps) {
               placeholder="Will ETH hit $10k by December 2026?"
               maxLength={31}
               autoFocus
-              className="neo-input w-full"
+              className="neo-input w-full text-sm"
             />
-            <p className="text-[10px] text-white/40 mt-1 font-mono">
-              {question.length}/31 chars (on-chain limit)
-            </p>
+            <div className="flex items-center justify-between mt-1.5">
+              <span className="text-[10px] text-white/30 font-mono">
+                {question.length}/31 chars
+              </span>
+              {question.length > 0 && (
+                <span className={`text-[10px] font-semibold font-mono ${qualityColor}`}>
+                  Score: {review.score}/100
+                </span>
+              )}
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1.5">
-                Duration (days)
-              </label>
-              <input
-                type="number"
-                value={days}
-                onChange={(e) => setDays(e.target.value)}
-                min="1"
-                max="365"
-                className="neo-input w-full"
-              />
+          {/* Duration presets */}
+          <div>
+            <label className="block text-xs font-semibold text-white/60 mb-1.5">
+              Duration
+            </label>
+            <div className="flex gap-2">
+              {DURATION_PRESETS.map((preset) => (
+                <button
+                  key={preset.days}
+                  type="button"
+                  onClick={() => setDays(preset.days)}
+                  className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-all ${
+                    days === preset.days
+                      ? "border-neo-brand/40 bg-neo-brand/15 text-neo-brand"
+                      : "border-white/[0.08] bg-white/[0.03] text-white/50 hover:border-white/15 hover:text-white/70"
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
             </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1.5">
-                Fee (basis pts)
-              </label>
-              <input
-                type="number"
-                value={feeBps}
-                onChange={(e) => setFeeBps(e.target.value)}
-                min="0"
-                max="1000"
-                className="neo-input w-full"
-              />
-              <p className="text-[10px] text-white/40 mt-1 font-mono">
-                = {(parseInt(feeBps || "0") / 100).toFixed(1)}% fee
+            {resolutionDate && (
+              <p className="text-[10px] text-white/30 mt-1.5 font-mono">
+                Resolves {resolutionDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
               </p>
-            </div>
-
-            <aside className="space-y-3">
-              <div className="border-2 border-black bg-cream p-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                    Preflight Score
-                  </p>
-                  <span
-                    className={`text-xs font-mono font-bold ${
-                      review.score >= 80
-                        ? "text-neo-green"
-                        : review.score >= 60
-                          ? "text-neo-orange"
-                          : "text-neo-pink"
-                    }`}
-                  >
-                    {review.score}/100
-                  </span>
-                </div>
-                <div className="mt-2 h-2 border border-black bg-white">
-                  <div
-                    className={`h-full ${
-                      review.score >= 80
-                        ? "bg-neo-green"
-                        : review.score >= 60
-                          ? "bg-neo-orange"
-                          : "bg-neo-pink"
-                    }`}
-                    style={{ width: `${review.score}%` }}
-                  />
-                </div>
-                <div className="mt-2 text-[10px] font-mono text-gray-500 space-y-1">
-                  <p>Binary: {review.isBinary ? "yes" : "no"}</p>
-                  <p>Time bound: {review.hasTimeBound ? "yes" : "no"}</p>
-                  <p>Category hint: {review.categoryHint}</p>
-                </div>
-              </div>
-
-              <div className="border-2 border-black bg-white p-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">
-                  Resolution Preview
-                </p>
-                <div className="space-y-1 text-[11px] font-mono">
-                  <p>
-                    Duration: <span className="font-bold">{parsedDays || 0} days</span>
-                  </p>
-                  <p>
-                    Fee:{" "}
-                    <span className="font-bold">
-                      {(Number.isFinite(parsedFeeBps) ? parsedFeeBps : 0) / 100}%
-                    </span>
-                  </p>
-                  {!validDays && (
-                    <p className="text-neo-pink text-[10px]">
-                      Duration must be between 1 and 3650 days.
-                    </p>
-                  )}
-                  {!validFee && (
-                    <p className="text-neo-pink text-[10px]">
-                      Fee must be between 0 and 1000 bps.
-                    </p>
-                  )}
-                  <p>
-                    Resolves:{" "}
-                    <span className="font-bold">
-                      {resolutionDate
-                        ? resolutionDate.toLocaleString()
-                        : "invalid duration"}
-                    </span>
-                  </p>
-                </div>
-              </div>
-
-              <div className="border-2 border-black bg-white p-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">
-                  Quality Findings
-                </p>
-                {review.issues.length === 0 && review.warnings.length === 0 ? (
-                  <p className="text-[11px] font-mono text-neo-green">
-                    No blockers detected.
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {review.issues.map((issue) => (
-                      <p key={issue} className="text-[10px] font-mono text-neo-pink">
-                        - {issue}
-                      </p>
-                    ))}
-                    {review.warnings.map((warning) => (
-                      <p
-                        key={warning}
-                        className="text-[10px] font-mono text-neo-orange"
-                      >
-                        - {warning}
-                      </p>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </aside>
+            )}
           </div>
+
+          {/* Fee presets */}
+          <div>
+            <label className="block text-xs font-semibold text-white/60 mb-1.5">
+              Creator Fee
+            </label>
+            <div className="flex gap-2">
+              {FEE_PRESETS.map((preset) => (
+                <button
+                  key={preset.bps}
+                  type="button"
+                  onClick={() => setFeeBps(preset.bps)}
+                  className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-all ${
+                    feeBps === preset.bps
+                      ? "border-neo-brand/40 bg-neo-brand/15 text-neo-brand"
+                      : "border-white/[0.08] bg-white/[0.03] text-white/50 hover:border-white/15 hover:text-white/70"
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Quality check — compact inline */}
+          {question.trim().length > 0 && (
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-white/40">
+                  Preflight Check
+                </span>
+                <span className={`text-xs font-bold font-mono ${qualityColor}`}>
+                  {review.score}/100
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-white/[0.08] overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${qualityBarColor}`}
+                  style={{ width: `${review.score}%` }}
+                />
+              </div>
+              <div className="flex items-center gap-3 text-[10px] font-mono text-white/45">
+                <span className="flex items-center gap-1">
+                  <span className={review.isBinary ? "text-neo-green" : "text-white/30"}>
+                    {review.isBinary ? "+" : "-"}
+                  </span>
+                  Binary
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className={review.hasTimeBound ? "text-neo-green" : "text-white/30"}>
+                    {review.hasTimeBound ? "+" : "-"}
+                  </span>
+                  Time-bound
+                </span>
+                <span className="text-white/25">|</span>
+                <span className="text-white/35">{review.categoryHint}</span>
+              </div>
+              {(review.issues.length > 0 || review.warnings.length > 0) && (
+                <div className="space-y-0.5 pt-1 border-t border-white/[0.06]">
+                  {review.issues.map((issue) => (
+                    <p key={issue} className="text-[10px] text-neo-red">
+                      {issue}
+                    </p>
+                  ))}
+                  {review.warnings.map((warning) => (
+                    <p key={warning} className="text-[10px] text-neo-yellow">
+                      {warning}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Result feedback */}
           {result && (
             <div
-              className={`border p-3 text-xs font-mono rounded-lg ${
+              className={`rounded-xl border p-3 text-xs font-mono ${
                 result.error
-                  ? "border-neo-pink/40 bg-neo-pink/10 text-neo-pink"
-                  : "border-neo-green/40 bg-neo-green/10 text-neo-green"
+                  ? "border-red-500/30 bg-red-500/[0.08] text-neo-red"
+                  : "border-neo-green/30 bg-neo-green/[0.08] text-neo-green"
               }`}
             >
               {result.error ? (
                 <p>{result.error}</p>
               ) : (
                 <div className="space-y-1">
-                  <p className="font-bold text-neo-green">Market deployed on-chain!</p>
+                  <p className="font-semibold">Market deployed on-chain!</p>
                   {result.txHash && (
                     <a
                       href={`https://sepolia.voyager.online/tx/${result.txHash}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-neo-blue underline"
+                      className="text-neo-cyan hover:underline"
                     >
-                      View transaction
+                      View on Voyager
                     </a>
                   )}
                 </div>
@@ -286,36 +311,40 @@ export default function MarketCreator({ onClose }: MarketCreatorProps) {
             </div>
           )}
 
+          {/* Deploy button */}
           {isConnected ? (
             <button
               onClick={handleDeploy}
-              disabled={!question.trim() || isPending}
-              className="neo-btn-dark w-full text-sm disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+              disabled={!canDeploy}
+              className="w-full py-3 rounded-xl font-heading font-bold text-sm bg-neo-brand/20 border border-neo-brand/30 text-neo-brand hover:bg-neo-brand/30 hover:border-neo-brand/50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
             >
               {isPending ? (
                 <span className="flex items-center justify-center gap-2">
-                  <span className="w-2 h-2 bg-white rounded-full animate-bounce" />
-                  <span className="w-2 h-2 bg-white rounded-full animate-bounce [animation-delay:0.1s]" />
-                  <span className="w-2 h-2 bg-white rounded-full animate-bounce [animation-delay:0.2s]" />
-                  Signing Transaction...
+                  <span className="w-1.5 h-1.5 rounded-full bg-neo-brand animate-bounce" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-neo-brand animate-bounce [animation-delay:0.1s]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-neo-brand animate-bounce [animation-delay:0.2s]" />
+                  Signing...
                 </span>
               ) : result?.txHash ? (
                 "Deploy Another Market"
               ) : (
-                "Deploy Market Contract"
+                "Deploy Market"
               )}
             </button>
           ) : (
-            <div className="text-center py-3 border border-dashed border-white/10 text-xs font-mono text-white/50 rounded-lg">
-              Connect Wallet to Create Markets
+            <div className="py-3 rounded-xl border border-dashed border-white/10 text-center text-xs text-white/40">
+              Connect wallet to create markets
             </div>
           )}
 
-          <p className="text-[10px] text-white/40 text-center font-mono leading-relaxed">
-            Deploys a new PredictionMarket contract via the factory on Sepolia.
-            <br />
-            Oracle is set to your connected wallet. Collateral: STRK.
-          </p>
+          {/* Footer info */}
+          <div className="flex items-center justify-center gap-3 text-[10px] text-white/25">
+            <span>Starknet Sepolia</span>
+            <span className="text-white/10">|</span>
+            <span>Collateral: STRK</span>
+            <span className="text-white/10">|</span>
+            <span>Oracle: Your wallet</span>
+          </div>
         </div>
       </div>
     </div>

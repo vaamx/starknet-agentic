@@ -105,37 +105,37 @@ export default function AgentIdentityCard({
         </div>
 
         {/* Stats Grid */}
-        <div className={`grid ${identity ? "grid-cols-4" : "grid-cols-3"} gap-px bg-white/10 border border-white/10 rounded-lg overflow-hidden`}>
-          <div className="bg-white/[0.04] p-2.5 text-center">
+        <div className={`grid ${identity ? "grid-cols-4" : "grid-cols-3"} gap-px bg-white/[0.06] border border-white/[0.08] rounded-lg overflow-hidden`}>
+          <div className="bg-[#0c0f17] p-2.5 text-center">
             <p className={`font-mono font-black text-base leading-none ${tier.color}`}>
               {formatBrier(avgBrier)}
             </p>
-            <p className="text-[9px] font-bold uppercase tracking-widest text-white/40 mt-1">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-white/35 mt-1">
               Brier
             </p>
           </div>
-          <div className="bg-white/[0.04] p-2.5 text-center">
+          <div className="bg-[#0c0f17] p-2.5 text-center">
             <p className="font-mono font-black text-base leading-none text-white/90">
               {predictionCount}
             </p>
-            <p className="text-[9px] font-bold uppercase tracking-widest text-white/40 mt-1">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-white/35 mt-1">
               Preds
             </p>
           </div>
-          <div className="bg-white/[0.04] p-2.5 text-center">
+          <div className="bg-[#0c0f17] p-2.5 text-center">
             <p className="font-mono font-black text-base leading-none text-white/90">
               {accuracy}%
             </p>
-            <p className="text-[9px] font-bold uppercase tracking-widest text-white/40 mt-1">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-white/35 mt-1">
               Acc
             </p>
           </div>
           {identity && (
-            <div className="bg-white/[0.04] p-2.5 text-center">
+            <div className="bg-[#0c0f17] p-2.5 text-center">
               <p className="font-mono font-black text-base leading-none text-neo-purple">
                 {identity.reputationScore}
               </p>
-              <p className="text-[9px] font-bold uppercase tracking-widest text-white/40 mt-1">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-white/35 mt-1">
                 Rep
               </p>
             </div>
@@ -144,9 +144,13 @@ export default function AgentIdentityCard({
 
         {/* Accuracy Bar */}
         <div className="mt-3">
-          <div className="h-2 border border-white/10 bg-white/10 overflow-hidden rounded-full">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[9px] text-white/30">Accuracy</span>
+            <span className={`text-[10px] font-mono font-bold ${tier.color}`}>{accuracy}%</span>
+          </div>
+          <div className="h-2 bg-white/[0.06] overflow-hidden rounded-full">
             <div
-              className={`h-full ${accent.bar} prob-bar`}
+              className={`h-full rounded-full ${accent.bar} prob-bar`}
               style={{ width: `${accuracy}%` }}
             />
           </div>

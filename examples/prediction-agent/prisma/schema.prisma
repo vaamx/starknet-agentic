@@ -19,6 +19,9 @@ model User {
   forecasts    Forecast[]
   executions   TradeExecution[]
   audits       AuditLog[]
+  automationPolicies AutomationPolicy[]
+  automationRuns     AutomationRun[]
+  agentComments      AgentComment[]
   ownedOrgs    Organization[] @relation("OrgOwner")
 
   @@map("users")
@@ -52,6 +55,9 @@ model Organization {
   executions  TradeExecution[]
   audits      AuditLog[]
   outcomes    MarketOutcome[]
+  automationPolicies AutomationPolicy[]
+  automationRuns     AutomationRun[]
+  agentComments      AgentComment[]
 
   @@map("organizations")
 }
@@ -151,4 +157,82 @@ model MarketOutcome {
   @@unique([orgId, marketId])
   @@index([orgId, marketId])
   @@map("market_outcomes")
+}
+
+model AutomationPolicy {
+  id                    String       @id
+  orgId                 String       @map("org_id")
+  userId                String       @map("user_id")
+  marketId              Int          @map("market_id")
+  enabled               Boolean      @default(true)
+  status                String       @default("active")
+  cadenceMinutes        Int          @default(15) @map("cadence_minutes")
+  maxStakeStrk          Float        @default(5) @map("max_stake_strk")
+  riskLimitStrk         Float        @default(25) @map("risk_limit_strk")
+  stopLossPct           Float        @default(20) @map("stop_loss_pct")
+  confidenceThreshold   Float        @default(0.12) @map("confidence_threshold")
+  preferredSurface      String       @default("starkzap") @map("preferred_surface")
+  allowFallbackToDirect Boolean      @default(true) @map("allow_fallback_to_direct")
+  lastRunAt             Int?         @map("last_run_at")
+  nextRunAt             Int?         @map("next_run_at")
+  lastSignalSide        String?      @map("last_signal_side")
+  lastSignalProb        Float?       @map("last_signal_prob")
+  createdAt             Int          @map("created_at")
+  updatedAt             Int          @map("updated_at")
+  organization          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  runs                  AutomationRun[]
+
+  @@unique([orgId, userId, marketId])
+  @@index([orgId, userId, enabled, status, nextRunAt])
+  @@map("automation_policies")
+}
+
+model AutomationRun {
+  id               String            @id
+  policyId         String            @map("policy_id")
+  orgId            String            @map("org_id")
+  userId           String            @map("user_id")
+  marketId         Int               @map("market_id")
+  scheduledFor     Int               @map("scheduled_for")
+  executedAt       Int               @map("executed_at")
+  status           String
+  executionSurface String?           @map("execution_surface")
+  amountStrk       Float?            @map("amount_strk")
+  side             Int?
+  probability      Float?
+  txHash           String?           @map("tx_hash")
+  errorCode        String?           @map("error_code")
+  errorMessage     String?           @map("error_message")
+  realizedPnlStrk  Float?            @map("realized_pnl_strk")
+  metadataJson     String?           @map("metadata_json")
+  policy           AutomationPolicy  @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  organization     Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([policyId, executedAt])
+  @@map("automation_runs")
+}
+
+model AgentComment {
+  id                 String       @id
+  orgId              String       @map("org_id")
+  marketId           Int          @map("market_id")
+  parentId           String?      @map("parent_id")
+  userId             String?      @map("user_id")
+  agentId            String?      @map("agent_id")
+  actorName          String       @map("actor_name")
+  content            String
+  sourceType         String       @default("agent") @map("source_type")
+  reliabilityScore   Float?       @map("reliability_score")
+  backtestConfidence Float?       @map("backtest_confidence")
+  metadataJson       String?      @map("metadata_json")
+  createdAt          Int          @map("created_at")
+  updatedAt          Int          @map("updated_at")
+  organization       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user               User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, marketId, createdAt])
+  @@index([orgId, createdAt])
+  @@map("agent_comments")
 }

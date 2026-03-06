@@ -89,43 +89,55 @@ export default function MarketLifecycleModal({
         onClick={onClose}
       />
 
-      <div className="relative z-10 w-full max-w-md mx-4 neo-card border-2 border-black bg-white shadow-neo-lg animate-modal-in">
-        <div className="flex items-center justify-between px-5 py-3.5 bg-neo-blue border-b-2 border-black">
-          <h3 className="font-heading font-bold text-sm uppercase tracking-wider text-white">
-            {title}
-          </h3>
+      <div className="relative z-10 w-full max-w-md mx-4 rounded-2xl border border-white/[0.12] bg-[linear-gradient(180deg,#0d1222,#0a0f1b)] shadow-[0_20px_90px_rgba(3,8,20,0.65)] animate-modal-in">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.08]">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-md bg-neo-blue/10 border border-neo-blue/20 flex items-center justify-center">
+              <svg className="w-3 h-3 text-neo-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                {action === "resolve" ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                ) : action === "finalize" ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75z" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
+                )}
+              </svg>
+            </div>
+            <h3 className="font-heading font-bold text-sm text-white">
+              {title}
+            </h3>
+          </div>
           <button
             onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center border-2 border-white/30 text-white hover:bg-white/10 text-xs font-mono transition-colors"
+            className="shrink-0 rounded-lg border border-white/15 bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-semibold text-white/60 transition-colors hover:bg-white/[0.09] hover:text-white/80"
           >
             ESC
           </button>
         </div>
 
         <div className="p-5">
-          <p className="text-xs text-gray-500 mb-4 line-clamp-2 leading-relaxed">
+          <p className="text-xs text-white/50 mb-4 line-clamp-2 leading-relaxed">
             {question}
           </p>
 
           {action !== "claim" && (
-            <div className="flex border-2 border-black mb-4">
+            <div className="flex gap-2 mb-4">
               <button
                 onClick={() => setOutcome(1)}
-                className={`flex-1 py-2.5 font-heading font-bold text-sm transition-all ${
+                className={`flex-1 py-2.5 rounded-xl font-heading font-bold text-sm transition-all border ${
                   outcome === 1
-                    ? "bg-neo-green text-neo-dark"
-                    : "bg-white text-gray-400 hover:text-gray-600"
+                    ? "bg-neo-green/15 border-neo-green/35 text-neo-green"
+                    : "bg-white/[0.03] border-white/[0.08] text-white/35 hover:text-white/55 hover:border-white/[0.15]"
                 }`}
               >
                 YES Wins
               </button>
-              <div className="w-0.5 bg-black" />
               <button
                 onClick={() => setOutcome(0)}
-                className={`flex-1 py-2.5 font-heading font-bold text-sm transition-all ${
+                className={`flex-1 py-2.5 rounded-xl font-heading font-bold text-sm transition-all border ${
                   outcome === 0
-                    ? "bg-neo-pink text-neo-dark"
-                    : "bg-white text-gray-400 hover:text-gray-600"
+                    ? "bg-neo-pink/15 border-neo-pink/35 text-neo-pink"
+                    : "bg-white/[0.03] border-white/[0.08] text-white/35 hover:text-white/55 hover:border-white/[0.15]"
                 }`}
               >
                 NO Wins
@@ -136,30 +148,30 @@ export default function MarketLifecycleModal({
           <button
             onClick={submit}
             disabled={loading}
-            className="neo-btn-dark w-full text-sm disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+            className="w-full rounded-xl border border-neo-brand/30 bg-neo-brand/15 px-4 py-2.5 text-sm font-heading font-bold text-neo-brand transition-colors hover:bg-neo-brand/25 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {loading ? "Executing..." : title}
           </button>
 
           {result && (
             <div
-              className={`mt-3 p-2.5 border-2 text-xs font-mono ${
+              className={`mt-3 p-2.5 rounded-xl border text-xs font-mono ${
                 result.status === "success"
-                  ? "border-neo-green bg-neo-green/10"
-                  : "border-neo-pink bg-neo-pink/10"
+                  ? "border-neo-green/25 bg-neo-green/10 text-neo-green"
+                  : "border-neo-pink/25 bg-neo-pink/10 text-neo-pink"
               }`}
             >
               {result.status === "success" ? (
                 <>
-                  <span className="font-bold">Transaction submitted</span>
+                  <span className="font-bold text-neo-green">Transaction submitted</span>
                   {result.txHash && (
-                    <span className="block text-[10px] text-gray-500 mt-0.5">
+                    <span className="block text-[10px] text-white/40 mt-0.5 truncate">
                       {result.txHash}
                     </span>
                   )}
                 </>
               ) : (
-                <span className="text-neo-pink">{result.error}</span>
+                <span>{result.error}</span>
               )}
             </div>
           )}
