@@ -36,9 +36,9 @@ interface SoulChild {
 
 const TIER_COLORS: Record<SurvivalTier, { bg: string; text: string; border: string; glow: string }> = {
   thriving: {
-    bg: "bg-purple-500/10",
-    text: "text-purple-400",
-    border: "border-purple-500/40",
+    bg: "bg-neo-purple/10",
+    text: "text-neo-purple",
+    border: "border-neo-purple/40",
     glow: "shadow-[0_0_12px_rgba(168,85,247,0.3)]",
   },
   healthy: {
@@ -48,15 +48,15 @@ const TIER_COLORS: Record<SurvivalTier, { bg: string; text: string; border: stri
     glow: "",
   },
   low: {
-    bg: "bg-yellow-500/10",
-    text: "text-yellow-400",
-    border: "border-yellow-500/40",
+    bg: "bg-neo-yellow/10",
+    text: "text-neo-yellow",
+    border: "border-neo-yellow/40",
     glow: "",
   },
   critical: {
-    bg: "bg-red-500/10",
-    text: "text-red-400",
-    border: "border-red-500/40",
+    bg: "bg-neo-red/10",
+    text: "text-neo-red",
+    border: "border-neo-red/40",
     glow: "shadow-[0_0_8px_rgba(239,68,68,0.4)]",
   },
   dead: {
@@ -302,7 +302,7 @@ export default function SurvivalDashboard() {
                 </p>
               </div>
             )}
-            <div className="flex gap-2">
+            <div className="flex gap-1.5">
               <button
                 type="button"
                 onClick={async () => {
@@ -314,8 +314,18 @@ export default function SurvivalDashboard() {
                     // Ignore clipboard failures.
                   }
                 }}
-                className="text-[10px] font-mono px-2 py-1 rounded border border-white/15 text-white/70 hover:text-white hover:border-white/30 transition-colors"
+                className={`inline-flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded-md border transition-colors ${
+                  copiedAddress
+                    ? "border-neo-green/30 text-neo-green bg-neo-green/10"
+                    : "border-white/15 text-white/60 hover:text-white hover:border-white/25"
+                }`}
               >
+                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  {copiedAddress
+                    ? <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    : <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75" />
+                  }
+                </svg>
                 {copiedAddress ? "COPIED" : "COPY"}
               </button>
               {survival?.explorerUrl && (
@@ -323,8 +333,11 @@ export default function SurvivalDashboard() {
                   href={survival.explorerUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[10px] font-mono px-2 py-1 rounded border border-white/15 text-white/70 hover:text-white hover:border-white/30 transition-colors"
+                  className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded-md border border-white/15 text-white/60 hover:text-white hover:border-white/25 transition-colors"
                 >
+                  <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                  </svg>
                   EXPLORER
                 </a>
               )}
@@ -333,8 +346,11 @@ export default function SurvivalDashboard() {
                   href={survival.faucetUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[10px] font-mono px-2 py-1 rounded border border-neo-yellow/30 text-neo-yellow hover:border-neo-yellow/50 transition-colors"
+                  className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded-md border border-neo-yellow/25 text-neo-yellow bg-neo-yellow/5 hover:border-neo-yellow/40 hover:bg-neo-yellow/10 transition-colors"
                 >
+                  <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
                   FAUCET
                 </a>
               )}
@@ -342,42 +358,38 @@ export default function SurvivalDashboard() {
           </div>
         )}
 
-        {/* Model */}
-        <div className="flex items-center justify-between pt-1">
-          <span>Active Model</span>
-          <span className={`font-mono text-[10px] ${c.text}`}>
-            {modelByTier[tier]}
-          </span>
-        </div>
-
-        {/* Bet multiplier */}
-        <div className="flex items-center justify-between">
-          <span>Bet Multiplier</span>
-          <span className="font-mono text-[10px] text-white/80">
-            {tier === "thriving" ? "2.0×"
-              : tier === "healthy" ? "1.0×"
-              : tier === "low" ? "0.5×"
-              : tier === "critical" || tier === "dead" ? "0×"
-              : "--"}
-          </span>
-        </div>
-
-        {/* Replication eligible */}
-        <div className="flex items-center justify-between">
-          <span>Replication</span>
-          <span className={`font-mono text-[10px] ${survival?.replicationEligible ? "text-purple-400" : "text-white/30"}`}>
-            {survival?.replicationEligible ? "ELIGIBLE" : "NOT YET"}
-          </span>
-        </div>
-
-        {/* Last checked */}
-        <div className="flex items-center justify-between">
-          <span>Last checked</span>
-          <span className="font-mono text-[10px]">
-            {survival?.lastCheckedAt
-              ? `${Math.floor((Date.now() - survival.lastCheckedAt) / 1000)}s ago`
-              : "--"}
-          </span>
+        {/* Stats grid */}
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+            <p className="text-[9px] text-white/35 uppercase tracking-wider">Model</p>
+            <p className={`mt-0.5 font-mono text-[10px] font-semibold ${c.text}`}>
+              {modelByTier[tier]}
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+            <p className="text-[9px] text-white/35 uppercase tracking-wider">Bet Multiplier</p>
+            <p className="mt-0.5 font-mono text-[10px] font-semibold text-white/80">
+              {tier === "thriving" ? "2.0×"
+                : tier === "healthy" ? "1.0×"
+                : tier === "low" ? "0.5×"
+                : tier === "critical" || tier === "dead" ? "0×"
+                : "--"}
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+            <p className="text-[9px] text-white/35 uppercase tracking-wider">Replication</p>
+            <p className={`mt-0.5 font-mono text-[10px] font-semibold ${survival?.replicationEligible ? "text-neo-purple" : "text-white/35"}`}>
+              {survival?.replicationEligible ? "ELIGIBLE" : "NOT YET"}
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+            <p className="text-[9px] text-white/35 uppercase tracking-wider">Last check</p>
+            <p className="mt-0.5 font-mono text-[10px] font-semibold text-white/70">
+              {survival?.lastCheckedAt
+                ? `${Math.floor((Date.now() - survival.lastCheckedAt) / 1000)}s ago`
+                : "--"}
+            </p>
+          </div>
         </div>
 
         {/* Current thesis */}
@@ -394,13 +406,16 @@ export default function SurvivalDashboard() {
         <ChildrenList children={soulChildren} />
 
         {/* SOUL.md link */}
-        <div className="pt-2 border-t border-white/10 flex items-center justify-between">
-          <span className="text-[9px] font-mono text-white/30">SOUL.md</span>
+        <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <span className="w-4 h-4 rounded bg-neo-purple/10 border border-neo-purple/20 flex items-center justify-center text-[8px] font-bold text-neo-purple">S</span>
+            <span className="text-[9px] font-mono text-white/40">SOUL.md</span>
+          </div>
           <a
             href="/api/soul"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[9px] font-mono text-white/40 hover:text-white/70 transition-colors underline"
+            className="text-[9px] font-mono font-semibold text-neo-purple/60 hover:text-neo-purple transition-colors"
           >
             view →
           </a>

@@ -50,6 +50,11 @@ const config: Config = {
       gridTemplateColumns: {
         "market-grid": "repeat(auto-fill, minmax(320px, 1fr))",
       },
+      keyframes: {
+        shimmer: {
+          "100%": { transform: "translateX(100%)" },
+        },
+      },
     },
   },
   plugins: [],

@@ -10,6 +10,8 @@ import {
   getPersistedLoopRuntime,
 } from "@/lib/state-store";
 import { requireWalletSessionScope } from "@/lib/wallet-session";
+import { requireMembership } from "@/lib/require-auth";
+import { executeDueAutomationPolicies } from "@/lib/automation-engine";
 
 export const runtime = "nodejs";
 
@@ -75,11 +77,36 @@ export async function POST(request: NextRequest) {
     try {
       const persistedRuntime = await getPersistedLoopRuntime();
       agentLoop.hydrateRuntime(persistedRuntime);
+      const membership = requireMembership(request);
       const actions = await withTimeout(
-        agentLoop.singleTick(),
+        agentLoop.singleTick(
+          membership
+            ? {
+                organizationId: membership.membership.organizationId,
+                userId: membership.user.id,
+              }
+            : undefined
+        ),
         config.agentLoopTickTimeoutMs,
         `Tick timed out after ${config.agentLoopTickTimeoutMs}ms`
       );
+      let automation:
+        | Awaited<ReturnType<typeof executeDueAutomationPolicies>>
+        | undefined;
+      if (membership) {
+        try {
+          automation = await executeDueAutomationPolicies({
+            organizationId: membership.membership.organizationId,
+            userId: membership.user.id,
+            limit: 8,
+          });
+        } catch (automationErr: any) {
+          console.error(
+            "[agent-loop] automation execution failed:",
+            automationErr?.message ?? String(automationErr)
+          );
+        }
+      }
       let alerts:
         | Awaited<ReturnType<typeof evaluateAndDispatchMetricAlerts>>
         | undefined;
@@ -98,6 +125,7 @@ export async function POST(request: NextRequest) {
         message: "Tick completed",
         actions,
         status: agentLoop.getStatus(),
+        automation,
         alerts: alerts
           ? {
               enabled: alerts.enabled,

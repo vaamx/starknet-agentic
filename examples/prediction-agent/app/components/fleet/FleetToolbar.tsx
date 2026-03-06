@@ -14,6 +14,8 @@ interface FleetToolbarProps {
   sortBy: SortBy;
   onSortChange: (s: SortBy) => void;
   onDeployClick: () => void;
+  deployDisabled?: boolean;
+  deployDisabledReason?: string | null;
 }
 
 const FILTERS: { value: FilterStatus; label: string }[] = [
@@ -40,6 +42,8 @@ export default function FleetToolbar({
   sortBy,
   onSortChange,
   onDeployClick,
+  deployDisabled = false,
+  deployDisabledReason = null,
 }: FleetToolbarProps) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -108,7 +112,12 @@ export default function FleetToolbar({
           ))}
         </select>
 
-        <button onClick={onDeployClick} className="neo-btn-primary text-xs">
+        <button
+          onClick={onDeployClick}
+          disabled={deployDisabled}
+          title={deployDisabledReason ?? undefined}
+          className="neo-btn-primary text-xs disabled:cursor-not-allowed disabled:opacity-50"
+        >
           + Deploy Agent
         </button>
       </div>
