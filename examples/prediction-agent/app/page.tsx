@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useDeferredValue, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import SimpleHeader from "./components/SimpleHeader";
 import CategoryNav from "./components/CategoryNav";
 import FeaturedHero from "./components/FeaturedHero";
@@ -8,6 +9,8 @@ import MarketList from "./components/MarketList";
 import BetForm from "./components/BetForm";
 import AnalyzeModal from "./components/AnalyzeModal";
 import MarketCreator from "./components/MarketCreator";
+import AuthModal, { type AuthModalMode } from "./components/AuthModal";
+import Footer from "./components/Footer";
 import useMarkets from "./hooks/useMarkets";
 import { computeDisagreement, safeBigInt } from "./components/dashboard/utils";
 import {
@@ -31,6 +34,28 @@ interface SessionContext {
     slug: string;
   };
   role: "owner" | "admin" | "analyst" | "viewer";
+}
+
+interface SessionResponse {
+  configured?: boolean;
+  authenticated?: boolean;
+  walletAddress?: string;
+  expiresAt?: number;
+  scopes?: string[];
+  userAuthenticated?: boolean;
+  user?: SessionUser;
+  organization?: SessionContext["organization"] | null;
+  role?: SessionContext["role"] | null;
+}
+
+type ManualAuthScope = "spawn" | "fund" | "tick";
+
+interface WalletSessionState {
+  configured: boolean;
+  authenticated: boolean;
+  walletAddress: string | null;
+  expiresAt: number | null;
+  scopes: ManualAuthScope[];
 }
 
 interface QuantAnalytics {
@@ -123,6 +148,28 @@ export default function Dashboard() {
   const [analyzeMarketId, setAnalyzeMarketId] = useState<number | null>(null);
   const [showCreator, setShowCreator] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
+  const [sessionContext, setSessionContext] = useState<SessionContext | null>(
+    null
+  );
+  const [walletSession, setWalletSession] = useState<WalletSessionState>({
+    configured: true,
+    authenticated: false,
+    walletAddress: null,
+    expiresAt: null,
+    scopes: [],
+  });
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<AuthModalMode>("signin");
+  const [pendingCreatorAfterAuth, setPendingCreatorAfterAuth] = useState(false);
+  const [pendingBetAfterAuth, setPendingBetAfterAuth] = useState<{
+    marketId: number;
+    outcome?: 0 | 1;
+  } | null>(null);
+  const [agentSweepBusy, setAgentSweepBusy] = useState(false);
+  const [agentSweepMessage, setAgentSweepMessage] = useState<string | null>(
+    null
+  );
 
   const deferredQuery = useDeferredValue(searchQuery);
   const normalizedQuery = deferredQuery.trim().toLowerCase();
@@ -195,10 +242,255 @@ export default function Dashboard() {
     });
   }, [filteredMarkets, predictions]);
 
+  const parseSessionContext = useCallback((payload: SessionResponse): SessionContext | null => {
+    if (!payload?.userAuthenticated || !payload.user || !payload.organization || !payload.role) {
+      return null;
+    }
+    return {
+      user: payload.user,
+      organization: payload.organization,
+      role: payload.role,
+    };
+  }, []);
+
+  const refreshAuthSession = useCallback(async () => {
+    let nextContext: SessionContext | null = null;
+    try {
+      const response = await fetch("/api/auth/session", {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        setSessionContext(null);
+        setWalletSession({
+          configured: true,
+          authenticated: false,
+          walletAddress: null,
+          expiresAt: null,
+          scopes: [],
+        });
+        return null;
+      }
+      const payload = (await response.json()) as SessionResponse;
+      nextContext = parseSessionContext(payload);
+      setSessionContext(nextContext);
+      const scopes = Array.isArray(payload.scopes)
+        ? payload.scopes
+            .map((scope) => String(scope).trim().toLowerCase())
+            .filter((scope): scope is ManualAuthScope =>
+              scope === "spawn" || scope === "fund" || scope === "tick"
+            )
+        : [];
+      setWalletSession({
+        configured: payload.configured !== false,
+        authenticated: payload.authenticated === true,
+        walletAddress:
+          typeof payload.walletAddress === "string" && payload.walletAddress.trim()
+            ? payload.walletAddress.trim()
+            : null,
+        expiresAt:
+          typeof payload.expiresAt === "number" && Number.isFinite(payload.expiresAt)
+            ? payload.expiresAt
+            : null,
+        scopes,
+      });
+    } catch {
+      setSessionContext(null);
+      setWalletSession({
+        configured: true,
+        authenticated: false,
+        walletAddress: null,
+        expiresAt: null,
+        scopes: [],
+      });
+      return null;
+    } finally {
+      setSessionLoading(false);
+    }
+    return nextContext;
+  }, [parseSessionContext]);
+
+  const clearAuthIntentQuery = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("auth")) return;
+    params.delete("auth");
+    const query = params.toString();
+    const nextPath = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+    window.history.replaceState({}, "", nextPath);
+  }, []);
+
+  const openAuthModal = useCallback((mode: AuthModalMode) => {
+    setAuthModalMode(mode);
+    setAuthModalOpen(true);
+  }, []);
+
+  const handleHeaderAuthOpen = useCallback((mode: AuthModalMode) => {
+    setPendingCreatorAfterAuth(false);
+    setPendingBetAfterAuth(null);
+    openAuthModal(mode);
+  }, [openAuthModal]);
+
+  const handleCloseAuthModal = useCallback(() => {
+    setAuthModalOpen(false);
+    setPendingCreatorAfterAuth(false);
+    setPendingBetAfterAuth(null);
+    clearAuthIntentQuery();
+  }, [clearAuthIntentQuery]);
+
+  const handleAuthSuccess = useCallback(async () => {
+    const creatorIntent = pendingCreatorAfterAuth;
+    const betIntent = pendingBetAfterAuth;
+    setAuthModalOpen(false);
+    setPendingCreatorAfterAuth(false);
+    setPendingBetAfterAuth(null);
+    clearAuthIntentQuery();
+    const authed = await refreshAuthSession();
+    if (!authed) return;
+    if (creatorIntent) {
+      setShowCreator(true);
+    }
+    if (betIntent) {
+      setBetMarketId(betIntent.marketId);
+      setBetPreselectedOutcome(betIntent.outcome);
+    }
+  }, [
+    clearAuthIntentQuery,
+    pendingBetAfterAuth,
+    pendingCreatorAfterAuth,
+    refreshAuthSession,
+  ]);
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await fetch("/api/auth/logout?scope=all", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {
+      // Ignore transient logout network errors.
+    }
+    setSessionContext(null);
+    setPendingCreatorAfterAuth(false);
+    setPendingBetAfterAuth(null);
+    void refreshAuthSession();
+  }, [refreshAuthSession]);
+
+  const handleOpenCreator = useCallback(() => {
+    if (!sessionContext) {
+      setPendingCreatorAfterAuth(true);
+      setPendingBetAfterAuth(null);
+      openAuthModal("signup");
+      return;
+    }
+    setShowCreator(true);
+  }, [openAuthModal, sessionContext]);
+
   const handleBet = useCallback((marketId: number, outcome?: 0 | 1) => {
+    if (!sessionContext) {
+      setPendingBetAfterAuth({ marketId, outcome });
+      setPendingCreatorAfterAuth(false);
+      openAuthModal("signin");
+      return;
+    }
     setBetMarketId(marketId);
     setBetPreselectedOutcome(outcome);
+  }, [openAuthModal, sessionContext]);
+
+  const handleAnalyze = useCallback((marketId: number) => {
+    setAnalyzeMarketId(marketId);
   }, []);
+
+  const handleRunAgentSweep = useCallback(async () => {
+    if (!sessionContext) {
+      setPendingCreatorAfterAuth(false);
+      setPendingBetAfterAuth(null);
+      openAuthModal("signin");
+      return;
+    }
+    if (walletSession.configured === false) {
+      setAgentSweepMessage("Manual wallet auth is not configured on server.");
+      return;
+    }
+    if (!walletSession.authenticated || !walletSession.scopes.includes("tick")) {
+      setAgentSweepMessage(
+        "Wallet signature with tick scope is required before running agent sweep."
+      );
+      return;
+    }
+    if (survivalTier === "dead") {
+      setAgentSweepMessage("Agent wallet is unfunded. Fund wallet before running sweep.");
+      return;
+    }
+
+    setAgentSweepBusy(true);
+    setAgentSweepMessage(null);
+    try {
+      const response = await fetch("/api/agent-loop", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "tick" }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            partial?: boolean;
+            message?: string;
+            error?: string;
+            actions?: unknown[];
+          }
+        | null;
+
+      if (!response.ok || payload?.ok === false) {
+        throw new Error(
+          payload?.error ??
+            payload?.message ??
+            `Agent sweep failed (HTTP ${response.status})`
+        );
+      }
+
+      const actionCount = Array.isArray(payload?.actions)
+        ? payload.actions.length
+        : 0;
+      const prefix = payload?.partial ? "Partial sweep" : "Sweep complete";
+      setAgentSweepMessage(`${prefix}: ${actionCount} actions processed.`);
+      void refreshData();
+    } catch (err: any) {
+      setAgentSweepMessage(err?.message ?? "Agent sweep failed.");
+    } finally {
+      setAgentSweepBusy(false);
+    }
+  }, [
+    openAuthModal,
+    refreshData,
+    sessionContext,
+    survivalTier,
+    walletSession.authenticated,
+    walletSession.configured,
+    walletSession.scopes,
+  ]);
+
+  useEffect(() => {
+    if (!agentSweepMessage) return;
+    const id = window.setTimeout(() => setAgentSweepMessage(null), 9000);
+    return () => window.clearTimeout(id);
+  }, [agentSweepMessage]);
+
+  useEffect(() => {
+    void refreshAuthSession();
+  }, [refreshAuthSession]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const authIntent = new URLSearchParams(window.location.search).get("auth");
+    if (authIntent !== "signin" && authIntent !== "signup") return;
+    setPendingCreatorAfterAuth(false);
+    setPendingBetAfterAuth(null);
+    openAuthModal(authIntent);
+  }, [openAuthModal]);
 
   const betMarket = markets.find((m) => m.id === betMarketId);
   const analyzeMarket = markets.find((m) => m.id === analyzeMarketId);
@@ -213,9 +505,14 @@ export default function Dashboard() {
       <SimpleHeader
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        onOpenCreator={() => setShowCreator(true)}
+        onOpenCreator={handleOpenCreator}
         marketDataSource={marketDataSource}
         marketDataStale={marketDataStale}
+        authUser={sessionContext?.user ?? null}
+        authRole={sessionContext?.role ?? null}
+        authLoading={sessionLoading}
+        onOpenAuth={handleHeaderAuthOpen}
+        onLogout={handleLogout}
       />
 
       {/* Horizontal category nav */}
@@ -227,6 +524,51 @@ export default function Dashboard() {
 
       {/* Main content */}
       <main className="max-w-[1400px] mx-auto px-3 sm:px-4 lg:px-5 py-4">
+          {/* Agent status bar */}
+          {!loading && !sessionLoading && (
+            <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 flex flex-wrap items-center gap-3 sm:gap-4">
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${
+                  survivalTier === "dead" ? "bg-red-400" :
+                  survivalTier === "critical" ? "bg-orange-400 animate-pulse" :
+                  survivalTier === "low" ? "bg-neo-yellow" :
+                  survivalTier === "healthy" ? "bg-neo-green" :
+                  survivalTier === "thriving" ? "bg-neo-brand" : "bg-white/20"
+                }`} />
+                <span className="text-[11px] font-semibold text-white/60 uppercase tracking-wider">
+                  {survivalTier ?? "offline"}
+                </span>
+              </div>
+              <span className="hidden sm:inline text-white/10">|</span>
+              <span className="text-[11px] text-white/40 font-mono tabular-nums">
+                {markets.length} markets
+              </span>
+              <span className="hidden sm:inline text-white/10">|</span>
+              <span className="text-[11px] text-white/40">
+                {Object.values(predictions).filter((p) => p.length > 0).length} with forecasts
+              </span>
+              <div className="flex-1" />
+              <div className="flex items-center gap-2">
+                {sessionContext && (
+                  <button
+                    type="button"
+                    onClick={handleRunAgentSweep}
+                    disabled={agentSweepBusy || survivalTier === "dead"}
+                    className="rounded-lg border border-neo-brand/25 bg-neo-brand/10 px-3 py-1.5 text-[11px] font-semibold text-neo-brand hover:bg-neo-brand/18 disabled:opacity-40 transition-all"
+                  >
+                    {agentSweepBusy ? "Sweeping..." : "Run Agent Sweep"}
+                  </button>
+                )}
+                <Link
+                  href="/fleet"
+                  className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-white/60 hover:bg-white/[0.08] transition-colors no-underline"
+                >
+                  Fleet
+                </Link>
+              </div>
+            </div>
+          )}
+
           {/* Featured hero section — only on "all" category */}
           {activeCategory === "all" && !loading && sortedMarkets.length > 0 && (
             <FeaturedHero
@@ -313,13 +655,13 @@ export default function Dashboard() {
           {/* Warning banner */}
           {!loadError && marketDataWarning && (
             <div
-              className="rounded-xl border border-amber-500/15 bg-amber-500/[0.04] px-4 py-3 mb-4 flex items-center gap-3"
+              className="rounded-xl border border-neo-yellow/15 bg-neo-yellow/[0.04] px-4 py-3 mb-4 flex items-center gap-3"
               role="status"
             >
-              <svg className="w-4 h-4 text-amber-400/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="w-4 h-4 text-neo-yellow/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
               </svg>
-              <p className="text-xs text-amber-400/70">
+              <p className="text-xs text-neo-yellow/70">
                 {marketDataWarning}
               </p>
             </div>
@@ -328,18 +670,18 @@ export default function Dashboard() {
           {/* Agent wallet unfunded banner */}
           {survivalTier === "dead" && agentWalletAddress && (
             <div
-              className="rounded-xl border border-amber-500/15 bg-amber-500/[0.04] p-5 mb-4"
+              className="rounded-xl border border-neo-yellow/15 bg-neo-yellow/[0.04] p-5 mb-4"
               role="status"
             >
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
-                    <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <div className="w-10 h-10 rounded-xl bg-neo-yellow/10 flex items-center justify-center shrink-0">
+                    <svg className="w-5 h-5 text-neo-yellow" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3" />
                     </svg>
                   </div>
                   <div>
-                    <p className="font-heading font-semibold text-sm text-amber-300">
+                    <p className="font-heading font-semibold text-sm text-neo-yellow">
                       Agent wallet is unfunded
                     </p>
                     <p className="text-xs text-white/50 mt-1">
@@ -354,7 +696,7 @@ export default function Dashboard() {
                   <button
                     type="button"
                     onClick={() => navigator.clipboard.writeText(agentWalletAddress)}
-                    className="px-4 py-2 rounded-xl text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 transition-all"
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-neo-yellow bg-neo-yellow/10 border border-neo-yellow/20 hover:bg-neo-yellow/15 transition-all"
                   >
                     Copy
                   </button>
@@ -362,7 +704,7 @@ export default function Dashboard() {
                     href="https://starknet-faucet.vercel.app/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-4 py-2 rounded-xl text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 transition-all no-underline"
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-neo-yellow bg-neo-yellow/10 border border-neo-yellow/20 hover:bg-neo-yellow/15 transition-all no-underline"
                   >
                     Faucet &rarr;
                   </a>
@@ -381,11 +723,25 @@ export default function Dashboard() {
             isRefreshing={isRefreshing}
             onRefresh={refreshData}
             onBet={handleBet}
+            onAnalyze={(marketId) => handleAnalyze(marketId)}
+            onRunAgentSweep={handleRunAgentSweep}
+            agentSweepBusy={agentSweepBusy}
+            agentSweepMessage={agentSweepMessage}
+            isAuthenticated={Boolean(sessionContext)}
+            walletSession={walletSession}
+            fundingReady={survivalTier !== "dead"}
             viewMode={viewMode}
           />
       </main>
 
       {/* Modals */}
+      <AuthModal
+        open={authModalOpen}
+        initialMode={authModalMode}
+        onClose={handleCloseAuthModal}
+        onAuthenticated={handleAuthSuccess}
+      />
+
       {showCreator && (
         <MarketCreator
           onClose={() => setShowCreator(false)}
@@ -419,6 +775,7 @@ export default function Dashboard() {
         />
       )}
 
+      <Footer />
     </div>
   );
 }

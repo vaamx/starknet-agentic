@@ -1,114 +1,78 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ensureCsrfToken } from "@/lib/client-csrf";
+import Link from "next/link";
+import SiteHeader from "../components/SiteHeader";
+import Footer from "../components/Footer";
+import AuthModal from "../components/AuthModal";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [nextPath, setNextPath] = useState("/");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [csrfToken, setCsrfToken] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [authOpen, setAuthOpen] = useState(true);
 
-  useEffect(() => {
-    const nextParam =
-      typeof window !== "undefined"
-        ? new URLSearchParams(window.location.search).get("next")
-        : null;
-    if (nextParam) {
-      setNextPath(nextParam);
-    }
+  const handleClose = useCallback(() => {
+    setAuthOpen(false);
+    router.push("/");
+  }, [router]);
 
-    ensureCsrfToken()
-      .then(setCsrfToken)
-      .catch(() => setError("Security initialization failed. Refresh and retry."));
-  }, []);
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    try {
-      const token = csrfToken ?? (await ensureCsrfToken());
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-csrf-token": token,
-        },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.error ?? "Login failed");
-      }
-      router.replace(nextPath);
-    } catch (err: any) {
-      setError(err?.message ?? "Login failed");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const handleAuthenticated = useCallback(async () => {
+    setAuthOpen(false);
+    router.push("/");
+  }, [router]);
 
   return (
-    <main className="min-h-screen bg-cream bg-grid flex items-center justify-center px-4">
-      <div className="w-full max-w-md neo-card border-2 border-black bg-white p-6">
-        <h1 className="font-heading font-bold text-2xl mb-1">HiveCaster Login</h1>
-        <p className="text-sm text-gray-500 mb-6">
-          Production-grade superforecasting control panel.
-        </p>
-
-        <form onSubmit={onSubmit} className="space-y-3">
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wide mb-1">
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="neo-input w-full"
-              required
-            />
+    <div className="min-h-screen bg-cream flex flex-col">
+      <SiteHeader />
+      <main className="flex-1 flex items-center justify-center px-4 py-12">
+        <div className="w-full max-w-md text-center space-y-6">
+          {/* Icon */}
+          <div className="mx-auto w-14 h-14 rounded-2xl bg-neo-brand/10 border border-neo-brand/20 flex items-center justify-center">
+            <svg className="w-7 h-7 text-neo-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+            </svg>
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wide mb-1">
-              Password
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="neo-input w-full"
-              required
-            />
+            <h1 className="font-heading text-2xl font-bold text-white">
+              Welcome back
+            </h1>
+            <p className="mt-2 text-sm text-white/50">
+              Sign in to access your markets, agent fleet, and predictions.
+            </p>
+          </div>
+
+          {/* Value props */}
+          <div className="flex items-center justify-center gap-4 text-[10px] text-white/30">
+            <span className="flex items-center gap-1"><span className="w-1 h-1 rounded-full bg-neo-green" />Account Abstraction</span>
+            <span className="flex items-center gap-1"><span className="w-1 h-1 rounded-full bg-neo-blue" />Gasless</span>
+            <span className="flex items-center gap-1"><span className="w-1 h-1 rounded-full bg-neo-purple" />Session Keys</span>
           </div>
 
           <button
-            type="submit"
-            disabled={loading || !csrfToken}
-            className="neo-btn-primary w-full text-sm py-2.5 disabled:opacity-40"
+            type="button"
+            onClick={() => setAuthOpen(true)}
+            className="w-full rounded-xl bg-neo-brand/15 border border-neo-brand/30 px-6 py-3 text-sm font-heading font-bold text-neo-brand transition-colors hover:bg-neo-brand/25"
           >
-            {loading ? "Signing in..." : "Sign In"}
+            Sign In
           </button>
-        </form>
 
-        {error && (
-          <p className="mt-3 text-xs text-red-600 font-mono">{error}</p>
-        )}
+          <p className="text-xs text-white/40">
+            New here?{" "}
+            <Link href="/signup" className="text-neo-brand hover:text-neo-brand/80 no-underline font-medium">
+              Create an account
+            </Link>
+          </p>
+        </div>
+      </main>
+      <Footer />
 
-        <p className="text-xs text-gray-500 mt-4">
-          New here?{" "}
-          <Link href="/signup" className="font-semibold underline">
-            Create an account
-          </Link>
-        </p>
-      </div>
-    </main>
+      <AuthModal
+        open={authOpen}
+        initialMode="signin"
+        onClose={handleClose}
+        onAuthenticated={handleAuthenticated}
+      />
+    </div>
   );
 }

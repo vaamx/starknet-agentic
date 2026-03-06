@@ -137,6 +137,73 @@ db.exec(`
     UNIQUE (org_id, market_id),
     FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS automation_policies (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    market_id INTEGER NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'active',
+    cadence_minutes INTEGER NOT NULL DEFAULT 15,
+    max_stake_strk REAL NOT NULL DEFAULT 5,
+    risk_limit_strk REAL NOT NULL DEFAULT 25,
+    stop_loss_pct REAL NOT NULL DEFAULT 20,
+    confidence_threshold REAL NOT NULL DEFAULT 0.12,
+    preferred_surface TEXT NOT NULL DEFAULT 'starkzap',
+    allow_fallback_to_direct INTEGER NOT NULL DEFAULT 1,
+    last_run_at INTEGER,
+    next_run_at INTEGER,
+    last_signal_side TEXT,
+    last_signal_prob REAL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE (org_id, user_id, market_id),
+    FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS automation_runs (
+    id TEXT PRIMARY KEY,
+    policy_id TEXT NOT NULL,
+    org_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    market_id INTEGER NOT NULL,
+    scheduled_for INTEGER NOT NULL,
+    executed_at INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    execution_surface TEXT,
+    amount_strk REAL,
+    side INTEGER,
+    probability REAL,
+    tx_hash TEXT,
+    error_code TEXT,
+    error_message TEXT,
+    realized_pnl_strk REAL,
+    metadata_json TEXT,
+    FOREIGN KEY (policy_id) REFERENCES automation_policies(id) ON DELETE CASCADE,
+    FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_comments (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    market_id INTEGER NOT NULL,
+    parent_id TEXT,
+    user_id TEXT,
+    agent_id TEXT,
+    actor_name TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source_type TEXT NOT NULL DEFAULT 'agent',
+    reliability_score REAL,
+    backtest_confidence REAL,
+    metadata_json TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE
+  );
 `);
 
 function safeExec(sql: string) {
@@ -159,6 +226,11 @@ safeExec("CREATE INDEX IF NOT EXISTS idx_research_org_created ON research_artifa
 safeExec("CREATE INDEX IF NOT EXISTS idx_exec_org_created ON trade_executions(org_id, created_at)");
 safeExec("CREATE INDEX IF NOT EXISTS idx_audit_org_created ON audit_logs(org_id, created_at)");
 safeExec("CREATE INDEX IF NOT EXISTS idx_market_outcomes_org_market ON market_outcomes(org_id, market_id)");
+safeExec("CREATE INDEX IF NOT EXISTS idx_auto_policies_org_user_market ON automation_policies(org_id, user_id, market_id)");
+safeExec("CREATE INDEX IF NOT EXISTS idx_auto_policies_due ON automation_policies(org_id, user_id, enabled, status, next_run_at)");
+safeExec("CREATE INDEX IF NOT EXISTS idx_auto_runs_policy_time ON automation_runs(policy_id, executed_at)");
+safeExec("CREATE INDEX IF NOT EXISTS idx_agent_comments_org_market_created ON agent_comments(org_id, market_id, created_at)");
+safeExec("CREATE INDEX IF NOT EXISTS idx_agent_comments_org_created ON agent_comments(org_id, created_at)");
 
 export function nowUnix(): number {
   return Math.floor(Date.now() / 1000);

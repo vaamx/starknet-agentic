@@ -73,6 +73,23 @@ export interface AgentCalibrationMemory {
   memoryStrength: number;
 }
 
+export interface AgentCommentRecord {
+  id: string;
+  organizationId: string;
+  marketId: number;
+  parentId: string | null;
+  userId: string | null;
+  agentId: string | null;
+  actorName: string;
+  content: string;
+  sourceType: string;
+  reliabilityScore: number | null;
+  backtestConfidence: number | null;
+  metadataJson: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 type OutcomeRow = {
   probability: number;
   outcome: number;
@@ -89,6 +106,23 @@ type SourceOutcomeRow = {
   createdAt: number;
 };
 
+type AgentCommentRow = {
+  id: string;
+  organizationId: string;
+  marketId: number;
+  parentId: string | null;
+  userId: string | null;
+  agentId: string | null;
+  actorName: string;
+  content: string;
+  sourceType: string;
+  reliabilityScore: number | null;
+  backtestConfidence: number | null;
+  metadataJson: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
 const SOURCE_PRIOR_RELIABILITY: Record<string, number> = {
   polymarket: 0.72,
   coingecko: 0.76,
@@ -98,6 +132,40 @@ const SOURCE_PRIOR_RELIABILITY: Record<string, number> = {
 
 function clampUnit(value: number): number {
   return Math.max(0, Math.min(1, value));
+}
+
+function compactText(value: string | null | undefined, maxLength: number): string {
+  return (value ?? "").replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+
+function normalizeCommentRow(row: AgentCommentRow): AgentCommentRecord {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    marketId: row.marketId,
+    parentId: row.parentId ?? null,
+    userId: row.userId ?? null,
+    agentId: row.agentId ?? null,
+    actorName: compactText(row.actorName, 120) || "Agent",
+    content: compactText(row.content, 2_400),
+    sourceType: compactText(row.sourceType, 64) || "agent",
+    reliabilityScore:
+      typeof row.reliabilityScore === "number" &&
+      Number.isFinite(row.reliabilityScore)
+        ? clampUnit(row.reliabilityScore)
+        : null,
+    backtestConfidence:
+      typeof row.backtestConfidence === "number" &&
+      Number.isFinite(row.backtestConfidence)
+        ? clampUnit(row.backtestConfidence)
+        : null,
+    metadataJson:
+      typeof row.metadataJson === "string" && row.metadataJson.trim().length > 0
+        ? row.metadataJson
+        : null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
 function normalizeAgentMemory(row: {
@@ -1075,4 +1143,294 @@ export async function listRecentExecutions(organizationId: string, limit = 100) 
       `
     )
     .all(organizationId, finalLimit);
+}
+
+export async function recordAgentComment(params: {
+  organizationId: string;
+  marketId: number;
+  parentId?: string | null;
+  userId?: string | null;
+  agentId?: string | null;
+  actorName: string;
+  content: string;
+  sourceType?: string;
+  reliabilityScore?: number | null;
+  backtestConfidence?: number | null;
+  metadataJson?: string | null;
+}): Promise<AgentCommentRecord> {
+  const nowSec = nowUnix();
+  const row: AgentCommentRecord = {
+    id: makeId("cmt"),
+    organizationId: compactText(params.organizationId, 120),
+    marketId: Math.max(0, Math.trunc(params.marketId)),
+    parentId: compactText(params.parentId, 120) || null,
+    userId: compactText(params.userId, 120) || null,
+    agentId: compactText(params.agentId, 180) || null,
+    actorName: compactText(params.actorName, 120) || "Agent",
+    content: compactText(params.content, 2_400),
+    sourceType: compactText(params.sourceType, 64) || "agent",
+    reliabilityScore:
+      typeof params.reliabilityScore === "number" &&
+      Number.isFinite(params.reliabilityScore)
+        ? clampUnit(params.reliabilityScore)
+        : null,
+    backtestConfidence:
+      typeof params.backtestConfidence === "number" &&
+      Number.isFinite(params.backtestConfidence)
+        ? clampUnit(params.backtestConfidence)
+        : null,
+    metadataJson:
+      typeof params.metadataJson === "string" && params.metadataJson.trim().length > 0
+        ? params.metadataJson
+        : null,
+    createdAt: nowSec,
+    updatedAt: nowSec,
+  };
+
+  if (!row.organizationId) {
+    throw new Error("organizationId is required");
+  }
+  if (!row.content) {
+    throw new Error("Comment content is required");
+  }
+
+  const prisma = await getPrismaClient();
+  if (prisma) {
+    await prisma.$executeRawUnsafe(
+      `
+      INSERT INTO agent_comments (
+        id,
+        org_id,
+        market_id,
+        parent_id,
+        user_id,
+        agent_id,
+        actor_name,
+        content,
+        source_type,
+        reliability_score,
+        backtest_confidence,
+        metadata_json,
+        created_at,
+        updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+      )
+      `,
+      row.id,
+      row.organizationId,
+      row.marketId,
+      row.parentId,
+      row.userId,
+      row.agentId,
+      row.actorName,
+      row.content,
+      row.sourceType,
+      row.reliabilityScore,
+      row.backtestConfidence,
+      row.metadataJson,
+      row.createdAt,
+      row.updatedAt
+    );
+    return row;
+  }
+
+  db.prepare(
+    `
+    INSERT INTO agent_comments (
+      id,
+      org_id,
+      market_id,
+      parent_id,
+      user_id,
+      agent_id,
+      actor_name,
+      content,
+      source_type,
+      reliability_score,
+      backtest_confidence,
+      metadata_json,
+      created_at,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+  ).run(
+    row.id,
+    row.organizationId,
+    row.marketId,
+    row.parentId,
+    row.userId,
+    row.agentId,
+    row.actorName,
+    row.content,
+    row.sourceType,
+    row.reliabilityScore,
+    row.backtestConfidence,
+    row.metadataJson,
+    row.createdAt,
+    row.updatedAt
+  );
+
+  return row;
+}
+
+export async function listAgentComments(params: {
+  organizationId: string;
+  marketId?: number;
+  limit?: number;
+  order?: "asc" | "desc";
+}): Promise<AgentCommentRecord[]> {
+  const organizationId = compactText(params.organizationId, 120);
+  if (!organizationId) return [];
+
+  const finalLimit = Math.min(300, Math.max(1, Math.round(params.limit ?? 60)));
+  const order = params.order === "asc" ? "ASC" : "DESC";
+  const hasMarketId =
+    typeof params.marketId === "number" && Number.isFinite(params.marketId);
+  const marketId = hasMarketId ? Math.max(0, Math.trunc(params.marketId!)) : null;
+
+  const prisma = await getPrismaClient();
+  if (prisma) {
+    const rows = hasMarketId
+      ? ((await prisma.$queryRawUnsafe(
+          `
+          SELECT
+            id,
+            org_id as "organizationId",
+            market_id as "marketId",
+            parent_id as "parentId",
+            user_id as "userId",
+            agent_id as "agentId",
+            actor_name as "actorName",
+            content,
+            source_type as "sourceType",
+            reliability_score as "reliabilityScore",
+            backtest_confidence as "backtestConfidence",
+            metadata_json as "metadataJson",
+            created_at as "createdAt",
+            updated_at as "updatedAt"
+          FROM agent_comments
+          WHERE org_id = $1 AND market_id = $2
+          ORDER BY created_at ${order}
+          LIMIT $3
+          `,
+          organizationId,
+          marketId,
+          finalLimit
+        )) as AgentCommentRow[])
+      : ((await prisma.$queryRawUnsafe(
+          `
+          SELECT
+            id,
+            org_id as "organizationId",
+            market_id as "marketId",
+            parent_id as "parentId",
+            user_id as "userId",
+            agent_id as "agentId",
+            actor_name as "actorName",
+            content,
+            source_type as "sourceType",
+            reliability_score as "reliabilityScore",
+            backtest_confidence as "backtestConfidence",
+            metadata_json as "metadataJson",
+            created_at as "createdAt",
+            updated_at as "updatedAt"
+          FROM agent_comments
+          WHERE org_id = $1
+          ORDER BY created_at ${order}
+          LIMIT $2
+          `,
+          organizationId,
+          finalLimit
+        )) as AgentCommentRow[]);
+    return rows.map(normalizeCommentRow);
+  }
+
+  const rows = hasMarketId
+    ? (db
+        .prepare(
+          `
+          SELECT
+            id,
+            org_id as organizationId,
+            market_id as marketId,
+            parent_id as parentId,
+            user_id as userId,
+            agent_id as agentId,
+            actor_name as actorName,
+            content,
+            source_type as sourceType,
+            reliability_score as reliabilityScore,
+            backtest_confidence as backtestConfidence,
+            metadata_json as metadataJson,
+            created_at as createdAt,
+            updated_at as updatedAt
+          FROM agent_comments
+          WHERE org_id = ? AND market_id = ?
+          ORDER BY created_at ${order}
+          LIMIT ?
+          `
+        )
+        .all(organizationId, marketId, finalLimit) as AgentCommentRow[])
+    : (db
+        .prepare(
+          `
+          SELECT
+            id,
+            org_id as organizationId,
+            market_id as marketId,
+            parent_id as parentId,
+            user_id as userId,
+            agent_id as agentId,
+            actor_name as actorName,
+            content,
+            source_type as sourceType,
+            reliability_score as reliabilityScore,
+            backtest_confidence as backtestConfidence,
+            metadata_json as metadataJson,
+            created_at as createdAt,
+            updated_at as updatedAt
+          FROM agent_comments
+          WHERE org_id = ?
+          ORDER BY created_at ${order}
+          LIMIT ?
+          `
+        )
+        .all(organizationId, finalLimit) as AgentCommentRow[]);
+
+  return rows.map(normalizeCommentRow);
+}
+
+export async function listAgentCommentPreviews(params: {
+  organizationId: string;
+  marketIds: number[];
+  perMarket?: number;
+}): Promise<Record<number, AgentCommentRecord[]>> {
+  const uniqueIds = Array.from(
+    new Set(
+      params.marketIds
+        .filter((value) => Number.isFinite(value))
+        .map((value) => Math.max(0, Math.trunc(value)))
+    )
+  );
+  if (uniqueIds.length === 0) return {};
+
+  const perMarket = Math.min(5, Math.max(1, Math.round(params.perMarket ?? 1)));
+  const pairs = await Promise.all(
+    uniqueIds.map(async (marketId) => [
+      marketId,
+      await listAgentComments({
+        organizationId: params.organizationId,
+        marketId,
+        limit: perMarket,
+        order: "desc",
+      }),
+    ] as const)
+  );
+
+  const byMarket: Record<number, AgentCommentRecord[]> = {};
+  for (const [marketId, comments] of pairs) {
+    byMarket[marketId] = comments;
+  }
+  return byMarket;
 }

@@ -1,10 +1,10 @@
 "use client";
 
 const TIER_STYLES: Record<string, string> = {
-  thriving: "bg-purple-500/20 text-purple-300 border-purple-500/30",
-  healthy: "bg-green-500/20 text-green-300 border-green-500/30",
-  low: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
-  critical: "bg-red-500/20 text-red-300 border-red-500/30",
+  thriving: "bg-neo-purple/20 text-neo-purple border-neo-purple/30",
+  healthy: "bg-neo-green/20 text-neo-green border-neo-green/30",
+  low: "bg-neo-yellow/20 text-neo-yellow border-neo-yellow/30",
+  critical: "bg-neo-red/20 text-neo-red border-neo-red/30",
   dead: "bg-white/[0.06] text-white/40 border-white/[0.08]",
 };
 

@@ -155,7 +155,7 @@ function TradeFeedOverlay({ trades }: { trades: TradeEvent[] }) {
     <div className="absolute inset-0 pointer-events-none overflow-hidden z-10">
       {trades.slice(-6).map((t, i) => (
         <div key={t.id} className="absolute left-2 animate-trade-slide-in" style={{ top: `${12 + i * 11}%` }}>
-          <span className={`text-[13px] font-mono font-bold tabular-nums ${t.side === "yes" ? "text-emerald-400/70" : "text-red-400/70"}`}>+ ${t.amount}</span>
+          <span className={`text-[13px] font-mono font-bold tabular-nums ${t.side === "yes" ? "text-neo-green/70" : "text-neo-red/70"}`}>+ ${t.amount}</span>
         </div>
       ))}
     </div>
@@ -627,11 +627,11 @@ function CryptoHero({ market, onBet }: { market: Market; onBet: (id: number, o?:
           <div>
             <span className="text-[11px] font-heading font-semibold tracking-wide" style={{ color: "#f59e0b" }}>
               Current Price
-              <span className={`ml-1.5 text-[13px] font-mono font-bold ${beating ? "text-emerald-400" : "text-red-400"}`}>
+              <span className={`ml-1.5 text-[13px] font-mono font-bold ${beating ? "text-neo-green" : "text-neo-red"}`}>
                 {beating ? "\u25B2" : "\u25BC"} {fmtP(Math.abs(beatDelta))}
               </span>
             </span>
-            <p className={`text-[28px] lg:text-[34px] font-heading font-extrabold tabular-nums leading-none tracking-tight ${flash === "up" ? "price-flash-up" : flash === "down" ? "price-flash-down" : ""} ${beating ? "text-emerald-400" : "text-red-400"}`}
+            <p className={`text-[28px] lg:text-[34px] font-heading font-extrabold tabular-nums leading-none tracking-tight ${flash === "up" ? "price-flash-up" : flash === "down" ? "price-flash-down" : ""} ${beating ? "text-neo-green" : "text-neo-red"}`}
                key={Math.round(currentPrice * 10000)}>
               {fmtP(currentPrice)}
             </p>
@@ -646,8 +646,8 @@ function CryptoHero({ market, onBet }: { market: Market; onBet: (id: number, o?:
       {/* ── UP / DOWN buttons — Polymarket style ── */}
       <div className="flex gap-3 mb-3">
         <button type="button" onClick={(e) => { e.preventDefault(); onBet(market.id, 1); }}
-          className={`flex-1 py-3 rounded-xl text-center font-heading font-extrabold bg-amber-600/[0.18] border border-amber-500/30 hover:bg-amber-600/[0.28] hover:border-amber-500/45 active:scale-[0.97] transition-all ${ticked ? "animate-prob-tick" : ""}`}>
-          <span className="text-amber-400 text-[17px]">UP <span className="tabular-nums">{upMult}x</span></span>
+          className={`flex-1 py-3 rounded-xl text-center font-heading font-extrabold bg-neo-orange/[0.18] border border-neo-orange/30 hover:bg-neo-orange/[0.28] hover:border-neo-orange/45 active:scale-[0.97] transition-all ${ticked ? "animate-prob-tick" : ""}`}>
+          <span className="text-neo-orange text-[17px]">UP <span className="tabular-nums">{upMult}x</span></span>
         </button>
         <button type="button" onClick={(e) => { e.preventDefault(); onBet(market.id, 0); }}
           className="flex-1 py-3 rounded-xl text-center font-heading font-extrabold bg-white/[0.06] border border-white/[0.10] hover:bg-white/[0.10] hover:border-white/[0.16] active:scale-[0.97] transition-all">
@@ -659,7 +659,11 @@ function CryptoHero({ market, onBet }: { market: Market; onBet: (id: number, o?:
       <div className="flex flex-col lg:flex-row gap-0 flex-1 min-h-0 overflow-hidden">
         <div className="lg:w-[300px] shrink-0 flex flex-col h-full min-h-0 lg:pr-3 lg:border-r lg:border-white/[0.04]">
           <div className="flex-1 min-h-0 overflow-hidden">
-            <LiveChatFeed category="crypto" question={market.question} />
+            <LiveChatFeed
+              category="crypto"
+              question={market.question}
+              marketId={market.id}
+            />
           </div>
         </div>
         <div className="flex-1 min-w-0 relative lg:pl-2 mt-2 lg:mt-0 h-full">
@@ -867,7 +871,7 @@ function PoliticsHero({ market, onBet }: { market: Market; onBet: (id: number, o
 
         {/* News feed below candidates */}
         <div className="flex-1 min-h-0 overflow-hidden mt-2 border-t border-white/[0.04] pt-2">
-          <LiveNewsFeed question={market.question} />
+          <LiveNewsFeed question={market.question} marketId={market.id} />
         </div>
       </div>
 
@@ -908,7 +912,7 @@ function DefaultHero({ market, onBet }: { market: Market; onBet: (id: number, o?
       {/* ── Prob + countdown row ── */}
       <div className="flex items-center justify-between mb-2.5">
         <div className="flex items-baseline gap-1.5">
-          <span className={`text-[28px] font-heading font-extrabold tabular-nums leading-none ${yesPct >= 50 ? "text-emerald-400" : "text-red-400"} ${ticked ? "animate-prob-tick" : ""}`} key={yesPct}>{yesPct}%</span>
+          <span className={`text-[28px] font-heading font-extrabold tabular-nums leading-none ${yesPct >= 50 ? "text-neo-green" : "text-neo-red"} ${ticked ? "animate-prob-tick" : ""}`} key={yesPct}>{yesPct}%</span>
           <span className="text-[12px] text-white/25 font-heading font-medium">chance</span>
         </div>
         <div className="text-right">
@@ -921,8 +925,8 @@ function DefaultHero({ market, onBet }: { market: Market; onBet: (id: number, o?
         <div className="lg:w-[260px] shrink-0 flex flex-col h-full min-h-0 lg:pr-3 lg:border-r lg:border-white/[0.04]">
           <div className="shrink-0 flex gap-2 mb-2.5">
             <button type="button" onClick={(e) => { e.preventDefault(); onBet(market.id, 1); }}
-              className={`flex-1 py-2 rounded-xl text-center font-heading font-bold bg-emerald-500/[0.1] border border-emerald-500/20 hover:bg-emerald-500/[0.18] hover:border-emerald-500/30 active:scale-[0.97] transition-all ${ticked ? "animate-prob-tick" : ""}`}>
-              <span className="text-emerald-400 text-[13px]">Yes <span className="tabular-nums">{yesPct}¢</span></span>
+              className={`flex-1 py-2 rounded-xl text-center font-heading font-bold bg-neo-green/[0.1] border border-neo-green/20 hover:bg-neo-green/[0.18] hover:border-neo-green/30 active:scale-[0.97] transition-all ${ticked ? "animate-prob-tick" : ""}`}>
+              <span className="text-neo-green text-[13px]">Yes <span className="tabular-nums">{yesPct}¢</span></span>
             </button>
             <button type="button" onClick={(e) => { e.preventDefault(); onBet(market.id, 0); }}
               className="flex-1 py-2 rounded-xl text-center font-heading font-bold bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.1] active:scale-[0.97] transition-all">
@@ -930,7 +934,11 @@ function DefaultHero({ market, onBet }: { market: Market; onBet: (id: number, o?
             </button>
           </div>
           <div className="flex-1 min-h-0 overflow-hidden">
-            <LiveChatFeed category={category} question={market.question} />
+            <LiveChatFeed
+              category={category}
+              question={market.question}
+              marketId={market.id}
+            />
           </div>
         </div>
         <div className="flex-1 min-w-0 relative lg:pl-2 mt-2 lg:mt-0 h-full">
@@ -1108,7 +1116,7 @@ export default function FeaturedHero({ markets, predictions, weightedProbs, late
           <div className="relative z-[1] flex items-center justify-between px-5 lg:px-6 pt-4 pb-0 gap-3">
             <div className="flex items-center gap-2.5 min-w-0">
               {category === "crypto" ? (
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-[22px] shrink-0 shadow-lg shadow-amber-500/10"
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-[22px] shrink-0 shadow-lg shadow-neo-orange/10"
                      style={{ background: catMeta.color }}>
                   <span className="text-white font-bold drop-shadow-sm">{catMeta.icon}</span>
                 </div>
@@ -1127,8 +1135,8 @@ export default function FeaturedHero({ markets, predictions, weightedProbs, late
             </div>
             <div className="flex items-center gap-1 shrink-0">
               {isLive && (
-                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase bg-red-500/[0.1] text-red-400 border border-red-500/15">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-live-breathe" />LIVE
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase bg-neo-red/[0.1] text-neo-red border border-neo-red/15">
+                  <span className="w-1.5 h-1.5 rounded-full bg-neo-red animate-live-breathe" />LIVE
                 </span>
               )}
             </div>
@@ -1154,7 +1162,7 @@ export default function FeaturedHero({ markets, predictions, weightedProbs, late
               })()}
             </span>
             <div className="flex items-center gap-3">
-              {isLive && <span className="flex items-center gap-1 text-red-400/60 text-[11px] font-bold"><span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-live-breathe" />LIVE</span>}
+              {isLive && <span className="flex items-center gap-1 text-neo-red/60 text-[11px] font-bold"><span className="w-1.5 h-1.5 rounded-full bg-neo-red animate-live-breathe" />LIVE</span>}
               <span className="flex items-center gap-2 font-heading font-semibold text-white/30 text-[13px]">
                 <TamagotchiBadge autonomousMode={true} marketDataSource="onchain" marketDataStale={false} activeAgents={1} nextTickIn={null} size={16} />
                 HiveCaster
@@ -1169,8 +1177,14 @@ export default function FeaturedHero({ markets, predictions, weightedProbs, late
             {/* Breaking News */}
             <div className="px-4 pt-4 pb-3">
               <h3 className="font-heading text-[14px] font-bold text-white/80 mb-3 flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-live-breathe" />Breaking news
-                <svg className="w-3.5 h-3.5 text-white/20 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+                <div className="w-6 h-6 rounded-md bg-neo-red/10 border border-neo-red/20 flex items-center justify-center">
+                  <svg className="w-3 h-3 text-neo-red" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" /></svg>
+                </div>
+                Breaking news
+                <span className="ml-auto flex items-center gap-1.5 rounded-md border border-neo-red/15 bg-neo-red/[0.06] px-1.5 py-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-neo-red animate-live-breathe" />
+                  <span className="text-[9px] font-bold text-neo-red/80">LIVE</span>
+                </span>
               </h3>
               {breakingNews.slice(0, 4).map((item, i) => (
                 <Link key={item.market.id} href={`/market/${item.market.id}`} className="flex items-center gap-2.5 no-underline group/item py-2 border-b border-white/[0.04] last:border-0">
@@ -1179,7 +1193,7 @@ export default function FeaturedHero({ markets, predictions, weightedProbs, late
                   <div className="shrink-0 text-right ml-1.5">
                     <span className="text-[16px] font-heading font-extrabold text-white tabular-nums leading-none">{item.aiProb}%</span>
                   </div>
-                  {item.diff !== 0 && <span className={`text-[10px] font-mono font-semibold tabular-nums shrink-0 ${item.diff > 0 ? "text-emerald-400" : "text-red-400"}`}>{item.diff > 0 ? "\u2197" : "\u2198"}{Math.abs(item.diff)}%</span>}
+                  {item.diff !== 0 && <span className={`text-[10px] font-mono font-semibold tabular-nums shrink-0 ${item.diff > 0 ? "text-neo-green" : "text-neo-red"}`}>{item.diff > 0 ? "\u2197" : "\u2198"}{Math.abs(item.diff)}%</span>}
                 </Link>
               ))}
             </div>
@@ -1189,8 +1203,10 @@ export default function FeaturedHero({ markets, predictions, weightedProbs, late
             {/* Hot Topics */}
             <div className="px-4 pt-3 pb-3">
               <h3 className="font-heading text-[14px] font-bold text-white/80 mb-3 flex items-center gap-2">
+                <div className="w-6 h-6 rounded-md bg-neo-orange/10 border border-neo-orange/20 flex items-center justify-center">
+                  <svg className="w-3 h-3 text-neo-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" /><path strokeLinecap="round" strokeLinejoin="round" d="M12 18a3.75 3.75 0 00.495-7.467 5.99 5.99 0 00-1.925 3.546 5.974 5.974 0 01-2.133-1A3.75 3.75 0 0012 18z" /></svg>
+                </div>
                 Hot topics
-                <svg className="w-3.5 h-3.5 text-white/20 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
               </h3>
               {hotTopics.map((t, i) => (
                 <div key={t.label} className="flex items-center gap-2 group/topic cursor-pointer py-2 border-b border-white/[0.04] last:border-0">

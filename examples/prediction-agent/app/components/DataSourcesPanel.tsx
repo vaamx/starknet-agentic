@@ -163,12 +163,12 @@ export default function DataSourcesPanel({
                         {result.data.length} points
                       </span>
                       {result.quality && (
-                        <span className="font-mono text-[10px] text-gray-500">
+                        <span className="font-mono text-[10px] text-white/40">
                           Q{Math.round(result.quality.overallScore * 100)}
                         </span>
                       )}
                       {result.backtest && (
-                        <span className="font-mono text-[10px] text-gray-500">
+                        <span className="font-mono text-[10px] text-white/40">
                           BT{Math.round(result.backtest.reliabilityScore * 100)}
                         </span>
                       )}
@@ -196,60 +196,55 @@ export default function DataSourcesPanel({
                       </p>
 
                       {result.quality && (
-                        <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono">
-                          <span className="text-gray-500">
-                            Reliability:{" "}
-                            <span className="font-bold text-gray-700">
-                              {Math.round(result.quality.reliabilityScore * 100)}%
+                        <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2.5 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-semibold uppercase tracking-widest text-white/35">Quality Metrics</span>
+                            <span className={`text-[10px] font-mono font-bold ${
+                              result.quality.overallScore >= 0.7 ? "text-neo-green" : result.quality.overallScore >= 0.4 ? "text-neo-yellow" : "text-neo-red"
+                            }`}>
+                              {Math.round(result.quality.overallScore * 100)}%
                             </span>
-                          </span>
-                          <span className="text-gray-500">
-                            Freshness:{" "}
-                            <span className="font-bold text-gray-700">
-                              {Math.round(result.quality.freshnessScore * 100)}%
-                            </span>
-                          </span>
-                          <span className="text-gray-500">
-                            Confidence:{" "}
-                            <span className="font-bold text-gray-700">
-                              {Math.round(result.quality.confidenceScore * 100)}%
-                            </span>
-                          </span>
-                          <span className="text-gray-500">
-                            Latency:{" "}
-                            <span className="font-bold text-gray-700">
-                              {result.quality.latencyMs}ms
-                            </span>
-                          </span>
+                          </div>
+                          {[
+                            { label: "Reliability", value: result.quality.reliabilityScore, color: "bg-neo-green/60" },
+                            { label: "Freshness", value: result.quality.freshnessScore, color: "bg-cyan-400/60" },
+                            { label: "Confidence", value: result.quality.confidenceScore, color: "bg-violet-400/60" },
+                            { label: "Coverage", value: result.quality.coverageScore, color: "bg-neo-yellow/60" },
+                          ].map((metric) => (
+                            <div key={metric.label} className="flex items-center gap-2">
+                              <span className="text-[10px] font-mono text-white/40 w-20 shrink-0">{metric.label}</span>
+                              <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                                <div className={`h-full rounded-full ${metric.color} transition-all`} style={{ width: `${Math.round(metric.value * 100)}%` }} />
+                              </div>
+                              <span className="text-[10px] font-mono text-white/50 w-8 text-right">{Math.round(metric.value * 100)}</span>
+                            </div>
+                          ))}
+                          <div className="text-[10px] font-mono text-white/30 text-right">{result.quality.latencyMs}ms</div>
                         </div>
                       )}
 
                       {result.backtest && (
-                        <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono border border-black/10 bg-white p-2">
-                          <span className="text-gray-500">
-                            Backtest score:{" "}
-                            <span className="font-bold text-gray-700">
-                              {Math.round(result.backtest.reliabilityScore * 100)}%
+                        <div className="rounded-lg border border-cyan-300/15 bg-cyan-400/[0.04] p-2.5">
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            <span className="text-[9px] font-semibold uppercase tracking-widest text-cyan-300/50">Backtest</span>
+                            <span className="text-[10px] font-mono font-bold text-cyan-300/80">
+                              R{Math.round(result.backtest.reliabilityScore * 100)}
                             </span>
-                          </span>
-                          <span className="text-gray-500">
-                            Samples:{" "}
-                            <span className="font-bold text-gray-700">
-                              {result.backtest.samples}
+                          </div>
+                          <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono">
+                            <span className="text-white/40">
+                              Samples: <span className="text-white/70">{result.backtest.samples}</span>
                             </span>
-                          </span>
-                          <span className="text-gray-500">
-                            Markets:{" "}
-                            <span className="font-bold text-gray-700">
-                              {result.backtest.markets}
+                            <span className="text-white/40">
+                              Markets: <span className="text-white/70">{result.backtest.markets}</span>
                             </span>
-                          </span>
-                          <span className="text-gray-500">
-                            Avg Brier:{" "}
-                            <span className="font-bold text-gray-700">
-                              {result.backtest.avgBrier.toFixed(3)}
+                            <span className="text-white/40">
+                              Avg Brier: <span className="text-white/70">{result.backtest.avgBrier.toFixed(3)}</span>
                             </span>
-                          </span>
+                            <span className="text-white/40">
+                              Confidence: <span className="text-white/70">{Math.round(result.backtest.confidence * 100)}%</span>
+                            </span>
+                          </div>
                         </div>
                       )}
 

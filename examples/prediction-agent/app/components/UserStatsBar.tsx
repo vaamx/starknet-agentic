@@ -39,25 +39,28 @@ export default function UserStatsBar() {
   if (!isConnected) return null;
 
   return (
-    <div className="flex items-center gap-4 text-xs text-white/60">
+    <div className="flex items-center gap-2 text-xs text-white/60">
       {stats.streak > 0 && (
-        <span className="flex items-center gap-1">
-          <span className="text-neo-orange">streak</span>
-          <span className="font-mono font-bold text-white/80">{stats.streak}</span>
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-neo-orange/20 bg-neo-orange/5">
+          <span className="w-1 h-1 rounded-full bg-neo-orange" />
+          <span className="text-[10px] text-neo-orange font-semibold">streak</span>
+          <span className="font-mono font-bold text-[10px] text-white/80">{stats.streak}</span>
         </span>
       )}
       {stats.totalBets > 0 && (
         <>
-          <span className="flex items-center gap-1">
-            <span>accuracy</span>
-            <span className="font-mono font-bold text-white/80">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-white/[0.08] bg-white/[0.03]">
+            <span className="text-[10px] text-white/50">accuracy</span>
+            <span className="font-mono font-bold text-[10px] text-white/80">
               {(stats.accuracy * 100).toFixed(0)}%
             </span>
           </span>
-          <span className="flex items-center gap-1">
-            <span>P&L</span>
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border ${
+            stats.pnl >= 0 ? "border-neo-green/20 bg-neo-green/5" : "border-neo-red/20 bg-neo-red/5"
+          }`}>
+            <span className="text-[10px] text-white/50">P&L</span>
             <span
-              className={`font-mono font-bold ${
+              className={`font-mono font-bold text-[10px] ${
                 stats.pnl >= 0 ? "text-neo-green" : "text-neo-red"
               }`}
             >

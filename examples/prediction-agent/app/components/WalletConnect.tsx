@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   useAccount,
   useConnect,
@@ -36,7 +37,11 @@ function getConnectorIcon(connector: any): string | null {
   return null;
 }
 
-export default function WalletConnect() {
+interface WalletConnectProps {
+  showTrigger?: boolean;
+}
+
+export default function WalletConnect({ showTrigger = true }: WalletConnectProps) {
   const { address, isConnected } = useAccount();
   const { connect, connectors, isPending, error } = useConnect();
   const { disconnect } = useDisconnect();
@@ -52,6 +57,7 @@ export default function WalletConnect() {
   const [authScopes, setAuthScopes] = useState<ManualAuthScope[]>([]);
   const [authConfigured, setAuthConfigured] = useState(true);
   const [sessionChecked, setSessionChecked] = useState(false);
+  const [portalReady, setPortalReady] = useState(false);
   const previousConnectedAddressRef = useRef<string | null>(null);
   const [nowMs, setNowMs] = useState(Date.now());
 
@@ -76,9 +82,30 @@ export default function WalletConnect() {
   }, []);
 
   useEffect(() => {
+    const openPanel = () => setShowDropdown(true);
+    window.addEventListener("hc-wallet-connect-open", openPanel);
+    return () => window.removeEventListener("hc-wallet-connect-open", openPanel);
+  }, []);
+
+  useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!showDropdown) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowDropdown(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showDropdown]);
 
   const availableConnectors = useMemo(() => {
     return connectors.filter((connector) => {
@@ -303,7 +330,7 @@ export default function WalletConnect() {
     setAuthExpiresAt(null);
     setAuthScopes([]);
     setSessionChecked(false);
-    void fetch("/api/auth/logout", {
+    void fetch("/api/auth/logout?scope=wallet", {
       method: "POST",
       credentials: "include",
     }).finally(() => {
@@ -319,7 +346,7 @@ export default function WalletConnect() {
     setAuthWalletAddress(null);
     setAuthExpiresAt(null);
     setAuthScopes([]);
-    void fetch("/api/auth/logout", {
+    void fetch("/api/auth/logout?scope=wallet", {
       method: "POST",
       credentials: "include",
     }).finally(() => {
@@ -367,70 +394,88 @@ export default function WalletConnect() {
 
   const renderConnectedPanel = () => (
     <>
-      <p className="text-[10px] font-mono text-white/40 uppercase">Connected</p>
-      <p className="font-mono text-xs mt-1 break-all text-white/85">{address}</p>
-      <div className="mt-2">
-        <p className="text-[10px] font-mono text-white/40 uppercase">Auth</p>
-        <p
-          className={`text-[11px] mt-1 ${
-            isSessionAuthed
-              ? "text-neo-green"
-              : authConfigured
-                ? "text-neo-yellow"
-                : "text-neo-pink"
-          }`}
-        >
-          {!authConfigured
-            ? "Manual signature auth is not configured on server"
-            : isSessionAuthed
-              ? `Verified (${formatRemaining(remainingMs)} left)`
-              : "Sign required scopes for manual actions"}
-        </p>
-        <p className="text-[10px] mt-1 text-white/45">
-          Scopes: <span className="font-mono text-white/65">{authScopeLabel}</span>
-        </p>
+      {/* Address card */}
+      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-3">
+        <div className="flex items-center justify-between mb-1.5">
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${isSessionAuthed ? "bg-neo-green" : "bg-neo-yellow"}`} />
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
+              {isSessionAuthed ? "Verified" : "Connected"}
+            </span>
+          </div>
+          {isSessionAuthed && authExpiresAt && (
+            <span className={`text-[10px] font-mono ${authExpiringSoon ? "text-neo-yellow" : "text-white/30"}`}>
+              {formatRemaining(remainingMs)} left
+            </span>
+          )}
+        </div>
+        <p className="font-mono text-xs break-all text-white/80 leading-relaxed">{address}</p>
+        <div className="flex items-center gap-1.5 mt-2">
+          <span className="text-[9px] text-white/30">Starknet Sepolia</span>
+          <span className="text-white/10">|</span>
+          <span className="text-[9px] text-white/30">Account Abstraction</span>
+        </div>
       </div>
-      <div className="mt-2 grid grid-cols-3 gap-1.5">
-        {MANUAL_AUTH_SCOPES.map((scope) => (
-          <button
-            key={scope}
-            type="button"
-            onClick={() => signScope(scope)}
-            disabled={authPending || isSigningTypedData || !authConfigured}
-            className={`rounded border px-2 py-1 text-[10px] font-mono transition-colors disabled:opacity-60 ${
-              hasScope(scope)
-                ? "border-neo-green/40 bg-neo-green/10 text-neo-green"
-                : "border-neo-yellow/35 bg-neo-yellow/10 text-neo-yellow hover:bg-neo-yellow/20"
-            }`}
-          >
-            {SCOPE_LABELS[scope]}
-          </button>
-        ))}
+
+      {/* Auth status */}
+      {!authConfigured ? (
+        <div className="rounded-lg border border-rose-500/20 bg-rose-500/[0.06] px-3 py-2 mb-3">
+          <p className="text-[11px] text-rose-300">Manual signature auth is not configured on server</p>
+        </div>
+      ) : !isSessionAuthed ? (
+        <div className="rounded-lg border border-neo-yellow/20 bg-neo-yellow/[0.06] px-3 py-2 mb-3">
+          <p className="text-[11px] text-neo-yellow">Sign required scopes for manual actions</p>
+        </div>
+      ) : null}
+
+      {/* Scope badges */}
+      <div className="mb-3">
+        <p className="text-[9px] font-semibold uppercase tracking-widest text-white/30 mb-1.5">Authorization Scopes</p>
+        <div className="grid grid-cols-3 gap-1.5">
+          {MANUAL_AUTH_SCOPES.map((scope) => (
+            <button
+              key={scope}
+              type="button"
+              onClick={() => signScope(scope)}
+              disabled={authPending || isSigningTypedData || !authConfigured}
+              className={`rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold transition-all disabled:opacity-50 ${
+                hasScope(scope)
+                  ? "border-neo-green/30 bg-neo-green/10 text-neo-green"
+                  : "border-neo-yellow/25 bg-neo-yellow/[0.08] text-neo-yellow hover:bg-neo-yellow/15"
+              }`}
+            >
+              <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${hasScope(scope) ? "bg-neo-green" : "bg-neo-yellow"}`} />
+              {SCOPE_LABELS[scope]}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="mt-3 flex items-center gap-2">
+
+      {/* Actions */}
+      <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={() => {
             signAllScopes(isSessionAuthed);
           }}
           disabled={authPending || isSigningTypedData || !authConfigured}
-          className={`neo-btn-secondary text-[11px] px-3 py-1.5 disabled:opacity-60 ${
+          className={`flex-1 rounded-lg border py-2 text-[11px] font-semibold transition-all disabled:opacity-50 ${
             isSessionAuthed
-              ? "border-neo-green/40 text-neo-green"
-              : "border-neo-yellow/40 text-neo-yellow"
+              ? "border-neo-green/25 bg-neo-green/[0.08] text-neo-green hover:bg-neo-green/15"
+              : "border-neo-brand/30 bg-neo-brand/10 text-neo-brand hover:bg-neo-brand/20"
           }`}
         >
           {authPending || isSigningTypedData
             ? "Signing..."
             : isSessionAuthed
               ? "Re-sign All"
-              : "Sign All"}
+              : "Sign All Scopes"}
         </button>
         {address && (
           <button
             type="button"
             onClick={() => copyValue(address)}
-            className="neo-btn-secondary text-[11px] px-3 py-1.5"
+            className="rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 py-2 text-[11px] font-semibold text-white/60 hover:bg-white/[0.08] transition-colors"
           >
             {copied ? "Copied" : "Copy"}
           </button>
@@ -439,7 +484,7 @@ export default function WalletConnect() {
           type="button"
           onClick={async () => {
             try {
-              await fetch("/api/auth/logout", {
+              await fetch("/api/auth/logout?scope=wallet", {
                 method: "POST",
                 credentials: "include",
               });
@@ -453,7 +498,7 @@ export default function WalletConnect() {
             setAuthError(null);
             setShowDropdown(false);
           }}
-          className="neo-btn-secondary text-[11px] px-3 py-1.5 border-neo-pink/40 text-neo-pink"
+          className="rounded-lg border border-rose-500/20 bg-rose-500/[0.06] px-3 py-2 text-[11px] font-semibold text-rose-400 hover:bg-rose-500/15 transition-colors"
         >
           Disconnect
         </button>
@@ -466,15 +511,21 @@ export default function WalletConnect() {
 
     return (
       <>
-        <p className="text-[10px] text-white/45 mb-1">
-          Optional for manual bets and market actions.
-        </p>
-        <p className="text-[10px] font-mono text-white/40 uppercase">
+        {/* Value prop strip */}
+        <div className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 mb-3 text-[10px] text-white/40">
+          <span>Account Abstraction</span>
+          <span className="text-white/10">|</span>
+          <span>Gasless via Paymaster</span>
+          <span className="text-white/10">|</span>
+          <span>Session Keys</span>
+        </div>
+
+        <p className="text-[9px] font-semibold uppercase tracking-widest text-white/30 mb-2">
           {hasConnectors ? "Select wallet" : "No wallet detected"}
         </p>
 
         {hasConnectors ? (
-          <div className="mt-2 space-y-2">
+          <div className="space-y-1.5">
             {availableConnectors.map((connector) => {
               const icon = getConnectorIcon(connector);
               return (
@@ -482,65 +533,72 @@ export default function WalletConnect() {
                   key={connector.id}
                   type="button"
                   onClick={() => connectWith(connector)}
-                  className="w-full flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-left hover:bg-white/10 transition-colors"
+                  className="w-full flex items-center gap-3 rounded-xl border border-white/[0.1] bg-white/[0.04] px-4 py-3 text-left hover:bg-white/[0.08] hover:border-white/[0.15] transition-all"
                 >
                   {icon ? (
                     <img
                       src={icon}
                       alt=""
-                      className="w-5 h-5 rounded-sm bg-white/5 border border-white/10"
+                      className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 p-0.5"
                     />
                   ) : (
-                    <span className="w-5 h-5 rounded-sm bg-white/10 border border-white/10" />
+                    <span className="w-7 h-7 rounded-lg bg-white/10 border border-white/10" />
                   )}
-                  <span className="text-xs font-mono text-white/85">{connector.name}</span>
+                  <div>
+                    <span className="text-xs font-semibold text-white/85 block">{connector.name}</span>
+                    <span className="text-[10px] text-white/35">Starknet wallet</span>
+                  </div>
+                  <svg className="w-4 h-4 text-white/20 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                  </svg>
                 </button>
               );
             })}
           </div>
         ) : (
-          <div className="mt-2 text-[11px] text-white/65 space-y-2">
+          <div className="text-[11px] text-white/55 space-y-3">
             <p>
-              No injected Starknet wallet detected in this browser. Open this page inside
-              a wallet dApp browser.
+              No injected Starknet wallet detected. Open this page inside a wallet dApp browser, or install one below.
             </p>
             {unavailableConnectors.length > 0 && (
-              <p className="text-white/45">
+              <p className="text-[10px] text-white/30">
                 Supported: {unavailableConnectors.map((connector) => connector.name).join(", ")}
               </p>
             )}
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex items-center gap-2">
               <a
                 href="https://www.argent.xyz/argent-x/"
                 target="_blank"
                 rel="noreferrer"
-                className="neo-btn-secondary text-[11px] px-3 py-1.5"
+                className="flex-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 py-2 text-center text-[11px] font-semibold text-white/70 hover:bg-white/[0.08] transition-colors"
               >
-                Argent
+                Argent X
               </a>
               <a
                 href="https://braavos.app/"
                 target="_blank"
                 rel="noreferrer"
-                className="neo-btn-secondary text-[11px] px-3 py-1.5"
+                className="flex-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 py-2 text-center text-[11px] font-semibold text-white/70 hover:bg-white/[0.08] transition-colors"
               >
                 Braavos
               </a>
               <button
                 type="button"
                 onClick={() => copyValue(window.location.href)}
-                className="neo-btn-secondary text-[11px] px-3 py-1.5"
+                className="rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 py-2 text-[11px] font-semibold text-white/50 hover:bg-white/[0.08] transition-colors"
               >
-                {copied ? "Copied URL" : "Copy URL"}
+                {copied ? "Copied" : "Copy URL"}
               </button>
             </div>
           </div>
         )}
 
         {(connectError || authError || error?.message) && (
-          <p className="mt-2 text-[11px] text-neo-pink break-words">
-            {connectError ?? authError ?? error?.message}
-          </p>
+          <div className="mt-3 rounded-lg border border-rose-500/20 bg-rose-500/[0.06] px-3 py-2">
+            <p className="text-[11px] text-rose-300 break-words">
+              {connectError ?? authError ?? error?.message}
+            </p>
+          </div>
         )}
       </>
     );
@@ -553,106 +611,135 @@ export default function WalletConnect() {
         ? shortAddress || "Connected"
         : authPending || isSigningTypedData
           ? "Signing..."
-          : "Sign Scope"
-      : "Connect User Wallet";
+          : "Verify Wallet"
+      : "Connect Wallet";
 
   const triggerClass = isConnected
     ? isSessionAuthed
-      ? "border-neo-green/40 bg-neo-green/10 text-neo-green hover:bg-neo-green/20"
-      : "border-neo-yellow/40 bg-neo-yellow/10 text-neo-yellow hover:bg-neo-yellow/20"
-    : "border-white/10 bg-white/5 text-white hover:bg-white/10";
+      ? "border-neo-green/35 bg-neo-green/12 text-neo-green hover:bg-neo-green/18"
+      : "border-neo-yellow/35 bg-neo-yellow/12 text-neo-yellow hover:bg-neo-yellow/18"
+    : "border-white/14 bg-white/[0.05] text-white/85 hover:bg-white/[0.1]";
+
+  const statusLabel = !isConnected
+    ? "Wallet not connected"
+    : !authConfigured
+      ? "Manual wallet auth unavailable"
+      : isSessionAuthed
+        ? authExpiringSoon
+          ? `Verification expiring in ${formatRemaining(remainingMs)}`
+          : `Verified for ${formatRemaining(remainingMs)}`
+        : "Signature verification needed";
+
+  const statusTone = !isConnected
+    ? "text-white/60"
+    : !authConfigured
+      ? "text-rose-200/90"
+      : isSessionAuthed
+        ? authExpiringSoon
+          ? "text-neo-yellow"
+          : "text-neo-green"
+        : "text-neo-yellow";
+
+  const statusDot = !isConnected
+    ? "bg-white/35"
+    : !authConfigured
+      ? "bg-rose-400"
+      : isSessionAuthed
+        ? authExpiringSoon
+          ? "bg-neo-yellow"
+          : "bg-neo-green"
+        : "bg-neo-yellow";
+
+  const panelContent = isConnected ? renderConnectedPanel() : renderConnectorPanel();
+
+  const dropdownLayer = showDropdown ? (
+    <>
+      <div
+        className="fixed inset-0 z-[110] bg-black/45 backdrop-blur-sm"
+        onClick={() => setShowDropdown(false)}
+      />
+      {isMobile ? (
+        <div className="fixed inset-x-3 bottom-3 z-[111] max-h-[80vh] overflow-y-auto rounded-xl border border-white/15 bg-neo-dark/95 p-4 shadow-neo-lg backdrop-blur">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-[10px] font-mono uppercase tracking-wider text-white/45">
+              Wallet Panel
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowDropdown(false)}
+              className="rounded px-2 py-1 text-[10px] text-white/65 hover:bg-white/10 hover:text-white"
+              aria-label="Close wallet panel"
+            >
+              Close
+            </button>
+          </div>
+          {panelContent}
+        </div>
+      ) : (
+        <div className="fixed inset-0 z-[111] flex items-center justify-center p-4 sm:p-6">
+          <div
+            className="w-full max-w-md max-h-[min(86vh,720px)] overflow-y-auto rounded-2xl border border-white/15 bg-neo-dark/95 p-4 shadow-neo-lg backdrop-blur animate-modal-in"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-[10px] font-mono uppercase tracking-wider text-white/45">
+                Wallet Panel
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowDropdown(false)}
+                className="rounded px-2 py-1 text-[10px] text-white/65 hover:bg-white/10 hover:text-white"
+                aria-label="Close wallet panel"
+              >
+                Close
+              </button>
+            </div>
+            {panelContent}
+          </div>
+        </div>
+      )}
+    </>
+  ) : null;
 
   return (
     <div className="relative flex items-center gap-2">
-      <div className="hidden md:flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5">
-        <span className="text-[10px] font-mono uppercase tracking-wide text-white/45">
-          Auth
-        </span>
-        <span
-          className={`text-[11px] font-mono ${
-            !isConnected
-              ? "text-white/40"
-              : !authConfigured
-                ? "text-neo-pink"
-                : isSessionAuthed
-                  ? authExpiringSoon
-                    ? "text-neo-yellow"
-                    : "text-neo-green"
-                  : "text-neo-yellow"
+      {showTrigger && isConnected && (
+        <div className="hidden xl:flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.05] px-3 py-1.5">
+          <span className={`h-1.5 w-1.5 rounded-full ${statusDot}`} />
+          <span className={`text-xs font-semibold ${statusTone}`}>
+            {statusLabel}
+          </span>
+        </div>
+      )}
+      {showTrigger && (
+        <button
+          type="button"
+          onClick={() => {
+            if (!isConnected && availableConnectors.length === 1) {
+              connectWith(availableConnectors[0]);
+              return;
+            }
+            setShowDropdown((prev) => !prev);
+          }}
+          disabled={isPending}
+          className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-[13px] font-semibold transition-colors ${triggerClass} ${
+            isPending || authPending || isSigningTypedData ? "opacity-50 cursor-not-allowed" : ""
           }`}
         >
-          {!isConnected
-            ? "no-wallet"
-            : !authConfigured
-              ? "unavailable"
-              : isSessionAuthed
-                ? formatRemaining(remainingMs)
-                : "required"}
-        </span>
-        {isConnected && isSessionAuthed && (
-          <span className="text-[10px] font-mono text-white/35">{authScopeLabel}</span>
-        )}
-        {isConnected && authConfigured && (
-          <div className="hidden lg:flex items-center gap-1">
-            {MANUAL_AUTH_SCOPES.map((scope) => (
-              <button
-                key={`header-${scope}`}
-                type="button"
-                onClick={() => signScope(scope)}
-                disabled={authPending || isSigningTypedData}
-                className={`rounded border px-1.5 py-0.5 text-[10px] font-mono transition-colors disabled:opacity-60 ${
-                  hasScope(scope)
-                    ? "border-neo-green/35 text-neo-green"
-                    : "border-neo-yellow/30 text-neo-yellow hover:bg-neo-yellow/15"
-                }`}
-              >
-                {scope}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      <button
-        type="button"
-        onClick={() => {
-          if (!isConnected && availableConnectors.length === 1) {
-            connectWith(availableConnectors[0]);
-            return;
-          }
-          setShowDropdown((prev) => !prev);
-        }}
-        disabled={isPending}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-mono transition-colors ${triggerClass} ${
-          isPending || authPending || isSigningTypedData ? "opacity-50 cursor-not-allowed" : ""
-        }`}
-      >
-        <span
-          className={`w-2 h-2 rounded-full ${
-            isConnected
-              ? isSessionAuthed
-                ? "bg-neo-green"
-                : "bg-neo-yellow"
-              : "bg-white/35"
-          }`}
-        />
-        {triggerLabel}
-      </button>
-
-      {showDropdown && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
-
-          {isMobile ? (
-            <div className="fixed inset-x-3 bottom-3 z-50 rounded-xl border border-white/15 bg-neo-dark/95 backdrop-blur p-4 shadow-neo-lg">
-              {isConnected ? renderConnectedPanel() : renderConnectorPanel()}
-            </div>
-          ) : (
-            <div className="absolute right-0 top-full mt-2 z-50 min-w-[220px] rounded-lg border border-white/10 bg-neo-dark/90 backdrop-blur shadow-neo p-3">
-              {isConnected ? renderConnectedPanel() : renderConnectorPanel()}
-            </div>
-          )}
-        </>
+          <span
+            className={`w-2 h-2 rounded-full ${
+              isConnected
+                ? isSessionAuthed
+                  ? "bg-neo-green"
+                  : "bg-neo-yellow"
+                : "bg-white/35"
+            }`}
+          />
+          {triggerLabel}
+        </button>
       )}
+
+      {portalReady && dropdownLayer ? createPortal(dropdownLayer, document.body) : null}
     </div>
   );
 }
