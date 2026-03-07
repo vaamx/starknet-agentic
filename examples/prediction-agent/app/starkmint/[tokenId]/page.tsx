@@ -261,10 +261,13 @@ export default function StarkMintTokenDetail() {
         if (!cancelled) {
           setToken({
             ...data,
-            currentPrice: data.currentPrice ?? 0,
-            totalSupply: data.totalSupply ?? 0,
-            reserveBalance: data.reserveBalance ?? 0,
-            feeBps: data.feeBps ?? 0,
+            name: typeof data.name === "string" ? data.name : String(data.name ?? "Unknown"),
+            symbol: typeof data.symbol === "string" ? data.symbol : String(data.symbol ?? "???"),
+            curveType: data.curveType ?? "linear",
+            currentPrice: typeof data.currentPrice === "number" ? data.currentPrice : Number(data.currentPrice ?? 0),
+            totalSupply: typeof data.totalSupply === "number" ? data.totalSupply : Number(data.totalSupply ?? 0),
+            reserveBalance: typeof data.reserveBalance === "number" ? data.reserveBalance : Number(data.reserveBalance ?? 0),
+            feeBps: typeof data.feeBps === "number" ? data.feeBps : Number(data.feeBps ?? 0),
           });
           setLoading(false);
         }
