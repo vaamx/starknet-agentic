@@ -205,6 +205,33 @@ export function buildDisputeTaskCalls(
 
 // ── StarkMint call builders ───────────────────────────────────────────
 
+/** Launch a new token via the StarkMint factory.
+ *  `name` and `symbol` are short strings (max 31 chars).
+ *  `curveType` is 0=Linear, 1=Quadratic, 2=Sigmoid.
+ *  `feeBps` is fee in basis points (max 1000 = 10%). */
+export function buildLaunchTokenCalls(
+  factoryAddress: string,
+  name: string,
+  symbol: string,
+  curveType: number,
+  feeBps: number,
+  agentId: bigint = 0n
+): Call[] {
+  return [
+    {
+      contractAddress: factoryAddress,
+      entrypoint: "launch_token",
+      calldata: CallData.compile({
+        name: shortString.encodeShortString(name),
+        symbol: shortString.encodeShortString(symbol),
+        curve_type: curveType,
+        fee_bps: feeBps,
+        agent_id: { low: agentId, high: 0n },
+      }),
+    },
+  ];
+}
+
 /** Approve STRK + buy tokens on a bonding curve.
  *  `amount` is the number of tokens to buy.
  *  `maxCost` is the maximum STRK the buyer is willing to pay (from get_buy_price + fee).

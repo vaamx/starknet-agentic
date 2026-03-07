@@ -33,10 +33,10 @@ const AUTH_TYPES = {
   NetworkAuth: [
     { name: "scope", type: "shortstring" },
     { name: "action", type: "shortstring" },
-    { name: "challenge_id", type: "felt252" },
-    { name: "payload_hash", type: "felt252" },
-    { name: "nonce", type: "felt252" },
-    { name: "expiry", type: "u64" },
+    { name: "challenge_id", type: "felt" },
+    { name: "payload_hash", type: "felt" },
+    { name: "nonce", type: "felt" },
+    { name: "expiry", type: "felt" },
   ],
 };
 

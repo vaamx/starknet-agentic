@@ -134,14 +134,14 @@ export default function SimpleHeader({
             </div>
           </Link>
 
-          <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
+          <nav className="hidden items-center gap-0.5 lg:flex" aria-label="Primary">
             {NAV_ITEMS.map((item) => {
               const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`rounded-xl px-3.5 py-2 text-[14px] font-semibold no-underline transition-all duration-200 ${
+                  className={`whitespace-nowrap rounded-xl px-2.5 py-2 text-[13px] font-semibold no-underline transition-all duration-200 ${
                     isActive
                       ? "bg-white/[0.11] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                       : "text-white/60 hover:bg-white/[0.06] hover:text-white"
