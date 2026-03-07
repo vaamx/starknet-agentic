@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useAccount, useSendTransaction } from "@starknet-react/core";
+import { useAccount } from "@starknet-react/core";
 import { buildResolveCalls, buildFinalizeCalls } from "@/lib/contracts";
 import { getAgentVoiceByName } from "@/lib/agent-voices";
 import QuickTradeButtons from "./QuickTradeButtons";
@@ -53,8 +53,8 @@ export default function MarketCard({
   onAnalyze,
   onBet,
 }: MarketCardProps) {
-  const { address: connectedAddress, isConnected } = useAccount();
-  const { sendAsync, isPending: resolving } = useSendTransaction({});
+  const { address: connectedAddress, isConnected, account } = useAccount();
+  const [resolving, setResolving] = useState(false);
   const [resolveResult, setResolveResult] = useState<string | null>(null);
 
   const yesPercent = Math.round(impliedProbYes * 100);
@@ -106,17 +106,21 @@ export default function MarketCard({
     connectedAddress.toLowerCase() === oracle.toLowerCase();
 
   const handleResolve = async (outcome: 0 | 1) => {
+    if (!account) return;
     setResolveResult(null);
+    setResolving(true);
     try {
       const resolveCalls = buildResolveCalls(marketAddress, outcome);
       const finalizeCalls = buildFinalizeCalls(id, outcome);
       const allCalls = [...resolveCalls, ...finalizeCalls];
-      const response = await sendAsync(allCalls);
+      const response = await account.execute(allCalls);
       setResolveResult(
         `Resolved as ${outcome === 1 ? "YES" : "NO"} - tx: ${response.transaction_hash.slice(0, 16)}...`
       );
     } catch (err: any) {
       setResolveResult(`Error: ${err.message}`);
+    } finally {
+      setResolving(false);
     }
   };
 

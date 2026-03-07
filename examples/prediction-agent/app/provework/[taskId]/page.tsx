@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useAccount, useSendTransaction } from "@starknet-react/core";
+import { useAccount } from "@starknet-react/core";
 import SiteHeader from "@/components/SiteHeader";
 import Footer from "@/components/Footer";
 import {
@@ -127,8 +127,8 @@ function TimelineItem({ event, isLast }: { event: TimelineEvent; isLast: boolean
 /* ------------------------------------------------------------------ */
 
 function TaskActions({ taskId, status, onSuccess }: { taskId: string; status: TaskStatus; onSuccess?: () => void }) {
-  const { isConnected } = useAccount();
-  const { sendAsync, isPending } = useSendTransaction({});
+  const { isConnected, account } = useAccount();
+  const [sending, setSending] = useState(false);
   const [activeAction, setActiveAction] = useState<"bid" | "proof" | "dispute" | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [txResult, setTxResult] = useState<{ status: string; txHash?: string; error?: string } | null>(null);
@@ -137,63 +137,75 @@ function TaskActions({ taskId, status, onSuccess }: { taskId: string; status: Ta
   const taskIdBigInt = BigInt(taskId);
 
   async function handleBid() {
-    if (!inputValue) return;
+    if (!inputValue || !account) return;
     setTxResult(null);
+    setSending(true);
     try {
       const amount = BigInt(Math.floor(parseFloat(inputValue) * 1e18));
       const calls = buildBidTaskCalls(escrow, taskIdBigInt, amount);
-      const res = await sendAsync(calls);
+      const res = await account.execute(calls);
       setTxResult({ status: "success", txHash: res.transaction_hash });
       setActiveAction(null);
       setInputValue("");
-      // Refresh after a short delay for on-chain confirmation
       setTimeout(() => onSuccess?.(), 5000);
     } catch (err: any) {
       setTxResult({ status: "error", error: err.message });
+    } finally {
+      setSending(false);
     }
   }
 
   async function handleSubmitProof() {
-    if (!inputValue) return;
+    if (!inputValue || !account) return;
     setTxResult(null);
+    setSending(true);
     try {
       const proofHash = BigInt(inputValue);
       const calls = buildSubmitProofCalls(escrow, taskIdBigInt, proofHash);
-      const res = await sendAsync(calls);
+      const res = await account.execute(calls);
       setTxResult({ status: "success", txHash: res.transaction_hash });
       setActiveAction(null);
       setInputValue("");
       setTimeout(() => onSuccess?.(), 5000);
     } catch (err: any) {
       setTxResult({ status: "error", error: err.message });
+    } finally {
+      setSending(false);
     }
   }
 
   async function handleApprove() {
+    if (!account) return;
     setTxResult(null);
+    setSending(true);
     try {
       const calls = buildApproveTaskCalls(escrow, taskIdBigInt);
-      const res = await sendAsync(calls);
+      const res = await account.execute(calls);
       setTxResult({ status: "success", txHash: res.transaction_hash });
       setTimeout(() => onSuccess?.(), 5000);
     } catch (err: any) {
       setTxResult({ status: "error", error: err.message });
+    } finally {
+      setSending(false);
     }
   }
 
   async function handleDispute() {
-    if (!inputValue) return;
+    if (!inputValue || !account) return;
     setTxResult(null);
+    setSending(true);
     try {
       const reasonHash = BigInt(inputValue);
       const calls = buildDisputeTaskCalls(escrow, taskIdBigInt, reasonHash);
-      const res = await sendAsync(calls);
+      const res = await account.execute(calls);
       setTxResult({ status: "success", txHash: res.transaction_hash });
       setActiveAction(null);
       setInputValue("");
       setTimeout(() => onSuccess?.(), 5000);
     } catch (err: any) {
       setTxResult({ status: "error", error: err.message });
+    } finally {
+      setSending(false);
     }
   }
 
@@ -215,7 +227,7 @@ function TaskActions({ taskId, status, onSuccess }: { taskId: string; status: Ta
         {status === "open" && (
           <button
             onClick={() => { setActiveAction(activeAction === "bid" ? null : "bid"); setInputValue(""); }}
-            disabled={isPending}
+            disabled={sending}
             className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-xs font-semibold text-emerald-300 hover:bg-emerald-400/15 transition-all disabled:opacity-40"
           >
             Place Bid
@@ -224,7 +236,7 @@ function TaskActions({ taskId, status, onSuccess }: { taskId: string; status: Ta
         {status === "assigned" && (
           <button
             onClick={() => { setActiveAction(activeAction === "proof" ? null : "proof"); setInputValue(""); }}
-            disabled={isPending}
+            disabled={sending}
             className="inline-flex items-center gap-1.5 rounded-xl border border-amber-400/20 bg-amber-400/10 px-4 py-2 text-xs font-semibold text-amber-300 hover:bg-amber-400/15 transition-all disabled:opacity-40"
           >
             Submit Proof
@@ -234,14 +246,14 @@ function TaskActions({ taskId, status, onSuccess }: { taskId: string; status: Ta
           <>
             <button
               onClick={handleApprove}
-              disabled={isPending}
+              disabled={sending}
               className="inline-flex items-center gap-1.5 rounded-xl border border-green-400/20 bg-green-400/10 px-4 py-2 text-xs font-semibold text-green-300 hover:bg-green-400/15 transition-all disabled:opacity-40"
             >
-              {isPending ? "Signing..." : "Approve"}
+              {sending ? "Signing..." : "Approve"}
             </button>
             <button
               onClick={() => { setActiveAction(activeAction === "dispute" ? null : "dispute"); setInputValue(""); }}
-              disabled={isPending}
+              disabled={sending}
               className="inline-flex items-center gap-1.5 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-2 text-xs font-semibold text-red-300 hover:bg-red-400/15 transition-all disabled:opacity-40"
             >
               Dispute
@@ -263,10 +275,10 @@ function TaskActions({ taskId, status, onSuccess }: { taskId: string; status: Ta
           />
           <button
             onClick={handleBid}
-            disabled={isPending || !inputValue}
+            disabled={sending || !inputValue}
             className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-xs font-semibold text-emerald-300 hover:bg-emerald-400/15 transition-all disabled:opacity-40"
           >
-            {isPending ? "Signing..." : "Submit Bid"}
+            {sending ? "Signing..." : "Submit Bid"}
           </button>
         </div>
       )}
@@ -282,10 +294,10 @@ function TaskActions({ taskId, status, onSuccess }: { taskId: string; status: Ta
           />
           <button
             onClick={handleSubmitProof}
-            disabled={isPending || !inputValue}
+            disabled={sending || !inputValue}
             className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-4 py-2 text-xs font-semibold text-amber-300 hover:bg-amber-400/15 transition-all disabled:opacity-40"
           >
-            {isPending ? "Signing..." : "Submit"}
+            {sending ? "Signing..." : "Submit"}
           </button>
         </div>
       )}
@@ -301,10 +313,10 @@ function TaskActions({ taskId, status, onSuccess }: { taskId: string; status: Ta
           />
           <button
             onClick={handleDispute}
-            disabled={isPending || !inputValue}
+            disabled={sending || !inputValue}
             className="rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-2 text-xs font-semibold text-red-300 hover:bg-red-400/15 transition-all disabled:opacity-40"
           >
-            {isPending ? "Signing..." : "Dispute"}
+            {sending ? "Signing..." : "Dispute"}
           </button>
         </div>
       )}
