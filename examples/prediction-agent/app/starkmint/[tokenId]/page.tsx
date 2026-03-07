@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useAccount, useSendTransaction } from "@starknet-react/core";
+import { useAccount } from "@starknet-react/core";
 import SiteHeader from "@/components/SiteHeader";
 import Footer from "@/components/Footer";
 import { buildBuyCurveCalls, buildSellCurveCalls } from "@/lib/contracts";
@@ -159,14 +159,15 @@ function BondingCurveSvg({
 // ── Trade Button (wallet-connected) ──────────────────────────────────────────
 
 function TradeButton({ tab, token, amount }: { tab: "buy" | "sell"; token: TokenDetail; amount: string }) {
-  const { isConnected } = useAccount();
-  const { sendAsync, isPending } = useSendTransaction({});
+  const { isConnected, account } = useAccount();
+  const [sending, setSending] = useState(false);
   const [txResult, setTxResult] = useState<{ status: string; txHash?: string; error?: string } | null>(null);
 
   async function handleTrade() {
     const qty = parseFloat(amount);
-    if (!qty || qty <= 0) return;
+    if (!qty || qty <= 0 || !account) return;
     setTxResult(null);
+    setSending(true);
     try {
       const amountWei = BigInt(Math.floor(qty * 1e18));
       const curveAddress = token.curveAddress ?? token.id;
@@ -175,10 +176,12 @@ function TradeButton({ tab, token, amount }: { tab: "buy" | "sell"; token: Token
       const calls = tab === "buy"
         ? buildBuyCurveCalls(curveAddress, amountWei, estimatedCost)
         : buildSellCurveCalls(curveAddress, tokenAddress, amountWei);
-      const res = await sendAsync(calls);
+      const res = await account.execute(calls);
       setTxResult({ status: "success", txHash: res.transaction_hash });
     } catch (err: any) {
-      setTxResult({ status: "error", error: err.message });
+      setTxResult({ status: "error", error: err.message ?? "Transaction failed" });
+    } finally {
+      setSending(false);
     }
   }
 
@@ -194,14 +197,14 @@ function TradeButton({ tab, token, amount }: { tab: "buy" | "sell"; token: Token
     <div className="space-y-2">
       <button
         onClick={handleTrade}
-        disabled={isPending || !amount || parseFloat(amount) <= 0}
+        disabled={sending || !amount || parseFloat(amount) <= 0}
         className={`w-full h-11 rounded-xl text-sm font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
           tab === "buy"
             ? "bg-gradient-to-r from-emerald-500 to-emerald-600 text-white hover:from-emerald-400 hover:to-emerald-500 shadow-lg shadow-emerald-500/20"
             : "bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-400 hover:to-red-500 shadow-lg shadow-red-500/20"
         }`}
       >
-        {isPending
+        {sending
           ? "Signing Transaction..."
           : tab === "buy"
           ? `Buy ${token.symbol}`
@@ -288,6 +291,14 @@ export default function StarkMintTokenDetail() {
     }
   }, [token]);
 
+  // Hooks must be called unconditionally (before any early returns)
+  const estimatedCost = useMemo(() => {
+    if (!token) return null;
+    const qty = parseFloat(amount);
+    if (!qty || qty <= 0) return null;
+    return tab === "buy" ? qty * token.currentPrice : qty * token.currentPrice * 0.98;
+  }, [amount, tab, token]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)" }}>
@@ -320,12 +331,6 @@ export default function StarkMintTokenDetail() {
   const cb = CURVE_BADGE[token.curveType] ?? CURVE_BADGE.linear;
   const maxSupply = token.maxSupply ?? token.totalSupply * 2;
   const supplyPct = maxSupply > 0 ? token.totalSupply / maxSupply : 0;
-
-  const estimatedCost = useMemo(() => {
-    const qty = parseFloat(amount);
-    if (!qty || qty <= 0) return null;
-    return tab === "buy" ? qty * token.currentPrice : qty * token.currentPrice * 0.98;
-  }, [amount, tab, token.currentPrice]);
 
   const infoGrid = [
     { label: "Creator", value: truncateAddress(token.creator), mono: true },
