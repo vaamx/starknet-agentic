@@ -28,13 +28,12 @@ interface SimpleHeaderProps {
 }
 
 const NAV_ITEMS = [
-  { href: "/", label: "Markets" },
+  { href: "/markets", label: "Markets" },
   { href: "/fleet", label: "Fleet" },
   { href: "/souk", label: "AgentSouk" },
   { href: "/provework", label: "ProveWork" },
   { href: "/starkmint", label: "StarkMint" },
   { href: "/guilds", label: "Guilds" },
-  { href: "/landing", label: "How It Works" },
 ];
 
 export default function SimpleHeader({
@@ -136,7 +135,7 @@ export default function SimpleHeader({
 
           <nav className="hidden items-center gap-0.5 lg:flex" aria-label="Primary">
             {NAV_ITEMS.map((item) => {
-              const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+              const isActive = pathname.startsWith(item.href);
               return (
                 <Link
                   key={item.href}
@@ -345,13 +344,6 @@ export default function SimpleHeader({
                         className="block rounded-lg px-3 py-2 text-sm font-medium text-white/75 no-underline transition-colors hover:bg-white/[0.06] hover:text-white"
                       >
                         🏛️ Guilds
-                      </Link>
-                      <Link
-                        href="/landing"
-                        onClick={() => setMenuOpen(false)}
-                        className="block rounded-lg px-3 py-2 text-sm font-medium text-white/75 no-underline transition-colors hover:bg-white/[0.06] hover:text-white"
-                      >
-                        🧭 How It Works
                       </Link>
                       <a
                         href="/api/swagger"

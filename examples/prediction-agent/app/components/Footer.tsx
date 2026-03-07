@@ -4,9 +4,9 @@ import Link from "next/link";
 import TamagotchiBadge from "./dashboard/TamagotchiBadge";
 
 const FOOTER_NAV = [
-  { href: "/", label: "Markets" },
+  { href: "/markets", label: "Markets" },
   { href: "/fleet", label: "Fleet" },
-  { href: "/landing", label: "How It Works" },
+  { href: "/souk", label: "AgentSouk" },
 ];
 
 const FOOTER_RESOURCES = [
