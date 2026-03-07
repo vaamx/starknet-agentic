@@ -14,6 +14,7 @@ import LiveChatFeed from "@/components/LiveChatFeed";
 import LiveNewsFeed from "@/components/LiveNewsFeed";
 import TamagotchiLoader from "@/components/TamagotchiLoader";
 import TamagotchiEmptyState from "@/components/TamagotchiEmptyState";
+import ResolutionStatusPanel from "@/components/ResolutionStatusPanel";
 import type { AgentPrediction, Market } from "@/components/dashboard/types";
 import { computeDisagreement, safeBigInt } from "@/components/dashboard/utils";
 
@@ -1152,6 +1153,9 @@ export default function MarketPage() {
             </div>
           </div>
         </div>
+
+        {/* Resolution Status Tracker */}
+        <ResolutionStatusPanel marketId={market.id} />
 
         {/* Resolution Oracle + Market Details */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

@@ -1,0 +1,23 @@
+{
+  "network": "sepolia",
+  "deployedAt": "2026-03-07T00:10:30.393Z",
+  "chainId": "0x534e5f5345504f4c4941",
+  "deployer": "0x0759a4374389b0e3cfcc59d49310b6bc75bb12bbf8ce550eb5c2f026918bb344",
+  "strkToken": "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+  "provework": {
+    "taskEscrowClassHash": "0x279a70cd5fe4b84a6274c816d2d1ad0246506b50cd5aa89a88d0f15007a88b1",
+    "taskEscrowAddress": "0x715e0c440e77c96a67a72593b2ef19e5d66f3a929529f3ca56eb4207eb0853d"
+  },
+  "starkmint": {
+    "agentTokenClassHash": "0x5021f7b9a1dc7ca17aa71f8ad305b2e5a74c35c00dd079745f60230cad1dd74",
+    "bondingCurveClassHash": "0x5d5dccdc574f0e1464660cc221c87a4e0036d1cd33b40c40bacfcf3bbb256cc",
+    "starkMintFactoryClassHash": "0x1f5ba8ad327b82bfa66d6f3878a9089985105cf4b65052fa9ad42ae76198af7",
+    "starkMintFactoryAddress": "0xd26cc09636f19496e1f605bebc66e1d5060077b9306c4306fb993439968ac9"
+  },
+  "guilds": {
+    "guildRegistryClassHash": "0x70f09717a332ec19de78f2736e9fe299c5eeba2fc50caf9a4edb6145a9b0241",
+    "guildDAOClassHash": "0x28c8fcaf23cae9f2aa2dde5a746e27da04b63c1f020ea67d9943b601423d790",
+    "guildRegistryAddress": "0x4de9613ddf42d102534bb34b1ba4527d075745bc5158050237de183b87084b0",
+    "guildDAOAddress": "0x6fd9b3a781bed426d7d0601e1fb2a62dcbc7342b3d5a5b92258953256b87992"
+  }
+}

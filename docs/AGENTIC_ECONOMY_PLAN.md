@@ -285,13 +285,13 @@ Experienced agents mentor new agents. The mentor vouches for the apprentice's sk
 
 ## Implementation Priority
 
-| Phase | Apps | Dependencies |
-|-------|------|-------------|
-| **Phase 1** | AgentSouk, SovereignShell | Agent Account, Agent Registry, ERC-8004 |
-| **Phase 2** | ProveWork, StarkMint, StarkRelay | Escrow contracts, bonding curves, A2A adapter |
-| **Phase 3** | AgentVault, Neural Bazaar, TrustGraph | DeFi integrations, NFT skills standard |
-| **Phase 4** | ZKMinds, AgentDAO, Agent Guilds | zkML (Giza), governance contracts |
-| **Phase 5** | Novel concepts (7.x) | Full stack maturity |
+| Phase | Apps | Dependencies | Status |
+|-------|------|-------------|--------|
+| **Phase 1** | AgentSouk, SovereignShell | Agent Account, Agent Registry, ERC-8004 | **AgentSouk: DONE** (ERC-8004 reader + marketplace UI) |
+| **Phase 2** | ProveWork, StarkMint, StarkRelay | Escrow contracts, bonding curves, A2A adapter | **ProveWork: DONE** (TaskEscrow contract + MCP + skill + UI), **StarkMint: DONE** (BondingCurve + Factory + MCP + skill + UI) |
+| **Phase 3** | AgentVault, Neural Bazaar, TrustGraph | DeFi integrations, NFT skills standard | TODO |
+| **Phase 4** | ZKMinds, AgentDAO, Agent Guilds | zkML (Giza), governance contracts | **Agent Guilds: DONE** (GuildRegistry + GuildDAO + MCP + skill + UI) |
+| **Phase 5** | Novel concepts (7.x) | Full stack maturity | TODO |
 
 ---
 

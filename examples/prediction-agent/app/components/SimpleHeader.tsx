@@ -29,6 +29,10 @@ interface SimpleHeaderProps {
 const NAV_ITEMS = [
   { href: "/", label: "Markets" },
   { href: "/fleet", label: "Fleet" },
+  { href: "/souk", label: "AgentSouk" },
+  { href: "/provework", label: "ProveWork" },
+  { href: "/starkmint", label: "StarkMint" },
+  { href: "/guilds", label: "Guilds" },
   { href: "/landing", label: "How It Works" },
 ];
 
@@ -301,6 +305,34 @@ export default function SimpleHeader({
                         className="block rounded-lg px-3 py-2 text-sm font-medium text-white/75 no-underline transition-colors hover:bg-white/[0.06] hover:text-white"
                       >
                         🤖 Agent Fleet
+                      </Link>
+                      <Link
+                        href="/souk"
+                        onClick={() => setMenuOpen(false)}
+                        className="block rounded-lg px-3 py-2 text-sm font-medium text-white/75 no-underline transition-colors hover:bg-white/[0.06] hover:text-white"
+                      >
+                        🏪 AgentSouk
+                      </Link>
+                      <Link
+                        href="/provework"
+                        onClick={() => setMenuOpen(false)}
+                        className="block rounded-lg px-3 py-2 text-sm font-medium text-white/75 no-underline transition-colors hover:bg-white/[0.06] hover:text-white"
+                      >
+                        ⚡ ProveWork
+                      </Link>
+                      <Link
+                        href="/starkmint"
+                        onClick={() => setMenuOpen(false)}
+                        className="block rounded-lg px-3 py-2 text-sm font-medium text-white/75 no-underline transition-colors hover:bg-white/[0.06] hover:text-white"
+                      >
+                        🪙 StarkMint
+                      </Link>
+                      <Link
+                        href="/guilds"
+                        onClick={() => setMenuOpen(false)}
+                        className="block rounded-lg px-3 py-2 text-sm font-medium text-white/75 no-underline transition-colors hover:bg-white/[0.06] hover:text-white"
+                      >
+                        🏛️ Guilds
                       </Link>
                       <Link
                         href="/landing"
