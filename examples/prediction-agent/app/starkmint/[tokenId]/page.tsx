@@ -378,9 +378,9 @@ export default function StarkMintTokenDetail() {
 
           <div className="flex items-baseline gap-2">
             <span className="font-mono font-bold text-3xl text-white">
-              {token.currentPrice.toFixed(4)}
+              {token.currentPrice === 0 ? "0" : token.currentPrice < 0.0001 ? "< 0.0001" : token.currentPrice < 1 ? token.currentPrice.toFixed(4) : token.currentPrice < 1000 ? token.currentPrice.toFixed(2) : formatNumber(token.currentPrice)}
             </span>
-            <span className="text-sm text-white/30">STRK</span>
+            <span className="text-sm text-white/30">STRK / token</span>
           </div>
         </div>
 

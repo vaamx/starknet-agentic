@@ -102,8 +102,8 @@ const PAYMENT_TYPES = {
   ForecastPayment: [
     { name: "amount",    type: "u256" },
     { name: "recipient", type: "ContractAddress" },
-    { name: "nonce",     type: "felt252" },
-    { name: "expiry",    type: "u64" },
+    { name: "nonce",     type: "felt" },
+    { name: "expiry",    type: "felt" },
     { name: "endpoint",  type: "shortstring" },
   ],
   u256: [

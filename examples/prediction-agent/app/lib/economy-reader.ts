@@ -148,14 +148,14 @@ const ERC20_ABI = [
     name: "name",
     type: "function",
     inputs: [],
-    outputs: [{ type: "core::felt252" }],
+    outputs: [{ type: "core::byte_array::ByteArray" }],
     state_mutability: "view",
   },
   {
     name: "symbol",
     type: "function",
     inputs: [],
-    outputs: [{ type: "core::felt252" }],
+    outputs: [{ type: "core::byte_array::ByteArray" }],
     state_mutability: "view",
   },
 ] as const;
@@ -425,18 +425,19 @@ async function readLaunch(index: number): Promise<OnChainToken | null> {
     const agentId = Number(raw[4]);
     const createdAt = Number(raw[5]);
 
-    // Read token name/symbol
+    // Read token name/symbol (OZ ERC20 returns ByteArray, starknet.js decodes to string)
     const tokenContract = new Contract({
       abi: ERC20_ABI as any,
       address: tokenAddress,
       providerOrAccount: provider,
     });
     const [nameRaw, symbolRaw] = await Promise.all([
-      tokenContract.name().catch(() => "0x0"),
-      tokenContract.symbol().catch(() => "0x0"),
+      tokenContract.name().catch(() => "Unknown"),
+      tokenContract.symbol().catch(() => "???"),
     ]);
-    const name = felt252ToString(nameRaw);
-    const symbol = felt252ToString(symbolRaw);
+    // starknet.js v8 decodes ByteArray to string automatically
+    const name = typeof nameRaw === "string" ? nameRaw : felt252ToString(nameRaw);
+    const symbol = typeof symbolRaw === "string" ? symbolRaw : felt252ToString(symbolRaw);
 
     // Read curve data
     const curve = new Contract({
@@ -444,13 +445,19 @@ async function readLaunch(index: number): Promise<OnChainToken | null> {
       address: curveAddress,
       providerOrAccount: provider,
     });
-    const [supply, reserve, feeBps, buyPrice] = await Promise.all([
+    const [supply, reserve, feeBps, spotPriceRaw] = await Promise.all([
       curve.get_current_supply().catch(() => 0n),
       curve.get_reserve_balance().catch(() => 0n),
       curve.get_fee_bps().catch(() => 0),
-      // Price for 1 token (1e18 wei)
-      curve.get_buy_price(BigInt(1e18)).catch(() => 0n),
+      // Marginal price: cost of 1 wei of token = spot price.
+      // Since 1 token = 1e18 wei and 1 STRK = 1e18 wei, the raw value
+      // in wei_reserve/wei_token equals the price in STRK/token.
+      curve.get_buy_price(1n).catch(() => 0n),
     ]);
+
+    // Spot price: Number(get_buy_price(1)) gives wei_reserve per wei_token.
+    // For quadratic at 0 supply this is 0 (correct — price starts at 0).
+    const spotPrice = Number(BigInt(String(spotPriceRaw)));
 
     return {
       id: `launch-${index}`,
@@ -459,7 +466,7 @@ async function readLaunch(index: number): Promise<OnChainToken | null> {
       name,
       symbol,
       curveType,
-      currentPrice: toStrk(buyPrice),
+      currentPrice: spotPrice,
       totalSupply: toStrk(supply),
       reserveBalance: toStrk(reserve),
       feeBps: Number(feeBps),

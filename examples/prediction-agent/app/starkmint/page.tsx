@@ -2,8 +2,10 @@
 
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
+import { useAccount, useSendTransaction } from "@starknet-react/core";
 import SiteHeader from "@/components/SiteHeader";
 import Footer from "@/components/Footer";
+import { buildLaunchTokenCalls, ECONOMY } from "@/lib/contracts";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,7 +33,8 @@ function useTokenLaunches() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const refetch = () => {
+    setLoading(true);
     fetch("/api/starkmint/tokens")
       .then((r) => {
         if (!r.ok) throw new Error(`Failed to load tokens (${r.status})`);
@@ -50,9 +53,11 @@ function useTokenLaunches() {
       })
       .catch((e) => setError(e.message ?? "Failed to load tokens"))
       .finally(() => setLoading(false));
-  }, []);
+  };
 
-  return { tokens, loading, error };
+  useEffect(() => { refetch(); }, []);
+
+  return { tokens, loading, error, refetch };
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -75,6 +80,8 @@ const DIRECTION_COLORS: Record<string, string> = {
   flat: "from-white/20 to-white/5",
 };
 
+const CURVE_TYPE_MAP: Record<string, number> = { linear: 0, quadratic: 1, sigmoid: 2 };
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function truncateAddress(addr: string): string {
@@ -87,6 +94,14 @@ function formatNumber(n: number | undefined | null): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toLocaleString();
+}
+
+function formatPrice(n: number): string {
+  if (n === 0) return "0";
+  if (n < 0.0001) return "< 0.0001";
+  if (n < 1) return n.toFixed(4);
+  if (n < 1000) return n.toFixed(2);
+  return formatNumber(n);
 }
 
 function timeAgo(ts: number): string {
@@ -138,13 +153,188 @@ function StatsBar({ launches }: { launches: TokenLaunch[] }) {
   );
 }
 
+// ── Launch Token Modal ───────────────────────────────────────────────────────
+
+function LaunchTokenModal({
+  open,
+  onClose,
+  onSuccess,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { isConnected } = useAccount();
+  const { sendAsync, isPending } = useSendTransaction({});
+  const [name, setName] = useState("");
+  const [symbol, setSymbol] = useState("");
+  const [curveType, setCurveType] = useState<CurveType>("linear");
+  const [feeBps, setFeeBps] = useState("100");
+  const [txResult, setTxResult] = useState<{ status: string; txHash?: string; error?: string } | null>(null);
+
+  async function handleLaunch() {
+    if (!name.trim() || !symbol.trim()) return;
+    if (name.length > 31 || symbol.length > 31) return;
+    setTxResult(null);
+    try {
+      const factoryAddress = ECONOMY.BONDING_CURVE_FACTORY;
+      if (factoryAddress === "0x0") {
+        setTxResult({ status: "error", error: "Factory contract not configured" });
+        return;
+      }
+      const calls = buildLaunchTokenCalls(
+        factoryAddress,
+        name.trim(),
+        symbol.trim().toUpperCase(),
+        CURVE_TYPE_MAP[curveType],
+        parseInt(feeBps, 10) || 100,
+      );
+      const res = await sendAsync(calls);
+      setTxResult({ status: "success", txHash: res.transaction_hash });
+      setTimeout(() => {
+        onSuccess();
+        onClose();
+      }, 2000);
+    } catch (err: any) {
+      setTxResult({ status: "error", error: err.message ?? "Transaction failed" });
+    }
+  }
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="neo-card w-full max-w-md mx-4 p-6 space-y-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="font-heading font-bold text-lg text-white">Launch Token</h2>
+          <button onClick={onClose} className="text-white/30 hover:text-white/60 transition-colors text-xl leading-none">&times;</button>
+        </div>
+
+        {!isConnected ? (
+          <div className="text-center py-8 border border-dashed border-white/10 rounded-xl">
+            <p className="text-white/50 text-sm">Connect your wallet to launch a token</p>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-white/35 block mb-1">
+                  Token Name <span className="text-white/20">(max 31 chars)</span>
+                </label>
+                <input
+                  type="text"
+                  maxLength={31}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. OracleNode"
+                  className="w-full h-10 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-sm text-white placeholder:text-white/20 outline-none focus:border-white/[0.15]"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-white/35 block mb-1">
+                  Symbol <span className="text-white/20">(max 31 chars)</span>
+                </label>
+                <input
+                  type="text"
+                  maxLength={31}
+                  value={symbol}
+                  onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+                  placeholder="e.g. ORCL"
+                  className="w-full h-10 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-sm font-mono text-white placeholder:text-white/20 outline-none focus:border-white/[0.15]"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-white/35 block mb-1">
+                  Bonding Curve
+                </label>
+                <div className="flex gap-2">
+                  {(["linear", "quadratic", "sigmoid"] as const).map((ct) => {
+                    const cc = CURVE_COLORS[ct];
+                    return (
+                      <button
+                        key={ct}
+                        onClick={() => setCurveType(ct)}
+                        className={`flex-1 rounded-lg py-2 text-[11px] font-semibold capitalize transition-all border ${
+                          curveType === ct
+                            ? `${cc.bg} ${cc.text} ${cc.border}`
+                            : "text-white/40 border-white/[0.06] hover:text-white/60"
+                        }`}
+                      >
+                        {ct}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-white/35 block mb-1">
+                  Fee <span className="text-white/20">(basis points, max 1000)</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="1000"
+                  value={feeBps}
+                  onChange={(e) => setFeeBps(e.target.value)}
+                  className="w-full h-10 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-sm font-mono text-white placeholder:text-white/20 outline-none focus:border-white/[0.15]"
+                />
+                <p className="text-[9px] text-white/20 mt-1">
+                  {parseInt(feeBps, 10) || 0} bps = {((parseInt(feeBps, 10) || 0) / 100).toFixed(2)}% per trade
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={handleLaunch}
+              disabled={isPending || !name.trim() || !symbol.trim() || name.length > 31 || symbol.length > 31}
+              className="w-full h-11 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-500 text-white text-sm font-semibold hover:from-violet-400 hover:to-cyan-400 transition-all shadow-lg shadow-violet-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {isPending ? "Signing Transaction..." : "Launch Token"}
+            </button>
+
+            {txResult && (
+              <div className={`p-3 border text-xs font-mono rounded-lg ${
+                txResult.status === "success"
+                  ? "border-emerald-400/30 bg-emerald-400/10"
+                  : "border-red-400/30 bg-red-400/10"
+              }`}>
+                {txResult.status === "success" ? (
+                  <>
+                    <span className="font-bold text-emerald-300">Token launched!</span>
+                    {txResult.txHash && (
+                      <a
+                        href={`https://sepolia.voyager.online/tx/${txResult.txHash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block text-sky-400/70 mt-1 hover:underline break-all"
+                      >
+                        {txResult.txHash.slice(0, 20)}...
+                      </a>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-red-300">{txResult.error}</span>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function StarkMintPage() {
-  const { tokens: allTokens, loading, error } = useTokenLaunches();
+  const { tokens: allTokens, loading, error, refetch } = useTokenLaunches();
   const [search, setSearch] = useState("");
   const [curveFilter, setCurveFilter] = useState<CurveFilter>("all");
   const [sortBy, setSortBy] = useState<SortOption>("newest");
+  const [showLaunchModal, setShowLaunchModal] = useState(false);
 
   useEffect(() => {
     document.title = "StarkMint — Agent Token Launchpad";
@@ -153,12 +343,10 @@ export default function StarkMintPage() {
   const filtered = useMemo(() => {
     let tokens = [...allTokens];
 
-    // Filter by curve type
     if (curveFilter !== "all") {
       tokens = tokens.filter((t) => t.curveType === curveFilter);
     }
 
-    // Filter by search
     if (search) {
       const q = search.toLowerCase();
       tokens = tokens.filter(
@@ -169,7 +357,6 @@ export default function StarkMintPage() {
       );
     }
 
-    // Sort
     tokens.sort((a, b) => {
       if (sortBy === "newest") return b.createdAt - a.createdAt;
       if (sortBy === "volume") return b.volume24h - a.volume24h;
@@ -201,7 +388,10 @@ export default function StarkMintPage() {
             </div>
           </div>
 
-          <button aria-label="Launch a new token" className="shrink-0 h-10 px-5 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-500 text-white text-sm font-semibold hover:from-violet-400 hover:to-cyan-400 transition-all shadow-lg shadow-violet-500/20">
+          <button
+            onClick={() => setShowLaunchModal(true)}
+            className="shrink-0 h-10 px-5 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-500 text-white text-sm font-semibold hover:from-violet-400 hover:to-cyan-400 transition-all shadow-lg shadow-violet-500/20"
+          >
             Launch Token
           </button>
         </div>
@@ -334,7 +524,7 @@ export default function StarkMintPage() {
                         Price
                       </p>
                       <p className="font-mono font-bold text-base text-white">
-                        {token.currentPrice.toFixed(4)}{" "}
+                        {formatPrice(token.currentPrice)}{" "}
                         <span className="text-[10px] text-white/30 font-normal">STRK</span>
                       </p>
                     </div>
@@ -403,6 +593,12 @@ export default function StarkMintPage() {
       </main>
 
       <Footer />
+
+      <LaunchTokenModal
+        open={showLaunchModal}
+        onClose={() => setShowLaunchModal(false)}
+        onSuccess={refetch}
+      />
     </div>
   );
 }
