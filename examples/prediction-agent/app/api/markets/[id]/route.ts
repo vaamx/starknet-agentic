@@ -22,6 +22,7 @@ import {
   upsertWeightedProb,
   upsertAgentTake,
 } from "@/lib/market-db";
+import { getResolutionStatus, listResolutionAttempts } from "@/lib/resolution-store";
 
 export const runtime = "nodejs";
 
@@ -237,6 +238,21 @@ export async function GET(
       }
     } catch { /* best-effort */ }
 
+    // Resolution status (best-effort)
+    let resolution = null;
+    try {
+      const resStatus = getResolutionStatus("default", marketId);
+      if (resStatus) {
+        const lastAttempt = listResolutionAttempts("default", marketId, 1);
+        resolution = {
+          ...resStatus,
+          lastAttempt: lastAttempt[0] ?? null,
+        };
+      }
+    } catch (resErr: any) {
+      console.warn(`[markets/${marketId}] resolution store error:`, resErr?.message ?? resErr);
+    }
+
     return NextResponse.json({
       market: {
         ...market,
@@ -248,6 +264,7 @@ export async function GET(
       predictions,
       weightedProbability: weightedProb,
       latestAgentTake,
+      resolution,
     });
   } catch (err: any) {
     // Try SQLite fallback before 500

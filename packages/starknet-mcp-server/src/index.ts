@@ -1965,6 +1965,292 @@ tools.push(
   }
 );
 
+// ── ProveWork Task Marketplace Tools ──────────────────────────────────────
+tools.push(
+  {
+    name: "provework_post_task",
+    description:
+      "Post a new task to the ProveWork TaskEscrow contract with STRK reward. Transfers reward to escrow on posting.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        escrowAddress: { type: "string", description: "TaskEscrow contract address" },
+        descriptionHash: { type: "string", description: "felt252 hash of the task description" },
+        rewardAmount: { type: "string", description: "Reward amount in human-readable STRK (e.g. '100')" },
+        deadline: { type: "number", description: "Unix timestamp deadline for the task" },
+        requiredValidators: { type: "number", description: "Number of validators required (1-255)", default: 1 },
+        collateralToken: { type: "string", description: "Collateral token address (defaults to STRK)" },
+      },
+      required: ["escrowAddress", "descriptionHash", "rewardAmount", "deadline"],
+    },
+  },
+  {
+    name: "provework_bid_task",
+    description:
+      "Bid on an open task in the ProveWork TaskEscrow. Only non-posters can bid.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        escrowAddress: { type: "string", description: "TaskEscrow contract address" },
+        taskId: { type: "string", description: "Task ID to bid on" },
+        bidAmount: { type: "string", description: "Bid amount in human-readable STRK" },
+      },
+      required: ["escrowAddress", "taskId", "bidAmount"],
+    },
+  },
+  {
+    name: "provework_submit_proof",
+    description:
+      "Submit completion proof for an assigned ProveWork task.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        escrowAddress: { type: "string", description: "TaskEscrow contract address" },
+        taskId: { type: "string", description: "Task ID to submit proof for" },
+        proofHash: { type: "string", description: "felt252 hash of the completion proof" },
+      },
+      required: ["escrowAddress", "taskId", "proofHash"],
+    },
+  },
+  {
+    name: "provework_approve_task",
+    description:
+      "Approve a submitted ProveWork task and release escrowed payment to the assignee.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        escrowAddress: { type: "string", description: "TaskEscrow contract address" },
+        taskId: { type: "string", description: "Task ID to approve" },
+      },
+      required: ["escrowAddress", "taskId"],
+    },
+  },
+  {
+    name: "provework_get_tasks",
+    description:
+      "List tasks from the ProveWork TaskEscrow contract with their status, reward, and assignee info.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        escrowAddress: { type: "string", description: "TaskEscrow contract address" },
+        limit: { type: "number", description: "Maximum number of tasks to return", default: 20 },
+      },
+      required: ["escrowAddress"],
+    },
+  },
+  {
+    name: "provework_cancel_task",
+    description:
+      "Cancel an open ProveWork task and refund the escrowed reward to the poster. Only the task poster can cancel.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        escrowAddress: { type: "string", description: "TaskEscrow contract address" },
+        taskId: { type: "string", description: "Task ID to cancel" },
+      },
+      required: ["escrowAddress", "taskId"],
+    },
+  },
+  {
+    name: "provework_dispute_task",
+    description:
+      "Dispute a submitted ProveWork task. Only the task poster can dispute after proof submission.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        escrowAddress: { type: "string", description: "TaskEscrow contract address" },
+        taskId: { type: "string", description: "Task ID to dispute" },
+        reasonHash: { type: "string", description: "felt252 hash of the dispute reason" },
+      },
+      required: ["escrowAddress", "taskId", "reasonHash"],
+    },
+  },
+  {
+    name: "provework_resolve_dispute",
+    description:
+      "Resolve a disputed ProveWork task. Only the escrow contract owner can call this. Ruling: 0=AssigneeWins (release), 1=PosterWins (refund), 2=Split (50/50).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        escrowAddress: { type: "string", description: "TaskEscrow contract address" },
+        taskId: { type: "string", description: "Task ID to resolve" },
+        ruling: { type: "number", enum: [0, 1, 2], description: "0=AssigneeWins, 1=PosterWins, 2=Split" },
+      },
+      required: ["escrowAddress", "taskId", "ruling"],
+    },
+  },
+  {
+    name: "provework_force_settle",
+    description:
+      "Force settle a disputed ProveWork task after the 7-day dispute window expires. Either poster or assignee can call. Default: refund to poster.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        escrowAddress: { type: "string", description: "TaskEscrow contract address" },
+        taskId: { type: "string", description: "Task ID to force settle" },
+      },
+      required: ["escrowAddress", "taskId"],
+    },
+  }
+);
+
+// ── StarkMint Token Launchpad Tools ───────────────────────────────────────
+tools.push(
+  {
+    name: "starkmint_launch_token",
+    description:
+      "Launch a new agent token via StarkMintFactory. Deploys token + bonding curve pair. Returns token and curve addresses.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        factoryAddress: { type: "string", description: "StarkMintFactory contract address" },
+        name: { type: "string", description: "Token name as felt252" },
+        symbol: { type: "string", description: "Token symbol as felt252" },
+        curveType: { type: "number", enum: [0, 1, 2], description: "Curve type: 0=linear, 1=quadratic, 2=sigmoid" },
+        feeBps: { type: "number", description: "Fee in basis points (max 1000 = 10%)", default: 100 },
+        agentId: { type: "string", description: "ERC-8004 agent ID to bind this token to" },
+      },
+      required: ["factoryAddress", "name", "symbol", "curveType", "agentId"],
+    },
+  },
+  {
+    name: "starkmint_buy",
+    description:
+      "Buy agent tokens from a bonding curve. Pays reserve token (STRK) and receives agent tokens.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        curveAddress: { type: "string", description: "BondingCurve contract address" },
+        amount: { type: "string", description: "Number of agent tokens to buy (human-readable)" },
+        reserveToken: { type: "string", description: "Reserve token address (defaults to STRK)" },
+      },
+      required: ["curveAddress", "amount"],
+    },
+  },
+  {
+    name: "starkmint_sell",
+    description:
+      "Sell agent tokens back to the bonding curve for reserve tokens.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        curveAddress: { type: "string", description: "BondingCurve contract address" },
+        amount: { type: "string", description: "Number of agent tokens to sell (human-readable)" },
+      },
+      required: ["curveAddress", "amount"],
+    },
+  },
+  {
+    name: "starkmint_get_price",
+    description:
+      "Get the current buy/sell price for a given amount of agent tokens on a bonding curve.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        curveAddress: { type: "string", description: "BondingCurve contract address" },
+        amount: { type: "string", description: "Number of tokens to price (human-readable)", default: "1" },
+      },
+      required: ["curveAddress"],
+    },
+  },
+  {
+    name: "starkmint_get_launches",
+    description:
+      "List all token launches from a StarkMintFactory contract.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        factoryAddress: { type: "string", description: "StarkMintFactory contract address" },
+        limit: { type: "number", description: "Max launches to return", default: 20 },
+      },
+      required: ["factoryAddress"],
+    },
+  }
+);
+
+// ── Agent Guilds DAO Tools ────────────────────────────────────────────────
+tools.push(
+  {
+    name: "guild_create",
+    description: "Create a new agent guild with a minimum STRK staking requirement.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        registryAddress: { type: "string", description: "GuildRegistry contract address" },
+        nameHash: { type: "string", description: "felt252 hash of the guild name" },
+        minStake: { type: "string", description: "Minimum stake in STRK (human-readable)" },
+      },
+      required: ["registryAddress", "nameHash", "minStake"],
+    },
+  },
+  {
+    name: "guild_join",
+    description: "Join an existing guild by staking STRK. Requires ERC-8004 identity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        registryAddress: { type: "string", description: "GuildRegistry contract address" },
+        guildId: { type: "string", description: "Guild ID to join" },
+        stakeAmount: { type: "string", description: "STRK amount to stake (human-readable)" },
+        stakeToken: { type: "string", description: "Stake token address (defaults to STRK)" },
+      },
+      required: ["registryAddress", "guildId", "stakeAmount"],
+    },
+  },
+  {
+    name: "guild_leave",
+    description: "Leave a guild and reclaim staked STRK.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        registryAddress: { type: "string", description: "GuildRegistry contract address" },
+        guildId: { type: "string", description: "Guild ID to leave" },
+      },
+      required: ["registryAddress", "guildId"],
+    },
+  },
+  {
+    name: "guild_propose",
+    description: "Create a governance proposal within a guild. Requires guild membership.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        daoAddress: { type: "string", description: "GuildDAO contract address" },
+        guildId: { type: "string", description: "Guild ID" },
+        descriptionHash: { type: "string", description: "felt252 hash of the proposal description" },
+        quorum: { type: "string", description: "Minimum total vote weight required" },
+        deadline: { type: "number", description: "Unix timestamp voting deadline" },
+      },
+      required: ["daoAddress", "guildId", "descriptionHash", "quorum", "deadline"],
+    },
+  },
+  {
+    name: "guild_vote",
+    description: "Vote on a guild proposal. Vote weight is proportional to staked STRK.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        daoAddress: { type: "string", description: "GuildDAO contract address" },
+        proposalId: { type: "string", description: "Proposal ID to vote on" },
+        support: { type: "boolean", description: "true = YES, false = NO" },
+      },
+      required: ["daoAddress", "proposalId", "support"],
+    },
+  },
+  {
+    name: "guild_execute",
+    description: "Execute a passed guild proposal after voting period ends.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        daoAddress: { type: "string", description: "GuildDAO contract address" },
+        proposalId: { type: "string", description: "Proposal ID to execute" },
+      },
+      required: ["daoAddress", "proposalId"],
+    },
+  }
+);
+
 function parseIdentityRegisteredFromReceipt(
   receipt: unknown,
   identityRegistryAddress: string
@@ -2156,6 +2442,148 @@ async function parseAmount(
 
   return BigInt(amountStr);
 }
+
+/**
+ * Synchronous amount parser for economy tools that always use 18 decimals (STRK).
+ * Avoids the async token-service lookup when decimals are known.
+ */
+function parseAmountSync(amount: string, decimals: number = 18): bigint {
+  if (!/^\d+(\.\d+)?$/.test(amount)) {
+    throw new Error(
+      `Invalid amount "${amount}". Expected a non-negative decimal number (e.g. "1.5", "100").`
+    );
+  }
+  const [whole, fraction = ""] = amount.split(".");
+  const paddedFraction = fraction.padEnd(decimals, "0");
+  const amountStr = whole + paddedFraction.slice(0, decimals);
+  return BigInt(amountStr);
+}
+
+// ── Zod schemas for economy tools ──────────────────────────────────────
+const addressSchema = z.string().min(3).startsWith("0x");
+const uint256StringSchema = z.string().regex(/^\d+$/, "Must be a numeric string");
+const amountSchema = z.string().regex(/^\d+(\.\d+)?$/, "Must be a decimal number");
+const felt252Schema = z.string().min(1);
+
+const proveworkPostTaskSchema = z.object({
+  escrowAddress: addressSchema,
+  descriptionHash: felt252Schema,
+  rewardAmount: amountSchema,
+  deadline: z.number().int().positive(),
+  requiredValidators: z.number().int().min(1).max(255).default(1),
+  collateralToken: addressSchema.optional(),
+});
+
+const proveworkBidTaskSchema = z.object({
+  escrowAddress: addressSchema,
+  taskId: uint256StringSchema,
+  bidAmount: amountSchema,
+});
+
+const proveworkSubmitProofSchema = z.object({
+  escrowAddress: addressSchema,
+  taskId: uint256StringSchema,
+  proofHash: felt252Schema,
+});
+
+const proveworkApproveTaskSchema = z.object({
+  escrowAddress: addressSchema,
+  taskId: uint256StringSchema,
+});
+
+const proveworkGetTasksSchema = z.object({
+  escrowAddress: addressSchema,
+  limit: z.number().int().min(1).max(100).default(20),
+});
+
+const proveworkCancelTaskSchema = z.object({
+  escrowAddress: addressSchema,
+  taskId: uint256StringSchema,
+});
+
+const proveworkDisputeTaskSchema = z.object({
+  escrowAddress: addressSchema,
+  taskId: uint256StringSchema,
+  reasonHash: felt252Schema,
+});
+
+const proveworkResolveDisputeSchema = z.object({
+  escrowAddress: addressSchema,
+  taskId: uint256StringSchema,
+  ruling: z.number().int().min(0).max(2),
+});
+
+const proveworkForceSettleSchema = z.object({
+  escrowAddress: addressSchema,
+  taskId: uint256StringSchema,
+});
+
+const starkmintLaunchTokenSchema = z.object({
+  factoryAddress: addressSchema,
+  name: z.string().min(1).max(31),
+  symbol: z.string().min(1).max(31),
+  curveType: z.number().int().min(0).max(2),
+  feeBps: z.number().int().min(0).max(1000).default(100),
+  agentId: uint256StringSchema,
+});
+
+const starkmintBuySchema = z.object({
+  curveAddress: addressSchema,
+  amount: amountSchema,
+  reserveToken: addressSchema.optional(),
+});
+
+const starkmintSellSchema = z.object({
+  curveAddress: addressSchema,
+  amount: amountSchema,
+});
+
+const starkmintGetPriceSchema = z.object({
+  curveAddress: addressSchema,
+  amount: amountSchema.default("1"),
+});
+
+const starkmintGetLaunchesSchema = z.object({
+  factoryAddress: addressSchema,
+  limit: z.number().int().min(1).max(100).default(20),
+});
+
+const guildCreateSchema = z.object({
+  registryAddress: addressSchema,
+  nameHash: felt252Schema,
+  minStake: amountSchema,
+});
+
+const guildJoinSchema = z.object({
+  registryAddress: addressSchema,
+  guildId: uint256StringSchema,
+  stakeAmount: amountSchema,
+  stakeToken: addressSchema.optional(),
+});
+
+const guildLeaveSchema = z.object({
+  registryAddress: addressSchema,
+  guildId: uint256StringSchema,
+});
+
+const guildProposeSchema = z.object({
+  daoAddress: addressSchema,
+  guildId: uint256StringSchema,
+  descriptionHash: felt252Schema,
+  quorum: amountSchema,
+  deadline: z.number().int().positive(),
+});
+
+const guildVoteSchema = z.object({
+  daoAddress: addressSchema,
+  proposalId: uint256StringSchema,
+  support: z.boolean(),
+});
+
+const guildExecuteSchema = z.object({
+  daoAddress: addressSchema,
+  proposalId: uint256StringSchema,
+});
 
 // Tool handlers
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -4876,6 +5304,442 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }, null, 2),
           }],
         };
+      }
+
+      // ── ProveWork Handlers ──────────────────────────────────────────────────
+
+      case "provework_post_task": {
+        const v = proveworkPostTaskSchema.parse(args);
+        const tokenAddr = v.collateralToken ?? TOKENS.STRK;
+        const amountWei = parseAmountSync(v.rewardAmount);
+
+        const calls: Call[] = [
+          {
+            contractAddress: tokenAddr,
+            entrypoint: "approve",
+            calldata: CallData.compile({ spender: v.escrowAddress, amount: cairo.uint256(amountWei) }),
+          },
+          {
+            contractAddress: v.escrowAddress,
+            entrypoint: "post_task",
+            calldata: CallData.compile({
+              description_hash: v.descriptionHash,
+              reward_amount: cairo.uint256(amountWei),
+              deadline: v.deadline,
+              required_validators: v.requiredValidators,
+            }),
+          },
+        ];
+
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, escrowAddress: v.escrowAddress }, null, 2) }] };
+      }
+
+      case "provework_bid_task": {
+        const v = proveworkBidTaskSchema.parse(args);
+        const amountWei = parseAmountSync(v.bidAmount);
+        const calls: Call[] = [{
+          contractAddress: v.escrowAddress,
+          entrypoint: "bid_task",
+          calldata: CallData.compile({
+            task_id: cairo.uint256(v.taskId),
+            bid_amount: cairo.uint256(amountWei),
+          }),
+        }];
+
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, taskId: v.taskId }, null, 2) }] };
+      }
+
+      case "provework_submit_proof": {
+        const v = proveworkSubmitProofSchema.parse(args);
+        const calls: Call[] = [{
+          contractAddress: v.escrowAddress,
+          entrypoint: "submit_proof",
+          calldata: CallData.compile({
+            task_id: cairo.uint256(v.taskId),
+            proof_hash: v.proofHash,
+          }),
+        }];
+
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, taskId: v.taskId }, null, 2) }] };
+      }
+
+      case "provework_approve_task": {
+        const v = proveworkApproveTaskSchema.parse(args);
+        const calls: Call[] = [{
+          contractAddress: v.escrowAddress,
+          entrypoint: "approve_task",
+          calldata: CallData.compile({ task_id: cairo.uint256(v.taskId) }),
+        }];
+
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, taskId: v.taskId }, null, 2) }] };
+      }
+
+      case "provework_cancel_task": {
+        const v = proveworkCancelTaskSchema.parse(args);
+        const calls: Call[] = [{
+          contractAddress: v.escrowAddress,
+          entrypoint: "cancel_task",
+          calldata: CallData.compile({ task_id: cairo.uint256(v.taskId) }),
+        }];
+
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, taskId: v.taskId }, null, 2) }] };
+      }
+
+      case "provework_dispute_task": {
+        const v = proveworkDisputeTaskSchema.parse(args);
+        const calls: Call[] = [{
+          contractAddress: v.escrowAddress,
+          entrypoint: "dispute_task",
+          calldata: CallData.compile({
+            task_id: cairo.uint256(v.taskId),
+            reason_hash: v.reasonHash,
+          }),
+        }];
+
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, taskId: v.taskId }, null, 2) }] };
+      }
+
+      case "provework_resolve_dispute": {
+        const v = proveworkResolveDisputeSchema.parse(args);
+        // DisputeRuling enum: 0=AssigneeWins, 1=PosterWins, 2=Split
+        const calls: Call[] = [{
+          contractAddress: v.escrowAddress,
+          entrypoint: "resolve_dispute",
+          calldata: CallData.compile({
+            task_id: cairo.uint256(v.taskId),
+            ruling: v.ruling,
+          }),
+        }];
+
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+
+        const rulingNames = ["AssigneeWins", "PosterWins", "Split"];
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, taskId: v.taskId, ruling: rulingNames[v.ruling] }, null, 2) }] };
+      }
+
+      case "provework_force_settle": {
+        const v = proveworkForceSettleSchema.parse(args);
+        const calls: Call[] = [{
+          contractAddress: v.escrowAddress,
+          entrypoint: "force_settle_dispute",
+          calldata: CallData.compile({ task_id: cairo.uint256(v.taskId) }),
+        }];
+
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, taskId: v.taskId, action: "force_settled" }, null, 2) }] };
+      }
+
+      case "provework_get_tasks": {
+        const v = proveworkGetTasksSchema.parse(args);
+
+        const countResult = await provider.callContract({
+          contractAddress: v.escrowAddress,
+          entrypoint: "get_task_count",
+          calldata: [],
+        });
+        const totalCount = Number(BigInt(Array.isArray(countResult) ? countResult[0] : "0x0"));
+
+        const tasks = [];
+        const maxTasks = Math.min(v.limit, totalCount);
+        for (let i = 1; i <= maxTasks; i++) {
+          try {
+            const result = await provider.callContract({
+              contractAddress: v.escrowAddress,
+              entrypoint: "get_task",
+              calldata: CallData.compile({ task_id: cairo.uint256(i) }),
+            });
+            const flat = Array.isArray(result) ? result : [];
+            tasks.push({
+              taskId: i,
+              poster: flat[0] ?? "0x0",
+              descriptionHash: flat[1] ?? "0x0",
+              rewardAmount: flat.length >= 4 ? formatAmount(BigInt(flat[2]) + BigInt(flat[3]) * (2n ** 128n), 18) : "0",
+              deadline: flat.length >= 5 ? Number(BigInt(flat[4])) : 0,
+              status: flat.length >= 7 ? (["Open", "Assigned", "Submitted", "Approved", "Disputed", "Cancelled", "Settled"][Number(BigInt(flat[6]))] ?? "Unknown") : "Unknown",
+            });
+          } catch {
+            // skip inaccessible tasks
+          }
+        }
+
+        return { content: [{ type: "text", text: JSON.stringify({ totalCount, tasks }, null, 2) }] };
+      }
+
+      // ── StarkMint Handlers ──────────────────────────────────────────────────
+
+      case "starkmint_launch_token": {
+        const v = starkmintLaunchTokenSchema.parse(args);
+
+        // Encode name/symbol as felt252 short strings for Cairo
+        const nameEncoded = shortString.encodeShortString(v.name);
+        const symbolEncoded = shortString.encodeShortString(v.symbol);
+
+        const calls: Call[] = [{
+          contractAddress: v.factoryAddress,
+          entrypoint: "launch_token",
+          calldata: CallData.compile({
+            name: nameEncoded,
+            symbol: symbolEncoded,
+            curve_type: v.curveType,
+            fee_bps: v.feeBps,
+            agent_id: cairo.uint256(v.agentId),
+          }),
+        }];
+
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, factoryAddress: v.factoryAddress, name: v.name, symbol: v.symbol }, null, 2) }] };
+      }
+
+      case "starkmint_buy": {
+        const v = starkmintBuySchema.parse(args);
+        const tokenAddr = v.reserveToken ?? TOKENS.STRK;
+        const amountWei = parseAmountSync(v.amount);
+
+        // Get price first to know how much reserve to approve
+        const priceResult = await provider.callContract({
+          contractAddress: v.curveAddress,
+          entrypoint: "get_buy_price",
+          calldata: CallData.compile({ amount: cairo.uint256(amountWei) }),
+        });
+        const priceLow = BigInt(Array.isArray(priceResult) ? priceResult[0] : "0x0");
+        const priceHigh = BigInt(Array.isArray(priceResult) ? (priceResult[1] ?? "0x0") : "0x0");
+        const totalCost = priceLow + priceHigh * (2n ** 128n);
+
+        // Approve + buy — get_buy_price returns raw cost; buy() adds fee on top (max 10%).
+        // 15% buffer covers fee + rounding.
+        const approveAmount = totalCost * 115n / 100n;
+        const calls: Call[] = [
+          {
+            contractAddress: tokenAddr,
+            entrypoint: "approve",
+            calldata: CallData.compile({ spender: v.curveAddress, amount: cairo.uint256(approveAmount) }),
+          },
+          {
+            contractAddress: v.curveAddress,
+            entrypoint: "buy",
+            calldata: CallData.compile({ amount: cairo.uint256(amountWei) }),
+          },
+        ];
+
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, amount: v.amount, cost: formatAmount(totalCost, 18) }, null, 2) }] };
+      }
+
+      case "starkmint_sell": {
+        const v = starkmintSellSchema.parse(args);
+        const amountWei = parseAmountSync(v.amount);
+        const calls: Call[] = [{
+          contractAddress: v.curveAddress,
+          entrypoint: "sell",
+          calldata: CallData.compile({ amount: cairo.uint256(amountWei) }),
+        }];
+
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, amount: v.amount }, null, 2) }] };
+      }
+
+      case "starkmint_get_price": {
+        const v = starkmintGetPriceSchema.parse(args);
+        const amountWei = parseAmountSync(v.amount);
+
+        const [buyResult, sellResult, supplyResult] = await Promise.all([
+          provider.callContract({
+            contractAddress: v.curveAddress,
+            entrypoint: "get_buy_price",
+            calldata: CallData.compile({ amount: cairo.uint256(amountWei) }),
+          }),
+          provider.callContract({
+            contractAddress: v.curveAddress,
+            entrypoint: "get_sell_price",
+            calldata: CallData.compile({ amount: cairo.uint256(amountWei) }),
+          }),
+          provider.callContract({
+            contractAddress: v.curveAddress,
+            entrypoint: "get_current_supply",
+            calldata: [],
+          }),
+        ]);
+
+        const extractU256 = (r: any) => {
+          const arr = Array.isArray(r) ? r : [];
+          return BigInt(arr[0] ?? "0x0") + BigInt(arr[1] ?? "0x0") * (2n ** 128n);
+        };
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              curveAddress: v.curveAddress,
+              amount: v.amount,
+              buyPrice: formatAmount(extractU256(buyResult), 18),
+              sellPrice: formatAmount(extractU256(sellResult), 18),
+              currentSupply: formatAmount(extractU256(supplyResult), 18),
+            }, null, 2),
+          }],
+        };
+      }
+
+      case "starkmint_get_launches": {
+        const v = starkmintGetLaunchesSchema.parse(args);
+
+        const countResult = await provider.callContract({
+          contractAddress: v.factoryAddress,
+          entrypoint: "get_launch_count",
+          calldata: [],
+        });
+        const totalCount = Number(BigInt(Array.isArray(countResult) ? countResult[0] : "0x0"));
+
+        const launches = [];
+        const maxLaunches = Math.min(v.limit, totalCount);
+        for (let i = 0; i < maxLaunches; i++) {
+          try {
+            const result = await provider.callContract({
+              contractAddress: v.factoryAddress,
+              entrypoint: "get_launch",
+              calldata: CallData.compile({ index: cairo.uint256(i) }),
+            });
+            const flat = Array.isArray(result) ? result : [];
+            const curveTypeNames = ["Linear", "Quadratic", "Sigmoid"];
+            launches.push({
+              index: i,
+              token: flat[0] ?? "0x0",
+              curve: flat[1] ?? "0x0",
+              creator: flat[2] ?? "0x0",
+              curveType: flat.length > 3 ? (curveTypeNames[Number(BigInt(flat[3]))] ?? "Unknown") : "Unknown",
+              agentId: flat.length > 5 ? String(BigInt(flat[4]) + BigInt(flat[5]) * (2n ** 128n)) : "0",
+              createdAt: flat.length > 6 ? Number(BigInt(flat[6])) : 0,
+            });
+          } catch {
+            // skip
+          }
+        }
+
+        return { content: [{ type: "text", text: JSON.stringify({ totalCount, launches }, null, 2) }] };
+      }
+
+      // ── Guild Handlers ─────────────────────────────────────────────────────
+
+      case "guild_create": {
+        const v = guildCreateSchema.parse(args);
+        const amountWei = parseAmountSync(v.minStake);
+        const calls: Call[] = [{
+          contractAddress: v.registryAddress,
+          entrypoint: "create_guild",
+          calldata: CallData.compile({
+            name_hash: v.nameHash,
+            min_stake: cairo.uint256(amountWei),
+          }),
+        }];
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash }, null, 2) }] };
+      }
+
+      case "guild_join": {
+        const v = guildJoinSchema.parse(args);
+        const tokenAddr = v.stakeToken ?? TOKENS.STRK;
+        const amountWei = parseAmountSync(v.stakeAmount);
+        const calls: Call[] = [
+          {
+            contractAddress: tokenAddr,
+            entrypoint: "approve",
+            calldata: CallData.compile({ spender: v.registryAddress, amount: cairo.uint256(amountWei) }),
+          },
+          {
+            contractAddress: v.registryAddress,
+            entrypoint: "join_guild",
+            calldata: CallData.compile({
+              guild_id: cairo.uint256(v.guildId),
+              stake_amount: cairo.uint256(amountWei),
+            }),
+          },
+        ];
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, guildId: v.guildId }, null, 2) }] };
+      }
+
+      case "guild_leave": {
+        const v = guildLeaveSchema.parse(args);
+        const calls: Call[] = [{
+          contractAddress: v.registryAddress,
+          entrypoint: "leave_guild",
+          calldata: CallData.compile({ guild_id: cairo.uint256(v.guildId) }),
+        }];
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, guildId: v.guildId }, null, 2) }] };
+      }
+
+      case "guild_propose": {
+        const v = guildProposeSchema.parse(args);
+        const calls: Call[] = [{
+          contractAddress: v.daoAddress,
+          entrypoint: "propose",
+          calldata: CallData.compile({
+            guild_id: cairo.uint256(v.guildId),
+            description_hash: v.descriptionHash,
+            quorum: cairo.uint256(parseAmountSync(v.quorum)),
+            deadline: v.deadline,
+          }),
+        }];
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash }, null, 2) }] };
+      }
+
+      case "guild_vote": {
+        const v = guildVoteSchema.parse(args);
+        const calls: Call[] = [{
+          contractAddress: v.daoAddress,
+          entrypoint: "vote",
+          calldata: CallData.compile({
+            proposal_id: cairo.uint256(v.proposalId),
+            support: v.support ? 1 : 0,
+          }),
+        }];
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, proposalId: v.proposalId, support: v.support }, null, 2) }] };
+      }
+
+      case "guild_execute": {
+        const v = guildExecuteSchema.parse(args);
+        const calls: Call[] = [{
+          contractAddress: v.daoAddress,
+          entrypoint: "execute",
+          calldata: CallData.compile({ proposal_id: cairo.uint256(v.proposalId) }),
+        }];
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, proposalId: v.proposalId }, null, 2) }] };
       }
 
       default:

@@ -214,6 +214,41 @@ function safeExec(sql: string) {
   }
 }
 
+safeExec(`
+  CREATE TABLE IF NOT EXISTS resolution_attempts (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    market_id INTEGER NOT NULL,
+    attempt_number INTEGER NOT NULL,
+    strategy TEXT NOT NULL,
+    status TEXT NOT NULL,
+    outcome INTEGER,
+    confidence REAL,
+    evidence TEXT,
+    reasoning TEXT,
+    resolve_tx_hash TEXT,
+    finalize_tx_hash TEXT,
+    error_message TEXT,
+    created_at INTEGER NOT NULL
+  )
+`);
+
+safeExec(`
+  CREATE TABLE IF NOT EXISTS resolution_statuses (
+    org_id TEXT NOT NULL,
+    market_id INTEGER NOT NULL,
+    total_attempts INTEGER NOT NULL DEFAULT 0,
+    last_attempt_at INTEGER,
+    last_status TEXT,
+    escalation TEXT NOT NULL DEFAULT 'auto',
+    PRIMARY KEY (org_id, market_id)
+  )
+`);
+
+safeExec("CREATE INDEX IF NOT EXISTS idx_resolution_attempts_org_market_created ON resolution_attempts(org_id, market_id, created_at)");
+safeExec("CREATE INDEX IF NOT EXISTS idx_resolution_attempts_org_status ON resolution_attempts(org_id, status)");
+safeExec("CREATE INDEX IF NOT EXISTS idx_resolution_statuses_escalation ON resolution_statuses(org_id, escalation)");
+
 safeExec("ALTER TABLE forecasts ADD COLUMN org_id TEXT");
 safeExec("ALTER TABLE research_artifacts ADD COLUMN org_id TEXT");
 safeExec("ALTER TABLE trade_executions ADD COLUMN org_id TEXT");

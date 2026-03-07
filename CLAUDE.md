@@ -39,6 +39,9 @@ starknet-agentic/
 │   │   ├── tests/                        # Unit tests (snforge)
 │   │   └── e2e-tests/                    # E2E tests (Sepolia)
 │   ├── agent-account/                    # Agent Account contract (TESTED — 110 tests)
+│   ├── task-escrow/                      # ProveWork TaskEscrow contract (14 tests)
+│   ├── bonding-curve/                    # StarkMint AgentToken + BondingCurve + Factory
+│   ├── agent-guilds/                     # GuildRegistry + GuildDAO contracts
 │   └── huginn-registry/                  # Thought provenance registry (WIP)
 ├── skills/
 │   ├── starknet-wallet/                  # Wallet management skill (COMPLETE)
@@ -46,7 +49,10 @@ starknet-agentic/
 │   ├── starknet-anonymous-wallet/        # Privacy-focused wallet (COMPLETE)
 │   ├── starknet-defi/                    # DeFi operations skill (EXPANDED, Sepolia baseline)
 │   ├── starknet-identity/                # Identity & reputation skill (EXPANDED, Sepolia baseline)
-│   └── huginn-onboard/                   # Cross-chain onboarding skill (COMPLETE)
+│   ├── huginn-onboard/                   # Cross-chain onboarding skill (COMPLETE)
+│   ├── starknet-provework/               # ProveWork task marketplace skill
+│   ├── starknet-starkmint/               # StarkMint token launchpad skill
+│   └── starknet-guilds/                  # Agent Guilds DAO skill
 ├── examples/
 │   ├── hello-agent/                      # Minimal E2E proof (WORKING)
 │   ├── defi-agent/                       # Arbitrage bot example (~337 lines)
@@ -293,6 +299,15 @@ Always consult `references/` before relying on training data for Starknet-specif
 | Website | **Scaffolded** (Next.js 16 + landing content) | `website/` |
 | Docs & specs | **Complete** (updated 2026-02-10) | `docs/` |
 | CI/CD | **Implemented** (11 jobs: typecheck, lint, test, 3x cairo, website, skills, smoke) | `.github/workflows/` |
+| TaskEscrow (ProveWork) | **Tested** (~300 lines, 14 tests) | `contracts/task-escrow/` |
+| BondingCurve (StarkMint) | **Tested** (~750 lines across 3 contracts) | `contracts/bonding-curve/` |
+| Agent Guilds (DAO) | **Tested** (~600 lines, 2 contracts) | `contracts/agent-guilds/` |
+| Skill: starknet-provework | **Complete** (task marketplace skill) | `skills/starknet-provework/` |
+| Skill: starknet-starkmint | **Complete** (token launchpad skill) | `skills/starknet-starkmint/` |
+| Skill: starknet-guilds | **Complete** (agent DAO skill) | `skills/starknet-guilds/` |
+| MCP economy tools | **Implemented** (16 tools: ProveWork + StarkMint + Guilds) | `packages/starknet-mcp-server/` |
+| Resolution Oracle | **Hardened** (DB layer, store, retry limits, UI panel) | `examples/prediction-agent/` |
+| AgentSouk | **Functional** (ERC-8004 reader + marketplace UI) | `examples/prediction-agent/app/souk/` |
 | Framework extensions | **TODO** (deferred to v2.0) | Not yet created |
 | MCP identity tools | **Implemented** (identity + reputation + validation request tools shipped) | `packages/starknet-mcp-server/` |
 

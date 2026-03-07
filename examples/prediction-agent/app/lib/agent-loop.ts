@@ -79,7 +79,12 @@ import {
 import { ensureAgentSpawnerHydrated, persistAgentSpawner } from "./agent-persistence";
 import { deriveConsensusAutotuneProfile } from "./consensus-autotune";
 import { tryResolveMarket } from "./resolution-oracle";
-import { recordAgentComment, recordResearchArtifact } from "./ops-store";
+import {
+  recordResolutionAttempt,
+  getResolutionStatus,
+  escalateToManualReview,
+} from "./resolution-store";
+import { recordAgentComment, recordResearchArtifact, recordMarketOutcome } from "./ops-store";
 import {
   appendPersistedLoopAction,
   getPersistedLoopActions,
@@ -2076,6 +2081,34 @@ class AgentLoop {
       attempts++;
 
       const question = resolveMarketQuestion(market.id, market.questionHash);
+
+      // Check escalation state — skip if needs_manual_review or already resolved
+      const orgId = "default";
+      try {
+        const resStatus = getResolutionStatus(orgId, market.id);
+        if (resStatus) {
+          if (resStatus.escalation === "needs_manual_review" || resStatus.escalation === "manually_resolved") {
+            continue;
+          }
+          if (resStatus.totalAttempts >= config.resolutionMaxAttempts) {
+            escalateToManualReview(orgId, market.id);
+            emit(
+              this.createAction({
+                agentId: "resolution-oracle",
+                agentName: "Resolution Oracle",
+                type: "error",
+                marketId: market.id,
+                question,
+                detail: `Resolution escalated to manual review after ${resStatus.totalAttempts} attempts.`,
+              })
+            );
+            continue;
+          }
+        }
+      } catch {
+        // resolution store unavailable — proceed anyway
+      }
+
       emit(
         this.createAction({
           agentId: "resolution-oracle",
@@ -2087,6 +2120,7 @@ class AgentLoop {
         })
       );
 
+      const category = categorizeMarket(question);
       let result: Awaited<ReturnType<typeof tryResolveMarket>>;
       try {
         result = await withTimeout(
@@ -2101,6 +2135,25 @@ class AgentLoop {
         };
       }
 
+      // Record attempt regardless of outcome
+      try {
+        recordResolutionAttempt({
+          orgId,
+          marketId: market.id,
+          strategy: category,
+          status: result.status,
+          outcome: result.outcome ?? null,
+          confidence: result.confidence ?? null,
+          evidence: result.evidence ?? null,
+          reasoning: result.evidence ?? null, // ResolutionResult uses evidence for reasoning text
+          resolveTxHash: result.resolveTxHash ?? null,
+          finalizeTxHash: result.finalizeTxHash ?? null,
+          errorMessage: result.error ?? null,
+        });
+      } catch {
+        // best-effort persistence
+      }
+
       if (result.status === "resolved" && typeof result.outcome === "number") {
         const outcomeLabel: "YES" | "NO" = result.outcome === 1 ? "YES" : "NO";
         const confidenceText =
@@ -2108,6 +2161,17 @@ class AgentLoop {
             ? ` (${(result.confidence * 100).toFixed(0)}%)`
             : "";
         const txHash = result.finalizeTxHash ?? result.resolveTxHash;
+
+        // Persist to market_outcomes
+        try {
+          await recordMarketOutcome({
+            organizationId: orgId,
+            marketId: market.id,
+            outcome: result.outcome,
+          });
+        } catch {
+          // best-effort
+        }
 
         emit(
           this.createAction({

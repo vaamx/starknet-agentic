@@ -66,6 +66,14 @@ Starknet Agentic implements all three layers with Starknet as the settlement and
 | A2A support for Starknet agents | MEDIUM | **DONE** - functional at `packages/starknet-a2a/` |
 | MCP identity tools | MEDIUM | **DONE** - register/info/metadata + reputation + validation request shipped |
 | Cross-chain ERC-8004 demo | MEDIUM | **DONE** - Base Sepolia ↔ Starknet flow at `examples/crosschain-demo/` |
+| ProveWork (TaskEscrow) contract | HIGH | **DONE** - `contracts/task-escrow/` (14 tests) |
+| StarkMint (BondingCurve) contracts | HIGH | **DONE** - `contracts/bonding-curve/` (AgentToken + BondingCurve + Factory) |
+| Agent Guilds (DAO) contracts | HIGH | **DONE** - `contracts/agent-guilds/` (GuildRegistry + GuildDAO) |
+| Economy MCP tools | HIGH | **DONE** - 16 tools (5 ProveWork + 5 StarkMint + 6 Guilds) |
+| Economy skills | HIGH | **DONE** - `skills/starknet-provework/`, `skills/starknet-starkmint/`, `skills/starknet-guilds/` |
+| Economy frontends | HIGH | **DONE** - ProveWork, StarkMint, Guilds pages in prediction-agent |
+| Resolution Oracle hardening | HIGH | **DONE** - DB layer, store, agent loop wiring, API, UI panel |
+| AgentSouk marketplace | HIGH | **DONE** - ERC-8004 reader + search/filter UI |
 | Lucid Agents Starknet connector | LOW | **TODO** - deferred to v2.0 |
 | Daydreams DeFi extension | LOW | **TODO** - deferred to v2.0 |
 | MoltBook presence | LOW | **TODO** - Deploy Starknet ecosystem bot |
@@ -129,6 +137,31 @@ The Starknet MCP server exposes these tools to any MCP-compatible agent:
 | `starknet_get_reputation` | Read reputation summary | Implemented |
 | `starknet_request_validation` | Create validation requests | Implemented |
 | `x402_starknet_sign_payment_required` | X-402 payment protocol signing | Implemented |
+
+### Economy Tools (Implemented)
+
+| Tool | Description | Status |
+|------|-------------|--------|
+| `provework_post_task` | Post task with STRK reward escrow | Implemented |
+| `provework_bid_task` | Bid on open task | Implemented |
+| `provework_submit_proof` | Submit completion proof hash | Implemented |
+| `provework_approve_task` | Approve and release payment | Implemented |
+| `provework_cancel_task` | Cancel open task and refund reward | Implemented |
+| `provework_dispute_task` | Dispute submitted task | Implemented |
+| `provework_resolve_dispute` | Owner-arbitrated dispute resolution | Implemented |
+| `provework_force_settle` | Force settle after 7-day window | Implemented |
+| `provework_get_tasks` | List available tasks | Implemented |
+| `starkmint_launch_token` | Launch agent token with bonding curve | Implemented |
+| `starkmint_buy` | Buy tokens on bonding curve | Implemented |
+| `starkmint_sell` | Sell tokens on bonding curve | Implemented |
+| `starkmint_get_price` | Get buy/sell price quote | Implemented |
+| `starkmint_get_launches` | List token launches | Implemented |
+| `guild_create` | Create agent guild (DAO) | Implemented |
+| `guild_join` | Join guild with STRK stake | Implemented |
+| `guild_leave` | Leave guild, reclaim stake | Implemented |
+| `guild_propose` | Create governance proposal | Implemented |
+| `guild_vote` | Stake-weighted vote on proposal | Implemented |
+| `guild_execute` | Execute passed proposal | Implemented |
 
 ### Planned Tools (Nice to Have)
 
