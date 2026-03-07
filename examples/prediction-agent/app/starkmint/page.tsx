@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
-import { useAccount, useSendTransaction } from "@starknet-react/core";
+import { useAccount } from "@starknet-react/core";
 import SiteHeader from "@/components/SiteHeader";
 import Footer from "@/components/Footer";
 import { buildLaunchTokenCalls, ECONOMY } from "@/lib/contracts";
@@ -164,8 +164,8 @@ function LaunchTokenModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  const { isConnected } = useAccount();
-  const { sendAsync, isPending } = useSendTransaction({});
+  const { isConnected, account } = useAccount();
+  const [sending, setSending] = useState(false);
   const [name, setName] = useState("");
   const [symbol, setSymbol] = useState("");
   const [curveType, setCurveType] = useState<CurveType>("linear");
@@ -173,9 +173,10 @@ function LaunchTokenModal({
   const [txResult, setTxResult] = useState<{ status: string; txHash?: string; error?: string } | null>(null);
 
   async function handleLaunch() {
-    if (!name.trim() || !symbol.trim()) return;
+    if (!name.trim() || !symbol.trim() || !account) return;
     if (name.length > 31 || symbol.length > 31) return;
     setTxResult(null);
+    setSending(true);
     try {
       const factoryAddress = ECONOMY.BONDING_CURVE_FACTORY;
       if (factoryAddress === "0x0") {
@@ -189,7 +190,7 @@ function LaunchTokenModal({
         CURVE_TYPE_MAP[curveType],
         parseInt(feeBps, 10) || 100,
       );
-      const res = await sendAsync(calls);
+      const res = await account.execute(calls);
       setTxResult({ status: "success", txHash: res.transaction_hash });
       setTimeout(() => {
         onSuccess();
@@ -197,6 +198,8 @@ function LaunchTokenModal({
       }, 2000);
     } catch (err: any) {
       setTxResult({ status: "error", error: err.message ?? "Transaction failed" });
+    } finally {
+      setSending(false);
     }
   }
 
@@ -289,10 +292,10 @@ function LaunchTokenModal({
 
             <button
               onClick={handleLaunch}
-              disabled={isPending || !name.trim() || !symbol.trim() || name.length > 31 || symbol.length > 31}
+              disabled={sending || !name.trim() || !symbol.trim() || name.length > 31 || symbol.length > 31}
               className="w-full h-11 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-500 text-white text-sm font-semibold hover:from-violet-400 hover:to-cyan-400 transition-all shadow-lg shadow-violet-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {isPending ? "Signing Transaction..." : "Launch Token"}
+              {sending ? "Signing Transaction..." : "Launch Token"}
             </button>
 
             {txResult && (
