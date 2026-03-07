@@ -7,17 +7,19 @@ import {
   publicProvider,
   argent,
   braavos,
-  useInjectedConnectors,
   voyager,
 } from "@starknet-react/core";
 
-function StarknetProviderInner({ children }: { children: ReactNode }) {
-  const { connectors } = useInjectedConnectors({
-    recommended: [argent(), braavos()],
-    includeRecommended: "always",
-    order: "alphabetical",
-  });
+// Create connectors statically to avoid useInjectedConnectors hook
+// which uses useMemo internally and conflicts with wallet extension
+// SES lockdown (causes React error #310).
+const connectors = [argent(), braavos()];
 
+export default function StarknetProvider({
+  children,
+}: {
+  children: ReactNode;
+}) {
   return (
     <StarknetConfig
       chains={[sepolia]}
@@ -28,12 +30,4 @@ function StarknetProviderInner({ children }: { children: ReactNode }) {
       {children}
     </StarknetConfig>
   );
-}
-
-export default function StarknetProvider({
-  children,
-}: {
-  children: ReactNode;
-}) {
-  return <StarknetProviderInner>{children}</StarknetProviderInner>;
 }
