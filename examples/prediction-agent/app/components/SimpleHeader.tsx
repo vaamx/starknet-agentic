@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import { useAccount } from "@starknet-react/core";
 import WalletConnect from "./WalletConnect";
 import TamagotchiBadge from "./dashboard/TamagotchiBadge";
 import type { AuthModalMode } from "./AuthModal";
@@ -49,8 +50,10 @@ export default function SimpleHeader({
   onLogout,
 }: SimpleHeaderProps) {
   const pathname = usePathname();
+  const { isConnected, address: walletAddress } = useAccount();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const isAuthed = Boolean(authUser) || isConnected;
 
   const brandName = process.env.NEXT_PUBLIC_SWARM_NAME?.trim() || "HiveCaster";
 
@@ -197,7 +200,7 @@ export default function SimpleHeader({
               {marketStatus.label}
             </div>
 
-            {authUser && (
+            {isAuthed && (
               <button
                 type="button"
                 onClick={onOpenCreator}
@@ -210,7 +213,7 @@ export default function SimpleHeader({
               </button>
             )}
 
-            {!authLoading && !authUser && (
+            {!authLoading && !isAuthed && (
               <>
                 <button
                   type="button"
@@ -229,11 +232,11 @@ export default function SimpleHeader({
               </>
             )}
 
-            {authLoading && (
+            {authLoading && !isConnected && (
               <div className="hidden h-9 w-[180px] animate-pulse rounded-xl border border-white/[0.08] bg-white/[0.03] md:block" />
             )}
 
-            <WalletConnect showTrigger={Boolean(authUser)} />
+            <WalletConnect showTrigger={isAuthed} />
 
             <div className="relative">
               <button
@@ -263,7 +266,16 @@ export default function SimpleHeader({
                       </div>
                     )}
 
-                    {!authUser && !authLoading && (
+                    {!authUser && isConnected && walletAddress && (
+                      <div className="border-b border-white/[0.08] px-4 py-3.5">
+                        <p className="text-sm font-semibold text-white">Wallet Connected</p>
+                        <p className="mt-0.5 truncate font-mono text-xs text-white/50">
+                          {walletAddress.slice(0, 8)}...{walletAddress.slice(-6)}
+                        </p>
+                      </div>
+                    )}
+
+                    {!isAuthed && !authLoading && (
                       <div className="space-y-1 border-b border-white/[0.08] p-2">
                         <button
                           type="button"
@@ -297,7 +309,7 @@ export default function SimpleHeader({
                         }}
                         className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-white/85 transition-colors hover:bg-white/[0.06] hover:text-white"
                       >
-                        {authUser ? "➕ Create New Market" : "📈 Start Forecasting"}
+                        {isAuthed ? "➕ Create New Market" : "📈 Start Forecasting"}
                       </button>
                       <Link
                         href="/fleet"
@@ -349,7 +361,7 @@ export default function SimpleHeader({
                       >
                         📚 API Docs
                       </a>
-                      {authUser && (
+                      {isAuthed && (
                         <button
                           type="button"
                           onClick={() => {
@@ -363,7 +375,7 @@ export default function SimpleHeader({
                       )}
                     </div>
 
-                    {authUser && (
+                    {isAuthed && (
                       <button
                         type="button"
                         onClick={() => {

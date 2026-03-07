@@ -177,39 +177,35 @@ function seedMarkets(db: BetterSqlite3.Database): void {
   const now = Date.now();
   const defaultResolution = Math.floor(now / 1000) + 30 * 24 * 60 * 60;
 
-  const tx = db.transaction(() => {
-    // Standard seed questions (INSERT OR IGNORE — won't overwrite on-chain data)
-    for (const [idStr, question] of Object.entries(SEED_QUESTIONS)) {
-      insert.run({
-        id: Number(idStr),
-        question,
-        resolutionTime: defaultResolution,
-        updatedAt: now,
-      });
-    }
+  // Standard seed questions (INSERT OR IGNORE — won't overwrite on-chain data)
+  for (const [idStr, question] of Object.entries(SEED_QUESTIONS)) {
+    insert.run({
+      id: Number(idStr),
+      question,
+      resolutionTime: defaultResolution,
+      updatedAt: now,
+    });
+  }
 
-    // Featured seeds (upsert — always stay fresh with rolling resolution times)
-    for (const [idStr, feat] of Object.entries(FEATURED_SEEDS)) {
-      const id = Number(idStr);
-      const poolBig = BigInt(feat.poolWei);
-      const yesPool = ((poolBig * BigInt(Math.round(feat.probYes * 1000))) / 1000n).toString();
-      const noPool = (poolBig - BigInt(yesPool)).toString();
+  // Featured seeds (upsert — always stay fresh with rolling resolution times)
+  for (const [idStr, feat] of Object.entries(FEATURED_SEEDS)) {
+    const id = Number(idStr);
+    const poolBig = BigInt(feat.poolWei);
+    const yesPool = ((poolBig * BigInt(Math.round(feat.probYes * 1000))) / 1000n).toString();
+    const noPool = (poolBig - BigInt(yesPool)).toString();
 
-      upsertFeatured.run({
-        id,
-        question: feat.question,
-        resolutionTime: Math.floor(now / 1000) + feat.hoursUntilResolution * 3600,
-        probYes: feat.probYes,
-        probNo: 1 - feat.probYes,
-        totalPool: feat.poolWei,
-        yesPool,
-        noPool,
-        updatedAt: now,
-      });
-    }
-  });
-
-  tx();
+    upsertFeatured.run({
+      id,
+      question: feat.question,
+      resolutionTime: Math.floor(now / 1000) + feat.hoursUntilResolution * 3600,
+      probYes: feat.probYes,
+      probNo: 1 - feat.probYes,
+      totalPool: feat.poolWei,
+      yesPool,
+      noPool,
+      updatedAt: now,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -247,31 +243,27 @@ export function upsertMarkets(snapshots: PersistedMarketSnapshot[]): void {
       updated_at = excluded.updated_at
   `);
 
-  const tx = db.transaction(() => {
-    for (const s of snapshots) {
-      upsert.run({
-        id: s.id,
-        address: s.address,
-        questionHash: s.questionHash,
-        question: s.question,
-        resolutionTime: s.resolutionTime,
-        oracle: s.oracle,
-        collateralToken: s.collateralToken,
-        feeBps: s.feeBps,
-        status: s.status,
-        totalPool: s.totalPool,
-        yesPool: s.yesPool,
-        noPool: s.noPool,
-        impliedProbYes: s.impliedProbYes,
-        impliedProbNo: s.impliedProbNo,
-        winningOutcome: s.winningOutcome ?? null,
-        tradeCount: s.tradeCount ?? 0,
-        updatedAt: s.updatedAt,
-      });
-    }
-  });
-
-  tx();
+  for (const s of snapshots) {
+    upsert.run({
+      id: s.id,
+      address: s.address,
+      questionHash: s.questionHash,
+      question: s.question,
+      resolutionTime: s.resolutionTime,
+      oracle: s.oracle,
+      collateralToken: s.collateralToken,
+      feeBps: s.feeBps,
+      status: s.status,
+      totalPool: s.totalPool,
+      yesPool: s.yesPool,
+      noPool: s.noPool,
+      impliedProbYes: s.impliedProbYes,
+      impliedProbNo: s.impliedProbNo,
+      winningOutcome: s.winningOutcome ?? null,
+      tradeCount: s.tradeCount ?? 0,
+      updatedAt: s.updatedAt,
+    });
+  }
 }
 
 function rowToSnapshot(row: any): PersistedMarketSnapshot {
@@ -331,20 +323,16 @@ export function upsertPredictions(
   `);
 
   const now = Date.now();
-  const tx = db.transaction(() => {
-    for (const p of predictions) {
-      upsert.run({
-        agent: p.agent,
-        marketId: p.marketId ?? marketId,
-        predictedProb: p.predictedProb,
-        brierScore: p.brierScore,
-        predictionCount: p.predictionCount,
-        updatedAt: now,
-      });
-    }
-  });
-
-  tx();
+  for (const p of predictions) {
+    upsert.run({
+      agent: p.agent,
+      marketId: p.marketId ?? marketId,
+      predictedProb: p.predictedProb,
+      brierScore: p.brierScore,
+      predictionCount: p.predictionCount,
+      updatedAt: now,
+    });
+  }
 }
 
 export function getPredictionsFromDb(marketId: number): DbAgentPrediction[] {

@@ -40,7 +40,16 @@ function useTasks() {
         if (!r.ok) throw new Error(`Failed to load tasks (${r.status})`);
         return r.json();
       })
-      .then((data) => setTasks(data.tasks ?? []))
+      .then((data) => {
+        const tasks = (data.tasks ?? []).map((t: any) => ({
+          ...t,
+          description: t.description ?? "",
+          rewardStrk: t.rewardStrk ?? 0,
+          bidsCount: t.bidsCount ?? 0,
+          requiredValidators: t.requiredValidators ?? 0,
+        }));
+        setTasks(tasks);
+      })
       .catch((e) => setError(e.message ?? "Failed to load tasks"))
       .finally(() => setLoading(false));
   }, []);
@@ -104,8 +113,8 @@ function formatDate(ts: number): string {
 /* ------------------------------------------------------------------ */
 
 function StatsBar({ tasks }: { tasks: ProveWorkTask[] }) {
-  const totalReward = tasks.reduce((s, t) => s + t.rewardStrk, 0);
-  const totalBids = tasks.reduce((s, t) => s + t.bidsCount, 0);
+  const totalReward = tasks.reduce((s, t) => s + (t.rewardStrk || 0), 0);
+  const totalBids = tasks.reduce((s, t) => s + (t.bidsCount || 0), 0);
   const completed = tasks.filter((t) => t.status === "approved").length;
 
   const stats = [
@@ -167,7 +176,7 @@ function TaskCard({ task }: { task: ProveWorkTask }) {
             <span className="text-[9px] font-bold text-violet-300">S</span>
           </div>
           <span className="font-mono font-bold text-base text-white">
-            {task.rewardStrk.toLocaleString()}
+            {(task.rewardStrk ?? 0).toLocaleString()}
           </span>
           <span className="text-[10px] text-white/30">STRK</span>
         </div>
