@@ -234,20 +234,69 @@ export function clearEconomyCache(): void {
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
 
-function felt252ToString(val: unknown): string {
+/** Coerce any starknet.js return value to a bigint.
+ *  Handles: bigint, number, hex string, { low, high } u256 struct, or nested object. */
+function toBigInt(val: unknown): bigint {
+  if (typeof val === "bigint") return val;
+  if (typeof val === "number") return BigInt(val);
+  if (typeof val === "string") return BigInt(val);
+  if (val && typeof val === "object") {
+    // u256 struct { low, high }
+    if ("low" in val && "high" in val) {
+      const low = toBigInt((val as any).low);
+      const high = toBigInt((val as any).high);
+      return (high << 128n) | low;
+    }
+    // Some contracts return { value } wrapper
+    if ("value" in val) return toBigInt((val as any).value);
+  }
+  return 0n;
+}
+
+/** Coerce any return value to a plain string (for name/symbol). */
+function toPlainString(val: unknown): string {
+  if (typeof val === "string") return val;
+  if (typeof val === "bigint" || typeof val === "number") {
+    try { return shortString.decodeShortString(String(val)); } catch { return String(val); }
+  }
+  if (val && typeof val === "object") {
+    // ByteArray struct: { data, pending_word, pending_word_len }
+    if ("pending_word" in val) {
+      try {
+        const parts: string[] = [];
+        const data = (val as any).data;
+        if (Array.isArray(data)) {
+          for (const felt of data) {
+            try { parts.push(shortString.decodeShortString(String(felt))); } catch { /* skip */ }
+          }
+        }
+        const pw = (val as any).pending_word;
+        const pwLen = Number((val as any).pending_word_len ?? 0);
+        if (pw && pwLen > 0) {
+          try { parts.push(shortString.decodeShortString(String(pw))); } catch { /* skip */ }
+        }
+        const decoded = parts.join("");
+        if (decoded) return decoded;
+      } catch { /* fall through */ }
+    }
+  }
   try {
     return shortString.decodeShortString(String(val));
   } catch {
-    return String(val);
+    return String(val ?? "");
   }
 }
 
+function felt252ToString(val: unknown): string {
+  return toPlainString(val);
+}
+
 function toStrk(wei: bigint | unknown): number {
-  return Number(BigInt(String(wei))) / 1e18;
+  return Number(toBigInt(wei)) / 1e18;
 }
 
 function toHex(val: unknown): string {
-  const n = BigInt(String(val));
+  const n = toBigInt(val);
   return "0x" + n.toString(16).padStart(2, "0");
 }
 
@@ -435,9 +484,8 @@ async function readLaunch(index: number): Promise<OnChainToken | null> {
       tokenContract.name().catch(() => "Unknown"),
       tokenContract.symbol().catch(() => "???"),
     ]);
-    // starknet.js v8 decodes ByteArray to string automatically
-    const name = typeof nameRaw === "string" ? nameRaw : felt252ToString(nameRaw);
-    const symbol = typeof symbolRaw === "string" ? symbolRaw : felt252ToString(symbolRaw);
+    const name = toPlainString(nameRaw) || `Token #${index}`;
+    const symbol = toPlainString(symbolRaw) || "???";
 
     // Read curve data
     const curve = new Contract({
@@ -457,7 +505,7 @@ async function readLaunch(index: number): Promise<OnChainToken | null> {
 
     // Spot price: Number(get_buy_price(1)) gives wei_reserve per wei_token.
     // For quadratic at 0 supply this is 0 (correct — price starts at 0).
-    const spotPrice = Number(BigInt(String(spotPriceRaw)));
+    const spotPrice = Number(toBigInt(spotPriceRaw));
 
     return {
       id: `launch-${index}`,
