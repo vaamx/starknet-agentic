@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useAccount, useSendTransaction } from "@starknet-react/core";
+import { useAccount } from "@starknet-react/core";
 import SiteHeader from "@/components/SiteHeader";
 import Footer from "@/components/Footer";
 import {
@@ -101,32 +101,39 @@ function GuildMembershipActions({
   stakeInput: string;
   setStakeInput: (v: string) => void;
 }) {
-  const { isConnected } = useAccount();
-  const { sendAsync, isPending } = useSendTransaction({});
+  const { isConnected, account } = useAccount();
+  const [sending, setSending] = useState(false);
   const [txResult, setTxResult] = useState<{ status: string; txHash?: string; error?: string } | null>(null);
 
   async function handleJoin() {
     const amt = parseFloat(stakeInput);
-    if (!amt || amt < minStake) return;
+    if (!amt || amt < minStake || !account) return;
     setTxResult(null);
+    setSending(true);
     try {
       const stakeWei = BigInt(Math.floor(amt * 1e18));
       const calls = buildJoinGuildCalls(ECONOMY.GUILD_REGISTRY, BigInt(guildId), stakeWei);
-      const res = await sendAsync(calls);
+      const res = await account.execute(calls);
       setTxResult({ status: "success", txHash: res.transaction_hash });
     } catch (err: any) {
       setTxResult({ status: "error", error: err.message });
+    } finally {
+      setSending(false);
     }
   }
 
   async function handleLeave() {
+    if (!account) return;
     setTxResult(null);
+    setSending(true);
     try {
       const calls = buildLeaveGuildCalls(ECONOMY.GUILD_REGISTRY, BigInt(guildId));
-      const res = await sendAsync(calls);
+      const res = await account.execute(calls);
       setTxResult({ status: "success", txHash: res.transaction_hash });
     } catch (err: any) {
       setTxResult({ status: "error", error: err.message });
+    } finally {
+      setSending(false);
     }
   }
 
@@ -138,17 +145,17 @@ function GuildMembershipActions({
           <div className="flex items-center gap-2">
             <button
               onClick={handleJoin}
-              disabled={isPending || !stakeInput || parseFloat(stakeInput) < minStake}
+              disabled={sending || !stakeInput || parseFloat(stakeInput) < minStake}
               className="rounded-lg border border-cyan-400/20 bg-cyan-400/10 px-4 py-2 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/15 hover:border-cyan-400/30 transition-all disabled:opacity-40"
             >
-              {isPending ? "Signing..." : "Join Guild"}
+              {sending ? "Signing..." : "Join Guild"}
             </button>
             <button
               onClick={handleLeave}
-              disabled={isPending}
+              disabled={sending}
               className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-[11px] font-semibold text-white/40 hover:text-white/60 hover:bg-white/[0.06] transition-all disabled:opacity-40"
             >
-              {isPending ? "..." : "Leave Guild"}
+              {sending ? "..." : "Leave Guild"}
             </button>
           </div>
         ) : (
@@ -198,18 +205,22 @@ function GuildMembershipActions({
 // ── Vote Buttons (wallet-connected) ──────────────────────────────────────────
 
 function VoteButtons({ proposalId }: { proposalId: number }) {
-  const { isConnected } = useAccount();
-  const { sendAsync, isPending } = useSendTransaction({});
+  const { isConnected, account } = useAccount();
+  const [voting, setVoting] = useState(false);
   const [txResult, setTxResult] = useState<{ status: string; txHash?: string; error?: string } | null>(null);
 
   async function handleVote(support: boolean) {
+    if (!account) return;
     setTxResult(null);
+    setVoting(true);
     try {
       const calls = buildGuildVoteCalls(ECONOMY.GUILD_DAO, BigInt(proposalId), support);
-      const res = await sendAsync(calls);
+      const res = await account.execute(calls);
       setTxResult({ status: "success", txHash: res.transaction_hash });
     } catch (err: any) {
       setTxResult({ status: "error", error: err.message });
+    } finally {
+      setVoting(false);
     }
   }
 
@@ -222,17 +233,17 @@ function VoteButtons({ proposalId }: { proposalId: number }) {
       <div className="flex items-center gap-2">
         <button
           onClick={() => handleVote(true)}
-          disabled={isPending}
+          disabled={voting}
           className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-[10px] font-semibold text-emerald-300 hover:bg-emerald-400/15 transition-all disabled:opacity-40"
         >
-          {isPending ? "..." : "Vote Yes"}
+          {voting ? "..." : "Vote Yes"}
         </button>
         <button
           onClick={() => handleVote(false)}
-          disabled={isPending}
+          disabled={voting}
           className="rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-1.5 text-[10px] font-semibold text-red-300 hover:bg-red-400/15 transition-all disabled:opacity-40"
         >
-          {isPending ? "..." : "Vote No"}
+          {voting ? "..." : "Vote No"}
         </button>
       </div>
       {txResult && (

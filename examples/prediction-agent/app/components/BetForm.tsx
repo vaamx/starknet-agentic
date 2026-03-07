@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAccount, useSendTransaction } from "@starknet-react/core";
+import { useAccount } from "@starknet-react/core";
 import { computePayout } from "@/lib/accuracy";
 import { buildBetCalls } from "@/lib/contracts";
 
@@ -30,8 +30,8 @@ export default function BetForm({
   preselectedOutcome,
   onClose,
 }: BetFormProps) {
-  const { address, isConnected } = useAccount();
-  const { sendAsync, isPending } = useSendTransaction({});
+  const { address, isConnected, account } = useAccount();
+  const [sending, setSending] = useState(false);
 
   const [outcome, setOutcome] = useState<0 | 1>(preselectedOutcome ?? 1);
   const [amount, setAmount] = useState("");
@@ -104,17 +104,20 @@ export default function BetForm({
       : null;
 
   async function handleSubmit() {
-    if (amountBigInt <= 0n || !isConnected) return;
+    if (amountBigInt <= 0n || !isConnected || !account) return;
     setResult(null);
+    setSending(true);
     try {
       const calls = buildBetCalls(marketAddress, outcome, amountBigInt);
-      const response = await sendAsync(calls);
+      const response = await account.execute(calls);
       setResult({
         status: "success",
         txHash: response.transaction_hash,
       });
     } catch (err: any) {
       setResult({ status: "error", error: err.message });
+    } finally {
+      setSending(false);
     }
   }
 
@@ -288,14 +291,14 @@ export default function BetForm({
           {isConnected ? (
             <button
               onClick={handleSubmit}
-              disabled={isPending || amountBigInt <= 0n}
+              disabled={sending || amountBigInt <= 0n}
               className={`w-full py-3 rounded-lg font-heading font-bold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                 outcome === 1
                   ? "bg-neo-green/20 text-neo-green border border-neo-green/30 hover:bg-neo-green/30"
                   : "bg-neo-red/20 text-neo-red border border-neo-red/30 hover:bg-neo-red/30"
               }`}
             >
-              {isPending
+              {sending
                 ? "Signing Transaction..."
                 : `Bet ${outcome === 1 ? "YES" : "NO"}${amount ? ` \u2014 ${amount} STRK` : ""}`}
             </button>

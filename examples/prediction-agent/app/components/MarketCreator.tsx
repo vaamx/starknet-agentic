@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAccount, useSendTransaction } from "@starknet-react/core";
+import { useAccount } from "@starknet-react/core";
 import { buildCreateMarketCalls } from "@/lib/contracts";
 import { reviewMarketQuestion } from "@/lib/market-quality";
 
@@ -25,8 +25,8 @@ const FEE_PRESETS = [
 ];
 
 export default function MarketCreator({ onClose, onCreated }: MarketCreatorProps) {
-  const { address, isConnected } = useAccount();
-  const { sendAsync, isPending } = useSendTransaction({});
+  const { address, isConnected, account } = useAccount();
+  const [sending, setSending] = useState(false);
 
   const [question, setQuestion] = useState("");
   const [days, setDays] = useState(30);
@@ -54,7 +54,7 @@ export default function MarketCreator({ onClose, onCreated }: MarketCreatorProps
       ? "bg-neo-yellow"
       : "bg-neo-red";
 
-  const canDeploy = question.trim().length > 0 && validDays && validFee && isConnected && !isPending;
+  const canDeploy = question.trim().length > 0 && validDays && validFee && isConnected && !sending;
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -72,11 +72,12 @@ export default function MarketCreator({ onClose, onCreated }: MarketCreatorProps
   }, []);
 
   const handleDeploy = async () => {
-    if (!canDeploy || !address) return;
+    if (!canDeploy || !address || !account) return;
     setResult(null);
+    setSending(true);
     try {
       const calls = buildCreateMarketCalls(question.trim(), days, feeBps, address);
-      const response = await sendAsync(calls);
+      const response = await account.execute(calls);
       try {
         await fetch("/api/markets/register-question", {
           method: "POST",
@@ -93,6 +94,8 @@ export default function MarketCreator({ onClose, onCreated }: MarketCreatorProps
       if (onCreated) void onCreated();
     } catch (err: any) {
       setResult({ error: err.message || "Transaction rejected" });
+    } finally {
+      setSending(false);
     }
   };
 
@@ -318,7 +321,7 @@ export default function MarketCreator({ onClose, onCreated }: MarketCreatorProps
               disabled={!canDeploy}
               className="w-full py-3 rounded-xl font-heading font-bold text-sm bg-neo-brand/20 border border-neo-brand/30 text-neo-brand hover:bg-neo-brand/30 hover:border-neo-brand/50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
             >
-              {isPending ? (
+              {sending ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-neo-brand animate-bounce" />
                   <span className="w-1.5 h-1.5 rounded-full bg-neo-brand animate-bounce [animation-delay:0.1s]" />

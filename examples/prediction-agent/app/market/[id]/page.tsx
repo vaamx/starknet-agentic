@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useAccount, useSendTransaction } from "@starknet-react/core";
+import { useAccount } from "@starknet-react/core";
 import { buildBetCalls, buildClaimCalls } from "@/lib/contracts";
 import { computePayout } from "@/lib/accuracy";
 import { categorizeMarket } from "@/lib/categories";
@@ -434,8 +434,8 @@ function TradeSidebar({
   yesPercent: number;
   noPercent: number;
 }) {
-  const { isConnected } = useAccount();
-  const { sendAsync, isPending } = useSendTransaction({});
+  const { isConnected, account } = useAccount();
+  const [sending, setSending] = useState(false);
   const [mode, setMode] = useState<"buy" | "sell">("buy");
   const [outcome, setOutcome] = useState<0 | 1>(1);
   const [amount, setAmount] = useState("");
@@ -467,21 +467,24 @@ function TradeSidebar({
   const totalPoolStrk = Number(safeBigInt(market.totalPool)) / 1e18;
 
   async function handleTrade() {
-    if (!isConnected) return;
+    if (!isConnected || !account) return;
     if (mode === "buy" && amountBigInt <= 0n) return;
     setBetResult(null);
+    setSending(true);
     try {
       if (mode === "sell") {
         const calls = buildClaimCalls(market.address);
-        const response = await sendAsync(calls);
+        const response = await account.execute(calls);
         setBetResult({ status: "success", txHash: response.transaction_hash });
       } else {
         const calls = buildBetCalls(market.address, outcome, amountBigInt);
-        const response = await sendAsync(calls);
+        const response = await account.execute(calls);
         setBetResult({ status: "success", txHash: response.transaction_hash });
       }
     } catch (err: unknown) {
       setBetResult({ status: "error", error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setSending(false);
     }
   }
 
@@ -604,7 +607,7 @@ function TradeSidebar({
         {isConnected ? (
           <button
             onClick={handleTrade}
-            disabled={isPending || (mode === "buy" && amountBigInt <= 0n)}
+            disabled={sending || (mode === "buy" && amountBigInt <= 0n)}
             className={`w-full py-3.5 rounded-xl font-bold text-sm transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
               mode === "sell"
                 ? "bg-rose-500 hover:bg-rose-400 text-white"
@@ -613,7 +616,7 @@ function TradeSidebar({
                   : "bg-rose-500 hover:bg-rose-400 text-white"
             }`}
           >
-            {isPending
+            {sending
               ? "Confirming..."
               : mode === "sell"
                 ? "Sell Position"
