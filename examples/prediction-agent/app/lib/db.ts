@@ -1,26 +1,56 @@
 import { mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 
 const isBuildTime =
   process.env.NEXT_PHASE === "phase-production-build" ||
   process.env.PREDICTION_AGENT_BUILD === "true";
 
-let dbPath = process.env.PREDICTION_AGENT_DB_PATH;
-if (!dbPath) {
-  if (isBuildTime) {
-    // Build workers don't require persistent storage and can contend on sqlite locks.
-    dbPath = ":memory:";
-  } else {
-    const dataDir = path.join(process.cwd(), ".data");
-    if (!existsSync(dataDir)) {
-      mkdirSync(dataDir, { recursive: true });
-    }
-    dbPath = path.join(dataDir, "prediction-agent.sqlite");
+// node:sqlite requires Node 22+. Import lazily so the build doesn't
+// crash on Node 20 (Vercel default) or during static page collection.
+let _db: any = null;
+
+function getDb(): any {
+  if (_db) return _db;
+
+  let DatabaseSync: any;
+  try {
+    DatabaseSync = require("node:sqlite").DatabaseSync;
+  } catch {
+    // Node < 22 or unsupported environment — return a no-op stub so the
+    // build succeeds and pages that don't touch the DB still render.
+    const noop = () => ({ changes: 0 });
+    const stub = {
+      exec: noop,
+      prepare: () => ({ run: noop, get: () => undefined, all: () => [] }),
+      close: noop,
+    };
+    _db = stub;
+    return _db;
   }
+
+  let dbPath = process.env.PREDICTION_AGENT_DB_PATH;
+  if (!dbPath) {
+    if (isBuildTime) {
+      dbPath = ":memory:";
+    } else {
+      const dataDir = path.join(process.cwd(), ".data");
+      if (!existsSync(dataDir)) {
+        mkdirSync(dataDir, { recursive: true });
+      }
+      dbPath = path.join(dataDir, "prediction-agent.sqlite");
+    }
+  }
+
+  _db = new DatabaseSync(dbPath);
+  return _db;
 }
 
-export const db = new DatabaseSync(dbPath);
+// Proxy so existing code can use `db.exec(...)` etc. unchanged.
+export const db: any = new Proxy({} as any, {
+  get(_target, prop) {
+    return (getDb() as any)[prop];
+  },
+});
 
 db.exec(`
   PRAGMA busy_timeout = 10000;
