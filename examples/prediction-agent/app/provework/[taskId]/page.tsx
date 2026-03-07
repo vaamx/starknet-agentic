@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useAccount, useSendTransaction } from "@starknet-react/core";
@@ -126,7 +126,7 @@ function TimelineItem({ event, isLast }: { event: TimelineEvent; isLast: boolean
 /*  Task Actions (wallet-connected)                                    */
 /* ------------------------------------------------------------------ */
 
-function TaskActions({ taskId, status }: { taskId: string; status: TaskStatus }) {
+function TaskActions({ taskId, status, onSuccess }: { taskId: string; status: TaskStatus; onSuccess?: () => void }) {
   const { isConnected } = useAccount();
   const { sendAsync, isPending } = useSendTransaction({});
   const [activeAction, setActiveAction] = useState<"bid" | "proof" | "dispute" | null>(null);
@@ -146,6 +146,8 @@ function TaskActions({ taskId, status }: { taskId: string; status: TaskStatus })
       setTxResult({ status: "success", txHash: res.transaction_hash });
       setActiveAction(null);
       setInputValue("");
+      // Refresh after a short delay for on-chain confirmation
+      setTimeout(() => onSuccess?.(), 5000);
     } catch (err: any) {
       setTxResult({ status: "error", error: err.message });
     }
@@ -161,6 +163,7 @@ function TaskActions({ taskId, status }: { taskId: string; status: TaskStatus })
       setTxResult({ status: "success", txHash: res.transaction_hash });
       setActiveAction(null);
       setInputValue("");
+      setTimeout(() => onSuccess?.(), 5000);
     } catch (err: any) {
       setTxResult({ status: "error", error: err.message });
     }
@@ -172,6 +175,7 @@ function TaskActions({ taskId, status }: { taskId: string; status: TaskStatus })
       const calls = buildApproveTaskCalls(escrow, taskIdBigInt);
       const res = await sendAsync(calls);
       setTxResult({ status: "success", txHash: res.transaction_hash });
+      setTimeout(() => onSuccess?.(), 5000);
     } catch (err: any) {
       setTxResult({ status: "error", error: err.message });
     }
@@ -187,6 +191,7 @@ function TaskActions({ taskId, status }: { taskId: string; status: TaskStatus })
       setTxResult({ status: "success", txHash: res.transaction_hash });
       setActiveAction(null);
       setInputValue("");
+      setTimeout(() => onSuccess?.(), 5000);
     } catch (err: any) {
       setTxResult({ status: "error", error: err.message });
     }
@@ -348,31 +353,34 @@ export default function ProveWorkDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+  const fetchTask = useCallback(() => {
     setLoading(true);
     setError(false);
-
     fetch(`/api/provework/tasks/${encodeURIComponent(taskId)}`)
       .then((res) => {
         if (!res.ok) throw new Error("not found");
         return res.json();
       })
       .then((data) => {
-        if (!cancelled) {
-          setTask(data);
-          setLoading(false);
-        }
+        setTask({
+          ...data,
+          bids: data.bids ?? [],
+          timeline: data.timeline ?? [],
+          rewardStrk: data.rewardStrk ?? 0,
+          bidsCount: data.bidsCount ?? 0,
+          requiredValidators: data.requiredValidators ?? 0,
+        });
+        setLoading(false);
       })
       .catch(() => {
-        if (!cancelled) {
-          setError(true);
-          setLoading(false);
-        }
+        setError(true);
+        setLoading(false);
       });
-
-    return () => { cancelled = true; };
   }, [taskId]);
+
+  useEffect(() => {
+    fetchTask();
+  }, [fetchTask]);
 
   useEffect(() => {
     if (task?.description) {
@@ -417,7 +425,7 @@ export default function ProveWorkDetailPage() {
 
   const badge = STATUS_BADGE[task.status] ?? STATUS_BADGE.open;
   const deadlineExpired = task.deadline < Math.floor(Date.now() / 1000);
-  const displayDescription = task.description ?? `Task ${task.descriptionHash}`;
+  const displayDescription = task.description || `Task #${task.taskId}`;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)" }}>
@@ -463,7 +471,7 @@ export default function ProveWorkDetailPage() {
                 <span className="text-xs font-bold text-violet-300">S</span>
               </div>
               <span className="font-mono font-bold text-2xl text-white">
-                {task.rewardStrk.toLocaleString()}
+                {(task.rewardStrk ?? 0).toLocaleString()}
               </span>
               <span className="text-sm text-white/30">STRK reward</span>
             </div>
@@ -604,7 +612,7 @@ export default function ProveWorkDetailPage() {
         </div>
 
         {/* Action Buttons */}
-        <TaskActions taskId={task.taskId} status={task.status} />
+        <TaskActions taskId={task.taskId} status={task.status} onSuccess={fetchTask} />
 
         {/* Back link */}
         <div className="pt-2">

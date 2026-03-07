@@ -45,7 +45,8 @@ function truncateAddress(addr: string): string {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
-function formatNumber(n: number): string {
+function formatNumber(n: number | undefined | null): string {
+  if (n == null || isNaN(n)) return "0";
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toLocaleString();
@@ -258,7 +259,13 @@ export default function StarkMintTokenDetail() {
       })
       .then((data) => {
         if (!cancelled) {
-          setToken(data);
+          setToken({
+            ...data,
+            currentPrice: data.currentPrice ?? 0,
+            totalSupply: data.totalSupply ?? 0,
+            reserveBalance: data.reserveBalance ?? 0,
+            feeBps: data.feeBps ?? 0,
+          });
           setLoading(false);
         }
       })

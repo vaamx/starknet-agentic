@@ -37,7 +37,17 @@ function useTokenLaunches() {
         if (!r.ok) throw new Error(`Failed to load tokens (${r.status})`);
         return r.json();
       })
-      .then((data) => setTokens(data.tokens ?? []))
+      .then((data) => {
+        const tokens = (data.tokens ?? []).map((t: any) => ({
+          ...t,
+          volume24h: t.volume24h ?? 0,
+          priceDirection: t.priceDirection ?? "flat",
+          currentPrice: typeof t.currentPrice === "number" ? t.currentPrice : 0,
+          totalSupply: typeof t.totalSupply === "number" ? t.totalSupply : 0,
+          reserveBalance: typeof t.reserveBalance === "number" ? t.reserveBalance : 0,
+        }));
+        setTokens(tokens);
+      })
       .catch((e) => setError(e.message ?? "Failed to load tokens"))
       .finally(() => setLoading(false));
   }, []);
@@ -72,7 +82,8 @@ function truncateAddress(addr: string): string {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
-function formatNumber(n: number): string {
+function formatNumber(n: number | undefined | null): string {
+  if (n == null || isNaN(n)) return "0";
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toLocaleString();
@@ -101,7 +112,7 @@ function PriceBar({ direction }: { direction: "up" | "down" | "flat" }) {
 }
 
 function StatsBar({ launches }: { launches: TokenLaunch[] }) {
-  const totalVolume = launches.reduce((s, t) => s + t.volume24h, 0);
+  const totalVolume = launches.reduce((s, t) => s + (t.volume24h || 0), 0);
   const activeCurves = new Set(launches.map((t) => t.curveType)).size;
   const uniqueCreators = new Set(launches.map((t) => t.creator)).size;
 

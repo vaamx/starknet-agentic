@@ -57,73 +57,66 @@ export function recordResolutionAttempt(params: {
     const now = nowUnix();
     const id = makeId("rattempt");
 
-    // Everything inside one transaction to prevent concurrent reads from
-    // producing duplicate attempt numbers.
-    let record: ResolutionAttemptRecord | null = null;
+    // DatabaseSync is synchronous and single-threaded, so sequential
+    // calls are inherently atomic within a single request.
+    db.prepare(
+      `INSERT INTO resolution_statuses (org_id, market_id, total_attempts, last_attempt_at, last_status, escalation)
+       VALUES (?, ?, 1, ?, ?, 'auto')
+       ON CONFLICT(org_id, market_id) DO UPDATE SET
+         total_attempts = total_attempts + 1,
+         last_attempt_at = excluded.last_attempt_at,
+         last_status = excluded.last_status`
+    ).run(params.orgId, params.marketId, now, params.status);
 
-    const runTransaction = db.transaction(() => {
-      // Upsert resolution_statuses first — the ON CONFLICT atomically
-      // increments total_attempts, so concurrent calls get sequential numbers.
-      db.prepare(
-        `INSERT INTO resolution_statuses (org_id, market_id, total_attempts, last_attempt_at, last_status, escalation)
-         VALUES (?, ?, 1, ?, ?, 'auto')
-         ON CONFLICT(org_id, market_id) DO UPDATE SET
-           total_attempts = total_attempts + 1,
-           last_attempt_at = excluded.last_attempt_at,
-           last_status = excluded.last_status`
-      ).run(params.orgId, params.marketId, now, params.status);
+    // Read the authoritative attempt number AFTER the upsert
+    const row = db
+      .prepare(
+        `SELECT total_attempts FROM resolution_statuses WHERE org_id = ? AND market_id = ?`
+      )
+      .get(params.orgId, params.marketId) as { total_attempts: number };
 
-      // Read the authoritative attempt number AFTER the upsert
-      const row = db
-        .prepare(
-          `SELECT total_attempts FROM resolution_statuses WHERE org_id = ? AND market_id = ?`
-        )
-        .get(params.orgId, params.marketId) as { total_attempts: number };
+    const attemptNumber = row.total_attempts;
 
-      const attemptNumber = row.total_attempts;
+    const record: ResolutionAttemptRecord = {
+      id,
+      orgId: params.orgId,
+      marketId: params.marketId,
+      attemptNumber,
+      strategy: params.strategy,
+      status: params.status,
+      outcome: params.outcome ?? null,
+      confidence: params.confidence ?? null,
+      evidence: params.evidence ?? null,
+      reasoning: params.reasoning ?? null,
+      resolveTxHash: params.resolveTxHash ?? null,
+      finalizeTxHash: params.finalizeTxHash ?? null,
+      errorMessage: params.errorMessage ?? null,
+      createdAt: now,
+    };
 
-      record = {
-        id,
-        orgId: params.orgId,
-        marketId: params.marketId,
-        attemptNumber,
-        strategy: params.strategy,
-        status: params.status,
-        outcome: params.outcome ?? null,
-        confidence: params.confidence ?? null,
-        evidence: params.evidence ?? null,
-        reasoning: params.reasoning ?? null,
-        resolveTxHash: params.resolveTxHash ?? null,
-        finalizeTxHash: params.finalizeTxHash ?? null,
-        errorMessage: params.errorMessage ?? null,
-        createdAt: now,
-      };
+    db.prepare(
+      `INSERT INTO resolution_attempts (
+        id, org_id, market_id, attempt_number, strategy, status, outcome,
+        confidence, evidence, reasoning, resolve_tx_hash, finalize_tx_hash,
+        error_message, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      record.id,
+      record.orgId,
+      record.marketId,
+      record.attemptNumber,
+      record.strategy,
+      record.status,
+      record.outcome,
+      record.confidence,
+      record.evidence,
+      record.reasoning,
+      record.resolveTxHash,
+      record.finalizeTxHash,
+      record.errorMessage,
+      record.createdAt
+    );
 
-      db.prepare(
-        `INSERT INTO resolution_attempts (
-          id, org_id, market_id, attempt_number, strategy, status, outcome,
-          confidence, evidence, reasoning, resolve_tx_hash, finalize_tx_hash,
-          error_message, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        record.id,
-        record.orgId,
-        record.marketId,
-        record.attemptNumber,
-        record.strategy,
-        record.status,
-        record.outcome,
-        record.confidence,
-        record.evidence,
-        record.reasoning,
-        record.resolveTxHash,
-        record.finalizeTxHash,
-        record.errorMessage,
-        record.createdAt
-      );
-    });
-
-    runTransaction();
     return record;
   } catch (err) {
     console.warn(`[resolution-store] recordResolutionAttempt failed for market ${params.marketId}:`, err);

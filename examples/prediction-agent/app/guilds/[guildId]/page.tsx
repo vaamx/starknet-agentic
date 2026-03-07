@@ -56,7 +56,8 @@ function truncAddr(addr: string): string {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
-function fmtStrk(amount: number): string {
+function fmtStrk(amount: number | undefined | null): string {
+  if (amount == null || isNaN(amount)) return "0";
   if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(1)}M`;
   if (amount >= 1_000) return `${(amount / 1_000).toFixed(1)}K`;
   return amount.toLocaleString();
@@ -353,7 +354,16 @@ export default function GuildDetailPage() {
       })
       .then((data) => {
         if (!cancelled) {
-          setGuild(data);
+          setGuild({
+            ...data,
+            tags: data.tags ?? [],
+            members: data.members ?? [],
+            proposals: data.proposals ?? [],
+            description: data.description ?? null,
+            totalStaked: data.totalStaked ?? 0,
+            memberCount: data.memberCount ?? 0,
+            minStake: data.minStake ?? 0,
+          });
           setLoading(false);
         }
       })

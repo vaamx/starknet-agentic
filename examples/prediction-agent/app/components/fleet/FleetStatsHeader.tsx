@@ -103,7 +103,7 @@ export default function FleetStatsHeader({ stats }: { stats: FleetStats | null }
       </StatCard>
       <StatCard
         label="STRK Under Mgmt"
-        value={stats.totalStrkHuman.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+        value={(stats.totalStrkHuman ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}
         sub="across all wallets"
       >
         <TierDistBar dist={stats.tierDistribution} />

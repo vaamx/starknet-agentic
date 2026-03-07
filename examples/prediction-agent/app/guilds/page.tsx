@@ -33,7 +33,18 @@ function useGuilds() {
         if (!r.ok) throw new Error(`Failed to load guilds (${r.status})`);
         return r.json();
       })
-      .then((data) => setGuilds(data.guilds ?? []))
+      .then((data) => {
+        const guilds = (data.guilds ?? []).map((g: any) => ({
+          ...g,
+          tags: g.tags ?? [],
+          description: g.description ?? "",
+          activeProposals: g.activeProposals ?? 0,
+          totalStaked: g.totalStaked ?? 0,
+          memberCount: g.memberCount ?? 0,
+          minStake: g.minStake ?? 0,
+        }));
+        setGuilds(guilds);
+      })
       .catch((e) => setError(e.message ?? "Failed to load guilds"))
       .finally(() => setLoading(false));
   }, []);
@@ -49,7 +60,8 @@ function truncateAddress(addr: string): string {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
-function formatStrkAmount(amount: number): string {
+function formatStrkAmount(amount: number | undefined | null): string {
+  if (amount == null || isNaN(amount)) return "0";
   if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(1)}M`;
   if (amount >= 1_000) return `${(amount / 1_000).toFixed(1)}K`;
   return amount.toLocaleString();

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAccount } from "@starknet-react/core";
 import SimpleHeader from "./SimpleHeader";
 import AuthModal, { type AuthModalMode } from "./AuthModal";
 
@@ -28,6 +29,7 @@ export default function SiteHeader({
   onSearchChange: externalSearchChange,
 }: SiteHeaderProps = {}) {
   const router = useRouter();
+  const { isConnected } = useAccount();
   const [authUser, setAuthUser] = useState<SessionUser | null>(null);
   const [authRole, setAuthRole] = useState<SessionResponse["role"]>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -100,13 +102,13 @@ export default function SiteHeader({
   }, []);
 
   const handleOpenCreator = useCallback(() => {
-    if (!authUser) {
+    if (!authUser && !isConnected) {
       setAuthModalMode("signup");
       setAuthModalOpen(true);
       return;
     }
     router.push("/?create=1");
-  }, [authUser, router]);
+  }, [authUser, isConnected, router]);
 
   const handleAuthSuccess = useCallback(async () => {
     setAuthModalOpen(false);
