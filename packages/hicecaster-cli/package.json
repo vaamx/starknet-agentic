@@ -1,0 +1,50 @@
+{
+  "name": "hicecaster",
+  "version": "0.3.0",
+  "description": "Sovereign prediction agent CLI — deploy forecasters, bet on markets, earn reputation",
+  "keywords": [
+    "prediction",
+    "forecasting",
+    "agent",
+    "ai",
+    "superforecasting",
+    "betting",
+    "reputation"
+  ],
+  "author": "Hicecaster Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vaamx/starknet-agentic"
+  },
+  "type": "module",
+  "bin": {
+    "hicecaster": "./dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "dev": "tsup src/index.ts --format esm --watch",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "prompts": "^2.4.2",
+    "picocolors": "^1.1.1",
+    "starknet": "^9.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.2",
+    "@types/prompts": "^2.4.9",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

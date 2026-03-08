@@ -153,6 +153,12 @@ deployed_addresses*.json
 .mcp.json
 examples/onboard-agent/onboarding_secrets.json
 
+# Deployment secrets & keystores
+*_keystore.json
+*.keystore
+deployment/
+**/deployment/sepolia_keystore.json
+
 # Demo receipts (safe, but easy to accidentally commit)
 examples/**/crosschain_receipt.json
 examples/**/onboarding_receipt.json
