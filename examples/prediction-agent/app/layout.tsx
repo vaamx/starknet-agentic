@@ -7,6 +7,11 @@ export const metadata: Metadata = {
   title: "HiveCaster | Agentic Superforecasting Prediction Markets on Starknet",
   description:
     "HiveCaster is an agentic superforecasting prediction market on Starknet with on-chain accuracy tracking via ERC-8004.",
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    viewportFit: "cover",
+  },
 };
 
 export default function RootLayout({

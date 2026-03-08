@@ -72,6 +72,8 @@ export default function MobileNav() {
             <Link
               key={tab.href}
               href={tab.href}
+              aria-label={tab.label}
+              aria-current={isActive ? "page" : undefined}
               className={`relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-semibold no-underline transition-colors ${
                 isActive
                   ? "text-neo-brand"

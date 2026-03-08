@@ -325,9 +325,23 @@ export default function PortfolioPage() {
 
       <main className="max-w-[800px] mx-auto w-full flex-1 px-4 sm:px-6 py-8 pb-24">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-white tracking-tight">Portfolio</h1>
-          <p className="text-sm text-white/30 mt-1">Your positions across all prediction markets</p>
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-2xl font-bold text-white tracking-tight">Portfolio</h1>
+            <p className="text-sm text-white/30 mt-1">Your positions across all prediction markets</p>
+          </div>
+          {isConnected && positions.length > 0 && (
+            <button
+              onClick={refresh}
+              disabled={loading}
+              aria-label="Refresh portfolio"
+              className="p-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-white/30 hover:text-white/60 hover:bg-white/[0.08] transition-all disabled:opacity-30"
+            >
+              <svg className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* Not connected */}
