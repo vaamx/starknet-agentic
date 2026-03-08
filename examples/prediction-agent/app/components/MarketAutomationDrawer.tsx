@@ -312,7 +312,25 @@ export default function MarketAutomationDrawer({
             </div>
           )}
 
-          {error && (
+          {!authenticated && (
+            <div className="mt-4 rounded-2xl border border-neo-cyan/20 bg-neo-cyan/[0.06] p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-neo-cyan/10 border border-neo-cyan/20 flex items-center justify-center shrink-0 mt-0.5">
+                  <svg className="w-4 h-4 text-neo-cyan" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-[13px] font-semibold text-white/90">Sign in to configure automation</p>
+                  <p className="mt-1 text-[11px] text-white/45 leading-relaxed">
+                    Save policies, run automation, and track your execution history.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {error && error !== "__AUTH_REQUIRED__" && (
             <p className="mt-4 rounded-xl border border-rose-300/25 bg-rose-500/[0.12] px-3 py-2 text-[12px] text-rose-100">
               {error}
             </p>

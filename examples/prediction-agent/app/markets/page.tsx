@@ -558,16 +558,14 @@ export default function Dashboard() {
               </span>
               <div className="flex-1" />
               <div className="flex items-center gap-2">
-                {sessionContext && (
-                  <button
-                    type="button"
-                    onClick={handleRunAgentSweep}
-                    disabled={agentSweepBusy || survivalTier === "dead"}
-                    className="rounded-lg border border-neo-brand/25 bg-neo-brand/10 px-3 py-1.5 text-[11px] font-semibold text-neo-brand hover:bg-neo-brand/18 disabled:opacity-40 transition-all"
-                  >
-                    {agentSweepBusy ? "Sweeping..." : "Run Agent Sweep"}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={handleRunAgentSweep}
+                  disabled={agentSweepBusy || survivalTier === "dead"}
+                  className="rounded-lg border border-neo-brand/25 bg-neo-brand/10 px-3 py-1.5 text-[11px] font-semibold text-neo-brand hover:bg-neo-brand/18 disabled:opacity-40 transition-all"
+                >
+                  {agentSweepBusy ? "Sweeping..." : "Run Agent Sweep"}
+                </button>
                 <Link
                   href="/fleet"
                   className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-white/60 hover:bg-white/[0.08] transition-colors no-underline"

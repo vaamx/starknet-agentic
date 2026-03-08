@@ -702,15 +702,7 @@ export default function WalletConnect({ showTrigger = true }: WalletConnectProps
   ) : null;
 
   return (
-    <div className="relative flex items-center gap-2">
-      {showTrigger && isConnected && (
-        <div className="hidden xl:flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.05] px-3 py-1.5">
-          <span className={`h-1.5 w-1.5 rounded-full ${statusDot}`} />
-          <span className={`text-xs font-semibold ${statusTone}`}>
-            {statusLabel}
-          </span>
-        </div>
-      )}
+    <div className="relative flex items-center gap-1.5">
       {showTrigger && (
         <button
           type="button"
@@ -722,7 +714,7 @@ export default function WalletConnect({ showTrigger = true }: WalletConnectProps
             setShowDropdown((prev) => !prev);
           }}
           disabled={isPending}
-          className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-[13px] font-semibold transition-colors ${triggerClass} ${
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12px] font-semibold transition-colors ${triggerClass} ${
             isPending || authPending || isSigningTypedData ? "opacity-50 cursor-not-allowed" : ""
           }`}
         >

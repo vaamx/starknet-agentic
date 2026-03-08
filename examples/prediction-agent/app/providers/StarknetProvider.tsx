@@ -26,6 +26,7 @@ export default function StarknetProvider({
       provider={publicProvider()}
       connectors={connectors}
       explorer={voyager}
+      autoConnect
     >
       {children}
     </StarknetConfig>

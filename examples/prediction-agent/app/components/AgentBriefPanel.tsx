@@ -85,7 +85,21 @@ export default function AgentBriefPanel({
             </div>
           )}
 
-          {!loading && error && (
+          {!loading && error === "__AUTH_REQUIRED__" && (
+            <div className="rounded-2xl border border-neo-cyan/20 bg-neo-cyan/[0.06] p-5 text-center">
+              <div className="mx-auto mb-3 w-10 h-10 rounded-xl bg-neo-cyan/10 border border-neo-cyan/20 flex items-center justify-center">
+                <svg className="w-5 h-5 text-neo-cyan" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                </svg>
+              </div>
+              <p className="text-[14px] font-semibold text-white/90">Sign in to unlock Agent Brief</p>
+              <p className="mt-1.5 text-[12px] text-white/50 leading-relaxed">
+                Get personalized confidence scores, source reliability analysis, and backtest data for every market.
+              </p>
+            </div>
+          )}
+
+          {!loading && error && error !== "__AUTH_REQUIRED__" && (
             <p className="rounded-xl border border-rose-300/25 bg-rose-500/[0.12] px-3 py-2 text-[12px] text-rose-100">
               {error}
             </p>

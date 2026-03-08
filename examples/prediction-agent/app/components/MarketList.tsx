@@ -997,7 +997,7 @@ export default function MarketList({
       setDrawerDraft(toDraft(policyMap[marketId]));
 
       if (!isAuthenticated) {
-        setDrawerError("Sign in to persist automation settings per workspace user.");
+        // Still open the drawer in read-only preview mode
         return;
       }
 
@@ -1017,7 +1017,7 @@ export default function MarketList({
   const handleSavePolicy = useCallback(async () => {
     if (drawerMarketId === null) return;
     if (!isAuthenticated) {
-      setDrawerError("Sign in to save automation settings.");
+      setDrawerError("__AUTH_REQUIRED__");
       return;
     }
 
@@ -1159,12 +1159,6 @@ export default function MarketList({
       setBriefSummary(null);
       setBriefRuns([]);
 
-      if (!isAuthenticated) {
-        setBriefError("Sign in to view Agent Brief confidence and source reliability.");
-        setBriefLoading(false);
-        return;
-      }
-
       try {
         const response = await fetch(`/api/automation/brief?marketId=${marketId}`, {
           credentials: "include",
@@ -1181,6 +1175,11 @@ export default function MarketList({
           | null;
 
         if (!response.ok) {
+          if (response.status === 403 || response.status === 401) {
+            setBriefError("__AUTH_REQUIRED__");
+            setBriefLoading(false);
+            return;
+          }
           throw new Error(payload?.error ?? `Failed to load brief (HTTP ${response.status})`);
         }
 
@@ -1205,7 +1204,7 @@ export default function MarketList({
         setBriefLoading(false);
       }
     },
-    [isAuthenticated]
+    []
   );
 
   const automationStats = useMemo(() => {

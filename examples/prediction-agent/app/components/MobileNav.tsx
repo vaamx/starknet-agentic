@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 
 const TABS = [
   {
@@ -14,11 +15,11 @@ const TABS = [
     ),
   },
   {
-    href: "/series",
-    label: "Series",
+    href: "/portfolio",
+    label: "Portfolio",
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3" />
       </svg>
     ),
   },
@@ -31,66 +32,108 @@ const TABS = [
       </svg>
     ),
   },
-  {
-    href: "/provework",
-    label: "Tasks",
-    icon: (
-      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-      </svg>
-    ),
-  },
-  {
-    href: "/starkmint",
-    label: "Mint",
-    icon: (
-      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 3.75c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-      </svg>
-    ),
-  },
-  {
-    href: "/guilds",
-    label: "Guilds",
-    icon: (
-      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" />
-      </svg>
-    ),
-  },
+];
+
+const MORE_LINKS = [
+  { href: "/series", label: "Series" },
+  { href: "/souk", label: "AgentSouk" },
+  { href: "/provework", label: "ProveWork" },
+  { href: "/starkmint", label: "StarkMint" },
+  { href: "/guilds", label: "Guilds" },
 ];
 
 export default function MobileNav() {
   const pathname = usePathname();
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  const moreActive = MORE_LINKS.some((link) => pathname.startsWith(link.href));
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.08] bg-[#0c0f17]/95 backdrop-blur-xl md:hidden safe-area-bottom">
-      <div className="flex items-stretch justify-around">
-        {TABS.map((tab) => {
-          const isActive = pathname.startsWith(tab.href);
-          return (
-            <Link
-              key={tab.href}
-              href={tab.href}
-              aria-label={tab.label}
-              aria-current={isActive ? "page" : undefined}
-              className={`relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-semibold no-underline transition-colors ${
-                isActive
-                  ? "text-neo-brand"
-                  : "text-white/40 active:text-white/60"
-              }`}
-            >
-              {isActive && (
-                <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-neo-brand" />
-              )}
-              <span className={isActive ? "text-neo-brand" : "text-white/35"}>
-                {tab.icon}
-              </span>
-              {tab.label}
-            </Link>
-          );
-        })}
-      </div>
-    </nav>
+    <>
+      {/* More sheet */}
+      {moreOpen && (
+        <div className="fixed inset-0 z-[60] md:hidden">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setMoreOpen(false)}
+            aria-label="Close menu"
+          />
+          <div className="absolute bottom-[calc(3.5rem+env(safe-area-inset-bottom))] left-0 right-0 z-[61] p-3">
+            <div className="mx-auto max-w-sm rounded-2xl border border-white/[0.1] bg-[#141a2c]/95 backdrop-blur-xl shadow-[0_-8px_40px_rgba(0,0,0,0.4)] overflow-hidden">
+              {MORE_LINKS.map((link) => {
+                const isActive = pathname.startsWith(link.href);
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onClick={() => setMoreOpen(false)}
+                    className={`block px-4 py-3 text-[14px] font-semibold no-underline border-b border-white/[0.06] last:border-b-0 transition-colors ${
+                      isActive
+                        ? "text-white bg-white/[0.06]"
+                        : "text-white/60 active:bg-white/[0.04]"
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab bar */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.08] bg-[#0c0f17]/95 backdrop-blur-xl md:hidden safe-area-bottom">
+        <div className="flex items-stretch justify-around">
+          {TABS.map((tab) => {
+            const isActive = pathname.startsWith(tab.href);
+            return (
+              <Link
+                key={tab.href}
+                href={tab.href}
+                aria-label={tab.label}
+                aria-current={isActive ? "page" : undefined}
+                className={`relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-semibold no-underline transition-colors ${
+                  isActive
+                    ? "text-neo-brand"
+                    : "text-white/40 active:text-white/60"
+                }`}
+              >
+                {isActive && (
+                  <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-neo-brand" />
+                )}
+                <span className={isActive ? "text-neo-brand" : "text-white/35"}>
+                  {tab.icon}
+                </span>
+                {tab.label}
+              </Link>
+            );
+          })}
+
+          {/* More tab */}
+          <button
+            type="button"
+            onClick={() => setMoreOpen((prev) => !prev)}
+            aria-label="More pages"
+            className={`relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-semibold transition-colors ${
+              moreActive || moreOpen
+                ? "text-neo-brand"
+                : "text-white/40 active:text-white/60"
+            }`}
+          >
+            {moreActive && !moreOpen && (
+              <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-neo-brand" />
+            )}
+            <span className={moreActive || moreOpen ? "text-neo-brand" : "text-white/35"}>
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+              </svg>
+            </span>
+            More
+          </button>
+        </div>
+      </nav>
+    </>
   );
 }
