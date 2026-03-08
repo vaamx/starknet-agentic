@@ -134,14 +134,14 @@ interface SeriesMarket extends Market {
   avgVolume: number;
 }
 
-const CADENCE_META: Record<Cadence, { emoji: string; label: string; description: string; order: number }> = {
-  "5m":      { emoji: "\u26A1", label: "5 Minutes",  description: "Ultra-fast prediction markets expiring every 5 minutes", order: 0 },
-  "15m":     { emoji: "\u26A1", label: "15 Minutes", description: "Quick prediction markets expiring every 15 minutes", order: 1 },
-  "hourly":  { emoji: "\u23F0", label: "Hourly",     description: "Markets expiring every hour", order: 2 },
-  "4h":      { emoji: "\u23F3", label: "4 Hour",     description: "Markets expiring every 4 hours", order: 3 },
-  "daily":   { emoji: "\uD83D\uDCC5", label: "Daily",      description: "Daily prediction markets", order: 4 },
-  "weekly":  { emoji: "\uD83D\uDCCA", label: "Weekly",     description: "Weekly prediction markets", order: 5 },
-  "monthly": { emoji: "\uD83D\uDCC6", label: "Monthly",    description: "Monthly and longer-term markets", order: 6 },
+const CADENCE_META: Record<Cadence, { label: string; description: string; order: number }> = {
+  "5m":      { label: "5 Minutes",  description: "Ultra-fast markets expiring every 5 minutes", order: 0 },
+  "15m":     { label: "15 Minutes", description: "Quick markets expiring every 15 minutes", order: 1 },
+  "hourly":  { label: "Hourly",     description: "Markets expiring every hour", order: 2 },
+  "4h":      { label: "4 Hour",     description: "Markets expiring every 4 hours", order: 3 },
+  "daily":   { label: "Daily",      description: "Daily prediction markets", order: 4 },
+  "weekly":  { label: "Weekly",     description: "Weekly prediction markets", order: 5 },
+  "monthly": { label: "Monthly",    description: "Monthly and longer-term markets", order: 6 },
 };
 
 function detectAsset(question: string): { key: string; meta: AssetMeta } {
@@ -214,77 +214,54 @@ function SeriesCard({ market }: { market: SeriesMarket }) {
       href={`/market/${market.id}`}
       className="group block no-underline"
     >
-      <div className={`relative rounded-2xl border border-white/[0.06] bg-gradient-to-br ${market.asset.gradient} hover:border-white/[0.12] transition-all duration-200 overflow-hidden`}>
-        {/* Subtle glow on hover */}
-        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" style={{ background: "radial-gradient(ellipse at top left, rgba(255,255,255,0.03) 0%, transparent 60%)" }} />
-
-        <div className="relative p-4">
-          {/* Header: icon + title + badges */}
-          <div className="flex items-start gap-3 mb-3">
-            <div className={`w-9 h-9 rounded-full ${market.asset.iconBg} ring-2 ${market.asset.iconBorder} flex items-center justify-center shrink-0 shadow-lg`}>
-              <span className={`text-sm font-black ${market.asset.iconText}`}>
-                {market.asset.ticker.charAt(0)}
-              </span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <h3 className="text-[14px] font-bold text-white/90 group-hover:text-white transition-colors leading-tight truncate">
-                {market.seriesTitle}
-              </h3>
-              <div className="flex items-center gap-1.5 mt-1">
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-white/[0.06] border border-white/[0.08] text-white/40">
-                  {CADENCE_META[market.cadence].label.replace(" ", "\u00A0")}
-                </span>
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${market.asset.badgeBg} ${market.asset.badgeText}`}>
-                  {market.asset.ticker}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Status row */}
-          <div className="flex items-center justify-between mb-2.5">
-            <div className="flex items-center gap-1.5">
-              {market.isLive ? (
-                <>
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-50" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
-                  </span>
-                  <span className="text-[11px] font-bold text-emerald-400">LIVE</span>
-                </>
-              ) : (
-                <span className="text-[11px] font-semibold text-amber-400/70">upcoming</span>
-              )}
-            </div>
-            <div className="flex items-center gap-1 text-white/30">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-[11px] font-mono tabular-nums">{market.timeLeftLabel}</span>
-            </div>
-          </div>
-
-          {/* Description */}
-          <p className="text-[12px] text-white/35 leading-relaxed mb-3 line-clamp-2">
-            {market.question}
-          </p>
-
-          {/* Prices */}
-          <div className="flex items-end justify-between">
-            <div className="flex items-center gap-6">
-              <div>
-                <span className="text-[10px] text-white/25 block mb-0.5">Yes</span>
-                <span className="text-xl font-bold tabular-nums text-emerald-400">{yesPct}%</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-white/25 block mb-0.5">No</span>
-                <span className="text-xl font-bold tabular-nums text-rose-400">{noPct}%</span>
-              </div>
-            </div>
-            <span className="text-[11px] font-mono text-white/20 tabular-nums">
-              ${poolStrk > 0 ? poolStrk.toFixed(0) : "0"} avg
+      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12] hover:bg-white/[0.04] transition-all duration-150 p-4">
+        {/* Header */}
+        <div className="flex items-start gap-2.5 mb-3">
+          <div className={`w-8 h-8 rounded-lg ${market.asset.iconBg} flex items-center justify-center shrink-0`}>
+            <span className={`text-xs font-black ${market.asset.iconText}`}>
+              {market.asset.ticker.charAt(0)}
             </span>
           </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-[13px] font-bold text-white/85 group-hover:text-white transition-colors leading-tight truncate">
+              {market.seriesTitle}
+            </h3>
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className={`text-[10px] font-bold ${market.asset.badgeText}`}>
+                {market.asset.ticker}
+              </span>
+              <span className="text-white/15">·</span>
+              {market.isLive ? (
+                <span className="text-[10px] font-semibold text-emerald-400">{market.timeLeftLabel} left</span>
+              ) : (
+                <span className="text-[10px] font-semibold text-white/30">Ended</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Question */}
+        <p className="text-[11px] text-white/30 leading-relaxed mb-3 line-clamp-2">
+          {market.question}
+        </p>
+
+        {/* Prices + Volume */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="flex items-baseline gap-1">
+              <span className="text-lg font-bold tabular-nums text-emerald-400">{yesPct}</span>
+              <span className="text-[10px] text-white/25">Yes</span>
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="text-lg font-bold tabular-nums text-rose-400">{noPct}</span>
+              <span className="text-[10px] text-white/25">No</span>
+            </div>
+          </div>
+          {poolStrk > 0 && (
+            <span className="text-[11px] text-white/20 tabular-nums">
+              {poolStrk.toFixed(0)} STRK
+            </span>
+          )}
         </div>
       </div>
     </Link>
@@ -389,45 +366,44 @@ export default function SeriesPage() {
     <div className="min-h-screen bg-cream">
       <SiteHeader />
 
-      <main className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-20">
-        {/* ---- Hero Stats ---- */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white tracking-tight mb-1">Series Markets</h1>
-          <p className="text-sm text-white/40 mb-5">
-            Repeating prediction markets for crypto prices, sports, and more. Markets auto-renew on schedule.
-          </p>
-          <div className="flex items-center gap-6">
-            <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-black text-white tabular-nums">{filtered.length}</span>
-              <span className="text-sm text-white/40">Series</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2.5 w-2.5">
+      <main className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-5 pb-20">
+        {/* ---- Header ---- */}
+        <div className="flex items-end justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-white tracking-tight">Series</h1>
+            <p className="text-[13px] text-white/35 mt-0.5">
+              Recurring prediction markets that auto-renew on schedule.
+            </p>
+          </div>
+          <div className="flex items-center gap-4 text-[13px]">
+            <span className="text-white/40 tabular-nums">{filtered.length} markets</span>
+            <span className="flex items-center gap-1.5">
+              <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-40" />
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
               </span>
-              <span className="text-4xl font-black text-white tabular-nums">{liveCount}</span>
-              <span className="text-sm text-white/40">Live Now</span>
-            </div>
+              <span className="font-semibold text-emerald-400 tabular-nums">{liveCount} live</span>
+            </span>
           </div>
         </div>
 
-        {/* ---- Search ---- */}
-        <div className="relative mb-5">
-          <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/25" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-          </svg>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search series..."
-            className="w-full max-w-lg pl-11 pr-4 py-3 rounded-xl text-sm text-white bg-white/[0.04] border border-white/[0.08] focus:border-white/[0.15] outline-none placeholder:text-white/20 transition-colors"
-          />
-        </div>
-
-        {/* ---- Category + Cadence Filters ---- */}
+        {/* ---- Filters ---- */}
         <div className="flex flex-wrap items-center gap-3 mb-4">
+          {/* Search */}
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/25" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search..."
+              className="w-48 pl-9 pr-3 py-1.5 rounded-lg text-[13px] text-white bg-white/[0.04] border border-white/[0.08] focus:border-white/[0.15] outline-none placeholder:text-white/25 transition-colors"
+            />
+          </div>
+
+          <div className="h-5 w-px bg-white/[0.06]" />
           {/* Category tabs */}
           <div className="flex items-center gap-1 bg-white/[0.03] border border-white/[0.06] rounded-xl p-1">
             {([
@@ -474,24 +450,17 @@ export default function SeriesPage() {
         </div>
 
         {/* ---- Asset Filter Chips ---- */}
-        <div className="flex flex-wrap items-center gap-2 mb-8">
-          <div className="flex items-center gap-1.5 text-white/30">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z" />
-            </svg>
-            <span className="text-[11px] font-semibold">Filter by:</span>
-          </div>
-
+        <div className="flex flex-wrap items-center gap-1.5 mb-6">
           <button
             type="button"
             onClick={() => setAssetFilter("all")}
             className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
               assetFilter === "all"
-                ? "bg-neo-brand/20 border-neo-brand/40 text-neo-brand"
-                : "bg-white/[0.03] border-white/[0.06] text-white/40 hover:text-white/60"
+                ? "bg-white/[0.1] border-white/[0.15] text-white"
+                : "bg-white/[0.03] border-white/[0.06] text-white/35 hover:text-white/55"
             }`}
           >
-            All
+            All assets
           </button>
 
           {assetCounts.map(([key, count]) => {
@@ -505,11 +474,11 @@ export default function SeriesPage() {
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
                   isActive
                     ? `${meta.badgeBg} ${meta.badgeText}`
-                    : "bg-white/[0.03] border-white/[0.06] text-white/45 hover:text-white/65"
+                    : "bg-white/[0.03] border-white/[0.06] text-white/35 hover:text-white/55"
                 }`}
               >
                 {meta.ticker}
-                <span className="ml-1.5 opacity-50">{count}</span>
+                <span className="ml-1 opacity-50">{count}</span>
               </button>
             );
           })}
@@ -540,7 +509,7 @@ export default function SeriesPage() {
             <p className="text-xs text-white/20">Try adjusting filters or search query</p>
           </div>
         ) : (
-          <div className="space-y-12">
+          <div className="space-y-10">
             {(Object.entries(CADENCE_META) as [Cadence, typeof CADENCE_META[Cadence]][])
               .sort((a, b) => a[1].order - b[1].order)
               .map(([cadence, meta]) => {
@@ -550,15 +519,12 @@ export default function SeriesPage() {
 
                 return (
                   <section key={cadence}>
-                    {/* Section header */}
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="text-xl">{meta.emoji}</span>
-                      <h2 className="text-xl font-bold text-white">{meta.label}</h2>
-                      <span className="text-[11px] font-bold text-white/40 bg-white/[0.06] px-2 py-0.5 rounded-full tabular-nums">
-                        {group.length}
+                    <div className="flex items-baseline gap-2.5 mb-4">
+                      <h2 className="text-lg font-bold text-white">{meta.label}</h2>
+                      <span className="text-[11px] font-semibold text-white/30 tabular-nums">
+                        {group.length} market{group.length !== 1 ? "s" : ""}
                       </span>
                     </div>
-                    <p className="text-[13px] text-white/30 mb-4">{meta.description}</p>
 
                     {/* Cards grid */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
