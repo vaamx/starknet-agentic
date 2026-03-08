@@ -163,15 +163,65 @@ function agentColor(agent: string): string {
 
 function PriceChart({ trail, yesPercent, noPercent, predictions }: { trail: MarketActivityEntry[]; yesPercent: number; noPercent: number; predictions: AgentPrediction[] }) {
   const [range, setRange] = useState<"1H" | "6H" | "1D" | "1W" | "ALL">("ALL");
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  // Build effective trail: use predictionTrail if available, else synthesize from predictions
+  const effectiveTrail = useMemo(() => {
+    if (trail.length > 0) return trail;
+    if (predictions.length === 0) return [];
+    // Synthesize at least one point per agent prediction
+    const now = Math.floor(Date.now() / 1000);
+    return predictions.map((p, i) => ({
+      id: `synth-${i}`,
+      type: "prediction" as const,
+      actor: p.agent,
+      probability: p.predictedProb,
+      timestamp: now - (predictions.length - 1 - i) * 60,
+    }));
+  }, [trail, predictions]);
 
   const filtered = useMemo(() => {
-    if (range === "ALL" || trail.length < 2) return trail;
+    if (range === "ALL" || effectiveTrail.length < 2) return effectiveTrail;
     const now = Date.now() / 1000;
     const secs: Record<string, number> = { "1H": 3600, "6H": 21600, "1D": 86400, "1W": 604800 };
     const cutoff = now - (secs[range] ?? 604800);
-    const r = trail.filter((p) => p.timestamp >= cutoff);
-    return r.length >= 2 ? r : trail;
-  }, [trail, range]);
+    const r = effectiveTrail.filter((p) => p.timestamp >= cutoff);
+    return r.length >= 2 ? r : effectiveTrail;
+  }, [effectiveTrail, range]);
+
+  // Empty state
+  if (effectiveTrail.length === 0) {
+    return (
+      <div className="space-y-4">
+        {/* Probability Outcome Bar */}
+        <div className="rounded-2xl overflow-hidden p-5" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)", border: "1px solid rgba(255,255,255,0.06)" }}>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs text-white/40">0 agents forecasting</span>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="text-emerald-400 font-bold">Yes {yesPercent}%</span>
+              <span className="text-rose-400 font-bold">No {noPercent}%</span>
+            </div>
+          </div>
+          <div className="relative h-10 rounded-xl overflow-hidden">
+            <div className="absolute inset-0 flex">
+              <div className="h-full transition-all duration-700 ease-out" style={{ width: `${yesPercent}%`, background: "linear-gradient(90deg, #059669 0%, #10b981 50%, #34d399 100%)" }} />
+              <div className="h-full flex-1 transition-all duration-700 ease-out" style={{ background: "linear-gradient(90deg, #e11d48 0%, #f43f5e 50%, #fb7185 100%)" }} />
+            </div>
+            <div className="absolute inset-0 flex items-center justify-between px-4 pointer-events-none">
+              <span className="text-sm font-bold text-white drop-shadow-lg">Yes {yesPercent}%</span>
+              <span className="text-sm font-bold text-white drop-shadow-lg">No {noPercent}%</span>
+            </div>
+          </div>
+        </div>
+        {/* Empty chart state */}
+        <div className="rounded-2xl overflow-hidden" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.025) 0%, rgba(255,255,255,0.005) 100%)", border: "1px solid rgba(255,255,255,0.06)", height: 280 }}>
+          <TamagotchiEmptyState
+            message="No prediction data yet — agents will begin forecasting soon"
+          />
+        </div>
+      </div>
+    );
+  }
 
   const currentPrice = filtered.length > 0
     ? Math.round((filtered[filtered.length - 1].probability ?? yesPercent / 100) * 100)
@@ -185,26 +235,24 @@ function PriceChart({ trail, yesPercent, noPercent, predictions }: { trail: Mark
 
   // Chart dimensions
   const W = 800;
-  const H = 320;
-  const PAD = { top: 24, right: 24, bottom: 24, left: 52 };
+  const H = 280;
+  const PAD = { top: 24, right: 24, bottom: 36, left: 52 };
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
 
-  // Y-axis: always show 0-100% range so flat data still looks meaningful
-  const minP = 0;
-  const maxP = 1;
-  const rangeP = 1;
+  // 50% threshold Y
+  const midY = PAD.top + 0.5 * plotH;
 
-  const points = filtered.length >= 2
-    ? filtered.map((p, i) => {
-        const prob = typeof p.probability === "number" ? p.probability : 0.5;
-        return {
-          x: PAD.left + (i / Math.max(1, filtered.length - 1)) * plotW,
-          y: PAD.top + (1 - (prob - minP) / rangeP) * plotH,
-          prob,
-        };
-      })
-    : null;
+  const points = filtered.map((p, i) => {
+    const prob = typeof p.probability === "number" ? p.probability : 0.5;
+    return {
+      x: PAD.left + (i / Math.max(1, filtered.length - 1)) * plotW,
+      y: PAD.top + (1 - prob) * plotH,
+      prob,
+      timestamp: p.timestamp,
+      actor: p.actor,
+    };
+  });
 
   // Smooth curve using cardinal spline
   function cardinalSpline(pts: { x: number; y: number }[]): string {
@@ -225,13 +273,19 @@ function PriceChart({ trail, yesPercent, noPercent, predictions }: { trail: Mark
     return path;
   }
 
-  const linePath = points ? cardinalSpline(points) : "";
-  const areaPath = points
-    ? `${linePath} L${points[points.length - 1].x},${PAD.top + plotH} L${points[0].x},${PAD.top + plotH} Z`
+  const linePath = points.length >= 2 ? cardinalSpline(points) : "";
+
+  // Area path above 50% (green) — clip to above midY
+  const areaAbovePath = points.length >= 2
+    ? `${linePath} L${points[points.length - 1].x},${midY} L${points[0].x},${midY} Z`
+    : "";
+
+  // Area path below 50% (red) — clip to below midY
+  const areaBelowPath = points.length >= 2
+    ? `${linePath} L${points[points.length - 1].x},${midY} L${points[0].x},${midY} Z`
     : "";
 
   const isPositive = priceChange >= 0;
-  const accentColor = yesPercent >= 50 ? "#22c55e" : "#ef4444";
 
   // Grid lines at 0%, 25%, 50%, 75%, 100%
   const gridLines = [0, 0.25, 0.5, 0.75, 1].map((frac) => ({
@@ -239,6 +293,44 @@ function PriceChart({ trail, yesPercent, noPercent, predictions }: { trail: Mark
     label: `${Math.round(frac * 100)}%`,
     isMajor: frac === 0.5,
   }));
+
+  // X-axis time labels — show up to 5 labels
+  const xLabels = useMemo(() => {
+    if (filtered.length < 2) return [];
+    const count = Math.min(5, filtered.length);
+    const labels: { x: number; label: string }[] = [];
+    for (let i = 0; i < count; i++) {
+      const idx = Math.round((i / (count - 1)) * (filtered.length - 1));
+      const entry = filtered[idx];
+      labels.push({
+        x: PAD.left + (idx / Math.max(1, filtered.length - 1)) * plotW,
+        label: timeAgo(entry.timestamp),
+      });
+    }
+    return labels;
+  }, [filtered]);
+
+  // Determine line color based on current probability
+  const lineColor = currentPrice >= 50 ? "#22c55e" : "#ef4444";
+
+  // Hover handling — find nearest point index from mouse x
+  const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    if (points.length < 2) return;
+    const svg = e.currentTarget;
+    const rect = svg.getBoundingClientRect();
+    const mouseX = ((e.clientX - rect.left) / rect.width) * W;
+    let nearest = 0;
+    let minDist = Infinity;
+    for (let i = 0; i < points.length; i++) {
+      const d = Math.abs(points[i].x - mouseX);
+      if (d < minDist) { minDist = d; nearest = i; }
+    }
+    setHoverIdx(nearest);
+  }, [points]);
+
+  const handleMouseLeave = useCallback(() => setHoverIdx(null), []);
+
+  const hoverPoint = hoverIdx !== null ? points[hoverIdx] : null;
 
   return (
     <div className="space-y-4">
@@ -302,15 +394,15 @@ function PriceChart({ trail, yesPercent, noPercent, predictions }: { trail: Mark
         {/* Price header */}
         <div className="flex items-end justify-between px-5 pt-5 pb-3">
           <div>
-            <span className="text-[10px] uppercase tracking-widest text-white/25 font-semibold block mb-1">Current Price</span>
+            <span className="text-[10px] uppercase tracking-widest text-white/25 font-semibold block mb-1">Current Probability</span>
             <div className="flex items-baseline gap-2">
-              <span className="text-[48px] font-bold tracking-tight leading-none tabular-nums" style={{ color: accentColor }}>
+              <span className="text-[48px] font-bold tracking-tight leading-none tabular-nums" style={{ color: lineColor }}>
                 {currentPrice}
               </span>
-              <span className="text-xl text-white/25 font-light">&cent;</span>
+              <span className="text-xl text-white/25 font-light">%</span>
               {priceChange !== 0 && (
                 <span className={`text-sm font-semibold ml-1 ${isPositive ? "text-emerald-400" : "text-rose-400"}`}>
-                  {isPositive ? "+" : ""}{priceChange}&cent;
+                  {isPositive ? "+" : ""}{priceChange}%
                 </span>
               )}
             </div>
@@ -334,12 +426,25 @@ function PriceChart({ trail, yesPercent, noPercent, predictions }: { trail: Mark
 
         {/* SVG Chart */}
         <div className="px-1 pb-1">
-          <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 320, display: "block" }}>
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            className="w-full cursor-crosshair"
+            style={{ height: 280, display: "block" }}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+          >
             <defs>
-              <linearGradient id="area-grad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={accentColor} stopOpacity="0.20" />
-                <stop offset="40%" stopColor={accentColor} stopOpacity="0.08" />
-                <stop offset="100%" stopColor={accentColor} stopOpacity="0" />
+              {/* Green gradient for area above 50% */}
+              <linearGradient id="area-grad-green" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#22c55e" stopOpacity="0.25" />
+                <stop offset="60%" stopColor="#22c55e" stopOpacity="0.06" />
+                <stop offset="100%" stopColor="#22c55e" stopOpacity="0" />
+              </linearGradient>
+              {/* Red gradient for area below 50% */}
+              <linearGradient id="area-grad-red" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#ef4444" stopOpacity="0" />
+                <stop offset="40%" stopColor="#ef4444" stopOpacity="0.06" />
+                <stop offset="100%" stopColor="#ef4444" stopOpacity="0.25" />
               </linearGradient>
               <filter id="glow">
                 <feGaussianBlur stdDeviation="3" result="coloredBlur" />
@@ -348,11 +453,13 @@ function PriceChart({ trail, yesPercent, noPercent, predictions }: { trail: Mark
                   <feMergeNode in="SourceGraphic" />
                 </feMerge>
               </filter>
-              <linearGradient id="line-grad" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor={accentColor} stopOpacity="0.4" />
-                <stop offset="50%" stopColor={accentColor} stopOpacity="1" />
-                <stop offset="100%" stopColor={accentColor} stopOpacity="1" />
-              </linearGradient>
+              {/* Clip paths for above/below 50% */}
+              <clipPath id="clip-above-50">
+                <rect x={PAD.left} y={PAD.top} width={plotW} height={midY - PAD.top} />
+              </clipPath>
+              <clipPath id="clip-below-50">
+                <rect x={PAD.left} y={midY} width={plotW} height={PAD.top + plotH - midY} />
+              </clipPath>
             </defs>
 
             {/* Grid */}
@@ -360,64 +467,119 @@ function PriceChart({ trail, yesPercent, noPercent, predictions }: { trail: Mark
               <g key={i}>
                 <line
                   x1={PAD.left} y1={g.y} x2={W - PAD.right} y2={g.y}
-                  stroke={g.isMajor ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.025)"}
+                  stroke={g.isMajor ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.025)"}
                   strokeDasharray={g.isMajor ? "6,4" : "none"}
+                  strokeWidth={g.isMajor ? 1.5 : 1}
                 />
-                <text x={PAD.left - 10} y={g.y + 4} textAnchor="end" fill="rgba(255,255,255,0.15)" fontSize="10" fontFamily="monospace">
+                <text x={PAD.left - 10} y={g.y + 4} textAnchor="end" fill="rgba(255,255,255,0.18)" fontSize="10" fontFamily="monospace">
                   {g.label}
                 </text>
               </g>
             ))}
 
-            {points ? (
+            {/* 50% label emphasis */}
+            <text x={W - PAD.right + 6} y={midY + 4} textAnchor="start" fill="rgba(255,255,255,0.10)" fontSize="9" fontFamily="monospace">
+              50%
+            </text>
+
+            {/* X-axis time labels */}
+            {xLabels.map((lbl, i) => (
+              <text key={i} x={lbl.x} y={H - 8} textAnchor="middle" fill="rgba(255,255,255,0.18)" fontSize="10" fontFamily="monospace">
+                {lbl.label}
+              </text>
+            ))}
+
+            {points.length >= 2 ? (
               <>
-                {/* Area fill */}
-                <path d={areaPath} fill="url(#area-grad)" />
+                {/* Green area fill — above 50% */}
+                <path d={areaAbovePath} fill="url(#area-grad-green)" clipPath="url(#clip-above-50)" />
+                {/* Red area fill — below 50% */}
+                <path d={areaBelowPath} fill="url(#area-grad-red)" clipPath="url(#clip-below-50)" />
+
                 {/* Glow line (behind) */}
-                <path d={linePath} fill="none" stroke={accentColor} strokeWidth="6" strokeLinecap="round" opacity="0.15" filter="url(#glow)" />
+                <path d={linePath} fill="none" stroke={lineColor} strokeWidth="6" strokeLinecap="round" opacity="0.12" filter="url(#glow)" />
                 {/* Main line */}
-                <path d={linePath} fill="none" stroke="url(#line-grad)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                {/* Data points */}
+                <path d={linePath} fill="none" stroke={lineColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+
+                {/* Hover crosshair + tooltip */}
+                {hoverPoint && (
+                  <g>
+                    {/* Vertical crosshair line */}
+                    <line
+                      x1={hoverPoint.x} y1={PAD.top} x2={hoverPoint.x} y2={PAD.top + plotH}
+                      stroke="rgba(255,255,255,0.12)" strokeWidth="1" strokeDasharray="4,3"
+                    />
+                    {/* Horizontal crosshair line */}
+                    <line
+                      x1={PAD.left} y1={hoverPoint.y} x2={W - PAD.right} y2={hoverPoint.y}
+                      stroke="rgba(255,255,255,0.06)" strokeWidth="1" strokeDasharray="4,3"
+                    />
+                    {/* Data point dot */}
+                    <circle cx={hoverPoint.x} cy={hoverPoint.y} r="5" fill={hoverPoint.prob >= 0.5 ? "#22c55e" : "#ef4444"} stroke="white" strokeWidth="2" />
+                    {/* Tooltip background */}
+                    <rect
+                      x={Math.min(hoverPoint.x - 48, W - PAD.right - 96)}
+                      y={Math.max(hoverPoint.y - 42, PAD.top)}
+                      width="96" height="34" rx="6"
+                      fill="rgba(0,0,0,0.85)" stroke={hoverPoint.prob >= 0.5 ? "#22c55e" : "#ef4444"} strokeWidth="1"
+                    />
+                    {/* Tooltip probability */}
+                    <text
+                      x={Math.min(hoverPoint.x, W - PAD.right - 48)}
+                      y={Math.max(hoverPoint.y - 24, PAD.top + 18) - 2}
+                      textAnchor="middle" fill="white" fontSize="12" fontWeight="bold" fontFamily="monospace"
+                    >
+                      {Math.round(hoverPoint.prob * 100)}%
+                    </text>
+                    {/* Tooltip time */}
+                    <text
+                      x={Math.min(hoverPoint.x, W - PAD.right - 48)}
+                      y={Math.max(hoverPoint.y - 24, PAD.top + 18) + 12}
+                      textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="9" fontFamily="monospace"
+                    >
+                      {timeAgo(hoverPoint.timestamp)}
+                    </text>
+                  </g>
+                )}
+
+                {/* Data point dots — always show last, show all on hover or if few */}
                 {points.map((p, i) => {
                   const isLast = i === points.length - 1;
-                  if (!isLast && points.length > 10) return null; // Only show dots if few points
-                  return isLast ? (
-                    <g key={i}>
-                      <circle cx={p.x} cy={p.y} r="5" fill={accentColor} />
-                      <circle cx={p.x} cy={p.y} r="12" fill={accentColor} opacity="0.15">
-                        <animate attributeName="r" values="12;20;12" dur="2.5s" repeatCount="indefinite" />
-                        <animate attributeName="opacity" values="0.15;0;0.15" dur="2.5s" repeatCount="indefinite" />
-                      </circle>
-                      {/* Price label */}
-                      <rect x={p.x - 28} y={p.y - 28} width="56" height="20" rx="6" fill="rgba(0,0,0,0.7)" stroke={accentColor} strokeWidth="1" opacity="0.9" />
-                      <text x={p.x} y={p.y - 14} textAnchor="middle" fill="white" fontSize="11" fontWeight="bold" fontFamily="monospace">
-                        {Math.round(p.prob * 100)}%
-                      </text>
-                    </g>
-                  ) : (
-                    <circle key={i} cx={p.x} cy={p.y} r="2.5" fill={accentColor} opacity="0.4" />
-                  );
+                  const dotColor = p.prob >= 0.5 ? "#22c55e" : "#ef4444";
+                  if (isLast) {
+                    return (
+                      <g key={i}>
+                        <circle cx={p.x} cy={p.y} r="5" fill={dotColor} />
+                        <circle cx={p.x} cy={p.y} r="12" fill={dotColor} opacity="0.15">
+                          <animate attributeName="r" values="12;20;12" dur="2.5s" repeatCount="indefinite" />
+                          <animate attributeName="opacity" values="0.15;0;0.15" dur="2.5s" repeatCount="indefinite" />
+                        </circle>
+                      </g>
+                    );
+                  }
+                  // Show all dots when hovering, or if few data points
+                  if (hoverIdx !== null || points.length <= 10) {
+                    return <circle key={i} cx={p.x} cy={p.y} r="2" fill={dotColor} opacity="0.35" />;
+                  }
+                  return null;
                 })}
               </>
             ) : (
               <>
-                {/* No data — show current price as horizontal line */}
-                <line
-                  x1={PAD.left} y1={PAD.top + (1 - yesPercent / 100) * plotH}
-                  x2={W - PAD.right} y2={PAD.top + (1 - yesPercent / 100) * plotH}
-                  stroke={accentColor} strokeDasharray="8,6" strokeWidth="2" opacity="0.4"
-                />
-                {/* Glow at the current level */}
-                <line
-                  x1={PAD.left} y1={PAD.top + (1 - yesPercent / 100) * plotH}
-                  x2={W - PAD.right} y2={PAD.top + (1 - yesPercent / 100) * plotH}
-                  stroke={accentColor} strokeWidth="8" opacity="0.06" filter="url(#glow)"
-                />
-                {/* Price tag */}
-                <rect x={W / 2 - 36} y={PAD.top + (1 - yesPercent / 100) * plotH - 14} width="72" height="22" rx="6" fill="rgba(0,0,0,0.6)" stroke={accentColor} strokeWidth="1" />
-                <text x={W / 2} y={PAD.top + (1 - yesPercent / 100) * plotH + 1} textAnchor="middle" fill={accentColor} fontSize="12" fontWeight="bold" fontFamily="monospace">
-                  {yesPercent}% Yes
-                </text>
+                {/* Single point — show as a prominent dot with label */}
+                {points.length === 1 && (
+                  <g>
+                    <circle cx={points[0].x} cy={points[0].y} r="6" fill={lineColor} />
+                    <circle cx={points[0].x} cy={points[0].y} r="14" fill={lineColor} opacity="0.15">
+                      <animate attributeName="r" values="14;22;14" dur="2.5s" repeatCount="indefinite" />
+                      <animate attributeName="opacity" values="0.15;0;0.15" dur="2.5s" repeatCount="indefinite" />
+                    </circle>
+                    <rect x={points[0].x - 28} y={points[0].y - 28} width="56" height="20" rx="6" fill="rgba(0,0,0,0.7)" stroke={lineColor} strokeWidth="1" />
+                    <text x={points[0].x} y={points[0].y - 14} textAnchor="middle" fill="white" fontSize="11" fontWeight="bold" fontFamily="monospace">
+                      {Math.round(points[0].prob * 100)}%
+                    </text>
+                  </g>
+                )}
                 <text x={W / 2} y={H - 8} textAnchor="middle" fill="rgba(255,255,255,0.1)" fontSize="12">
                   Forecast data building...
                 </text>

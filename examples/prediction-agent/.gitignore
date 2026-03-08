@@ -7,3 +7,4 @@ data/*.db-shm
 
 # Local data
 .data/
+.env*.local
