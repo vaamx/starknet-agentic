@@ -29,6 +29,7 @@ interface SimpleHeaderProps {
 
 const NAV_ITEMS = [
   { href: "/markets", label: "Markets" },
+  { href: "/series", label: "Series" },
   { href: "/portfolio", label: "Portfolio" },
   { href: "/fleet", label: "Fleet" },
   { href: "/souk", label: "AgentSouk" },

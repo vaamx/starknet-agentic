@@ -741,13 +741,11 @@ function TradeSidebar({
 }) {
   const { isConnected, account, address, status: walletStatus } = useAccount();
   const [sending, setSending] = useState(false);
-  const [mode, setMode] = useState<"buy" | "sell">("buy");
   const [outcome, setOutcome] = useState<0 | 1>(1);
   const [amount, setAmount] = useState("");
   const [betResult, setBetResult] = useState<{ status: string; txHash?: string; error?: string } | null>(null);
   const [position, setPosition] = useState<{ yesBet: string; noBet: string } | null>(null);
 
-  // Fetch user position when connected
   useEffect(() => {
     if (!isConnected || !address || !market?.id) { setPosition(null); return; }
     let cancelled = false;
@@ -764,7 +762,6 @@ function TradeSidebar({
     catch { return 0n; }
   }, [amountNum]);
 
-  // Payout calculations
   const estPayout = useMemo(() => {
     if (amountBigInt <= 0n) return 0n;
     const winningPool = outcome === 1 ? BigInt(market.yesPool) : BigInt(market.noPool);
@@ -774,36 +771,20 @@ function TradeSidebar({
   }, [market, amountBigInt, outcome]);
 
   const estPayoutStrk = Number(estPayout) / 1e18;
-  const estProfit = estPayoutStrk - amountNum;
-  const estMultipleRaw = amountNum > 0 ? estPayoutStrk / amountNum : 0;
-  const estMultiple = Number.isFinite(estMultipleRaw) ? estMultipleRaw : 0;
-  const costPerShare = outcome === 1 ? yesPercent : noPercent; // cost in cents to win 100 cents
-
-  // Pool stats
+  const costPerShare = outcome === 1 ? yesPercent : noPercent;
   const yesPoolStrk = Number(safeBigInt(market.yesPool)) / 1e18;
   const noPoolStrk = Number(safeBigInt(market.noPool)) / 1e18;
   const totalPoolStrk = Number(safeBigInt(market.totalPool)) / 1e18;
 
   async function handleTrade() {
-    if (!isConnected || !account) return;
-    if (mode === "buy" && amountBigInt <= 0n) return;
+    if (!isConnected || !account || amountBigInt <= 0n) return;
     setBetResult(null);
     setSending(true);
     try {
-      if (mode === "sell") {
-        const calls = buildClaimCalls(market.address);
-        const response = await account.execute(calls);
-        setBetResult({ status: "success", txHash: response.transaction_hash });
-      } else {
-        const calls = buildBetCalls(market.address, outcome, amountBigInt);
-        const response = await account.execute(calls);
-        setBetResult({ status: "success", txHash: response.transaction_hash });
-      }
-      // Refresh market data from chain after successful trade
-      if (onTradeSuccess) {
-        // Small delay to let the transaction propagate to the node
-        setTimeout(() => onTradeSuccess(), 3000);
-      }
+      const calls = buildBetCalls(market.address, outcome, amountBigInt);
+      const response = await account.execute(calls);
+      setBetResult({ status: "success", txHash: response.transaction_hash });
+      if (onTradeSuccess) setTimeout(() => onTradeSuccess(), 3000);
     } catch (err: unknown) {
       setBetResult({ status: "error", error: friendlyTxError(err instanceof Error ? err.message : String(err)) });
     } finally {
@@ -812,291 +793,333 @@ function TradeSidebar({
   }
 
   const outcomeLabel = outcome === 1 ? "Yes" : "No";
-  const outcomeColor = outcome === 1 ? "emerald" : "rose";
+
+  // Simulated order book depth (visual only — derived from pool ratio)
+  const yesFrac = totalPoolStrk > 0 ? yesPoolStrk / totalPoolStrk : 0.5;
+  const bidPct = Math.round(yesFrac * 100);
+  const askPct = 100 - bidPct;
 
   return (
-    <div className="rounded-2xl border border-white/[0.08] overflow-hidden" style={{ background: "rgba(17,24,39,0.95)", backdropFilter: "blur(24px)" }}>
-      {/* Buy / Claim tabs */}
-      <div className="flex border-b border-white/[0.06]">
-        {(["buy", "sell"] as const).map((m) => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            className={`flex-1 py-3 text-sm font-semibold capitalize transition-all ${
-              mode === m
-                ? "text-white border-b-2 border-white"
-                : "text-white/30 hover:text-white/50"
-            }`}
-          >
-            {m === "sell" ? "Claim" : m}
-          </button>
-        ))}
-      </div>
-
-      <div className="p-4 space-y-3">
-        {/* Claim tab: show explanation if market not resolved */}
-        {mode === "sell" && market.status !== 2 && (
-          <div className="rounded-xl border border-amber-400/20 bg-amber-400/[0.06] p-3 space-y-1.5">
-            <p className="text-[11px] font-semibold text-amber-300">Market not yet resolved</p>
-            <p className="text-[10px] text-amber-200/60 leading-relaxed">
-              You can claim winnings after the market resolves. Prediction markets don&apos;t allow selling positions before resolution &mdash; your STRK is locked until an outcome is decided.
-            </p>
+    <div className="space-y-4">
+      {/* ---- Quick Trade Card ---- */}
+      <div className="rounded-2xl border border-white/[0.08] overflow-hidden" style={{ background: "rgba(17,24,39,0.95)", backdropFilter: "blur(24px)" }}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33" />
+            </svg>
+            <span className="text-sm font-bold text-white">Quick Trade</span>
           </div>
-        )}
-
-        {/* Outcome choice — hidden in claim mode */}
-        {mode === "buy" && <div>
-          <p className="text-[10px] uppercase tracking-widest text-white/30 font-semibold mb-2">Outcome</p>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setOutcome(1)}
-              className={`relative py-3 rounded-xl text-sm font-bold transition-all ${
-                outcome === 1
-                  ? "bg-emerald-500/15 text-emerald-400 ring-2 ring-emerald-500/40"
-                  : "bg-white/[0.04] text-white/40 hover:bg-white/[0.06]"
-              }`}
-            >
-              <div>Yes</div>
-              <div className={`text-[10px] font-normal mt-0.5 ${outcome === 1 ? "text-emerald-400/60" : "text-white/20"}`}>
-                {yesPercent}&cent; per share
-              </div>
-            </button>
-            <button
-              onClick={() => setOutcome(0)}
-              className={`relative py-3 rounded-xl text-sm font-bold transition-all ${
-                outcome === 0
-                  ? "bg-rose-500/15 text-rose-400 ring-2 ring-rose-500/40"
-                  : "bg-white/[0.04] text-white/40 hover:bg-white/[0.06]"
-              }`}
-            >
-              <div>No</div>
-              <div className={`text-[10px] font-normal mt-0.5 ${outcome === 0 ? "text-rose-400/60" : "text-white/20"}`}>
-                {noPercent}&cent; per share
-              </div>
-            </button>
+          <div className="flex items-center gap-1.5">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-40" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+            </span>
+            <span className="text-[11px] font-bold text-emerald-400">LIVE</span>
           </div>
-        </div>}
+        </div>
 
-        {/* Amount — only for buy mode */}
-        {mode === "buy" && <div>
-          <p className="text-[10px] uppercase tracking-widest text-white/30 font-semibold mb-2">Amount (STRK)</p>
-          <input
-            type="number"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="0"
-            min="0"
-            step="1"
-            className="w-full text-center text-3xl font-bold tabular-nums text-white bg-transparent border-b-2 border-white/10 focus:border-white/30 outline-none py-2 transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-          />
-          <div className="grid grid-cols-5 gap-1.5 mt-3">
-            {[1, 5, 10, 50, 100].map((val) => (
+        <div className="p-4 space-y-4">
+          {/* BUY YES / BUY NO cards */}
+          <div>
+            <p className="text-[10px] uppercase tracking-widest text-white/30 font-semibold mb-2.5">Buy Tokens</p>
+            <div className="grid grid-cols-2 gap-2.5">
               <button
-                key={val}
-                onClick={() => setAmount(String(amountNum + val))}
-                className="py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[11px] font-semibold text-white/50 hover:bg-white/[0.08] hover:text-white/80 transition-all"
+                type="button"
+                onClick={() => setOutcome(1)}
+                className={`relative flex flex-col items-center gap-1.5 py-4 rounded-xl transition-all border ${
+                  outcome === 1
+                    ? "bg-emerald-500/10 border-emerald-500/40 ring-1 ring-emerald-500/20"
+                    : "bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]"
+                }`}
               >
-                +{val}
-              </button>
-            ))}
-          </div>
-        </div>}
-
-        {/* Odds & Payout breakdown — buy mode only */}
-        {mode === "buy" &&
-        <div className="rounded-xl bg-white/[0.025] border border-white/[0.05] p-3 space-y-2.5">
-          <div className="flex justify-between text-xs">
-            <span className="text-white/35">Cost per share</span>
-            <span className="font-mono text-white/70">{costPerShare}&cent;</span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-white/35">Payout if {outcomeLabel} wins</span>
-            <span className="font-mono text-white/70">100&cent; per share</span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-white/35">Implied odds</span>
-            <span className="font-mono text-white/70">{costPerShare}% chance</span>
-          </div>
-          {amountNum > 0 && mode === "buy" && (
-            <>
-              <div className="border-t border-white/[0.04] pt-2.5 flex justify-between text-xs">
-                <span className="text-white/35">You pay</span>
-                <span className="font-mono font-bold text-white">{amountNum.toFixed(1)} STRK</span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-white/35">To win</span>
-                <span className={`font-mono font-bold text-${outcomeColor}-400`}>{estPayoutStrk.toFixed(2)} STRK</span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-white/35">Profit if correct</span>
-                <span className={`font-mono font-bold ${estProfit > 0 ? `text-${outcomeColor}-400` : "text-white/50"}`}>
-                  +{estProfit.toFixed(2)} STRK ({estMultiple.toFixed(1)}x)
+                <svg className={`w-5 h-5 ${outcome === 1 ? "text-emerald-400" : "text-white/30"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.518l2.74-1.22" />
+                </svg>
+                <span className={`text-sm font-bold ${outcome === 1 ? "text-emerald-400" : "text-white/50"}`}>BUY YES</span>
+                <span className={`text-lg font-bold tabular-nums ${outcome === 1 ? "text-emerald-300" : "text-white/40"}`}>
+                  {(yesPercent / 100).toFixed(1)}&cent;
                 </span>
-              </div>
-            </>
-          )}
-        </div>}
-
-        {/* Trade button */}
-        {!isConnected ? (
-          <button
-            onClick={() => window.dispatchEvent(new Event("hc-wallet-connect-open"))}
-            className="w-full py-3.5 rounded-xl font-bold text-sm bg-gradient-to-r from-sky-500/80 to-cyan-500/80 hover:from-sky-500 hover:to-cyan-500 text-white transition-all"
-          >
-            Connect Wallet to Trade
-          </button>
-        ) : walletStatus === "reconnecting" || !account ? (
-          <button
-            className="w-full py-3.5 rounded-xl font-bold text-sm bg-white/[0.06] text-white/50 border border-white/10 cursor-wait"
-            disabled
-          >
-            <span className="inline-block w-3 h-3 border-2 border-white/20 border-t-white/60 rounded-full animate-spin mr-2 align-middle" />
-            Wallet connecting...
-          </button>
-        ) : (
-          <button
-            onClick={handleTrade}
-            disabled={sending || (mode === "buy" && amountBigInt <= 0n) || (mode === "sell" && market.status !== 2)}
-            className={`w-full py-3.5 rounded-xl font-bold text-sm transition-all ${
-              sending || (mode === "buy" && amountBigInt <= 0n) || (mode === "sell" && market.status !== 2)
-                ? "bg-white/[0.06] text-white/25 cursor-not-allowed"
-                : mode === "sell"
-                  ? "bg-sky-500 hover:bg-sky-400 text-white shadow-[0_0_20px_rgba(14,165,233,0.2)]"
-                  : outcome === 1
-                    ? "bg-emerald-500 hover:bg-emerald-400 text-white shadow-[0_0_20px_rgba(16,185,129,0.2)]"
-                    : "bg-rose-500 hover:bg-rose-400 text-white shadow-[0_0_20px_rgba(244,63,94,0.2)]"
-            }`}
-          >
-            {sending
-              ? "Confirming in wallet..."
-              : mode === "sell"
-                ? market.status === 2
-                  ? "Claim Winnings"
-                  : "Market not resolved yet"
-                : amountNum > 0
-                  ? `Buy ${outcomeLabel} \u2014 ${amountNum} STRK`
-                  : "Enter amount above"}
-          </button>
-        )}
-
-        {mode === "buy" && (
-          <p className="text-[10px] text-white/20 text-center leading-relaxed">
-            If {outcomeLabel} wins, each share pays 1 STRK. Cost: {costPerShare}&cent;/share.
-          </p>
-        )}
-      </div>
-
-      {/* Tx result */}
-      {betResult && (
-        <div className={`mx-4 mb-4 p-3 rounded-xl text-xs font-mono ${
-          betResult.status === "success"
-            ? "bg-emerald-500/10 border border-emerald-500/20"
-            : "bg-rose-500/10 border border-rose-500/20"
-        }`}>
-          {betResult.status === "success" ? (
-            <>
-              <span className="text-emerald-300 font-bold">
-                {mode === "sell" ? "Winnings claimed" : "Trade placed on-chain"}
-              </span>
-              {betResult.txHash && (
-                <a
-                  href={`https://sepolia.voyager.online/tx/${betResult.txHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block text-sky-400/70 mt-1 hover:underline break-all"
-                >
-                  View on Voyager
-                </a>
-              )}
-            </>
-          ) : (
-            <span className="text-rose-300">{betResult.error}</span>
-          )}
-        </div>
-      )}
-
-      {/* Pool Stats */}
-      <div className="border-t border-white/[0.06] p-4 space-y-2.5">
-        <p className="text-[10px] uppercase tracking-widest text-white/25 font-semibold">Pool</p>
-        <div className="flex gap-0.5 h-2 rounded-full overflow-hidden bg-white/[0.04]">
-          <div className="bg-emerald-500/60 rounded-l-full transition-all" style={{ width: `${totalPoolStrk > 0 ? (yesPoolStrk / totalPoolStrk * 100) : 50}%` }} />
-          <div className="bg-rose-500/60 rounded-r-full transition-all flex-1" />
-        </div>
-        <div className="flex justify-between text-[11px] font-mono">
-          <span className="text-emerald-400/60">Yes: {yesPoolStrk.toFixed(1)}</span>
-          <span className="text-white/30">{totalPoolStrk.toFixed(1)} STRK total</span>
-          <span className="text-rose-400/60">No: {noPoolStrk.toFixed(1)}</span>
-        </div>
-        <div className="flex justify-between text-[10px] text-white/20">
-          <span>{market.tradeCount ?? 0} trades</span>
-          <span>Fee: {market.feeBps / 100}%</span>
-        </div>
-      </div>
-
-      {/* Your Position */}
-      {position && (BigInt(position.yesBet) > 0n || BigInt(position.noBet) > 0n) && (() => {
-        const yesBetWei = BigInt(position.yesBet);
-        const noBetWei = BigInt(position.noBet);
-        const yesStrk = Number(yesBetWei) / 1e18;
-        const noStrk = Number(noBetWei) / 1e18;
-        const totalPositionStrk = yesStrk + noStrk;
-        const yesPayoutWei = yesBetWei > 0n ? computePayout(yesBetWei, BigInt(market.totalPool ?? "0"), BigInt(market.yesPool ?? "0"), market.feeBps ?? 0) : 0n;
-        const noPayoutWei = noBetWei > 0n ? computePayout(noBetWei, BigInt(market.totalPool ?? "0"), BigInt(market.noPool ?? "0"), market.feeBps ?? 0) : 0n;
-        const yesPayoutStrk = Number(yesPayoutWei) / 1e18;
-        const noPayoutStrk = Number(noPayoutWei) / 1e18;
-
-        return (
-          <div className="border-t border-white/[0.06] p-4 space-y-2.5">
-            <p className="text-[10px] uppercase tracking-widest text-white/25 font-semibold">Your Position</p>
-            {yesStrk > 0 && (
-              <div className="flex justify-between items-center text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500/80" />
-                  <span className="text-white/60">Yes</span>
-                </div>
-                <div className="text-right">
-                  <span className="font-mono text-white/80">{yesStrk.toFixed(2)} STRK</span>
-                  <span className="text-emerald-400/60 font-mono ml-2 text-[11px]">
-                    &rarr; {yesPayoutStrk.toFixed(2)}
-                  </span>
-                </div>
-              </div>
-            )}
-            {noStrk > 0 && (
-              <div className="flex justify-between items-center text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-rose-500/80" />
-                  <span className="text-white/60">No</span>
-                </div>
-                <div className="text-right">
-                  <span className="font-mono text-white/80">{noStrk.toFixed(2)} STRK</span>
-                  <span className="text-rose-400/60 font-mono ml-2 text-[11px]">
-                    &rarr; {noPayoutStrk.toFixed(2)}
-                  </span>
-                </div>
-              </div>
-            )}
-            <div className="flex justify-between text-[11px] border-t border-white/[0.04] pt-2">
-              <span className="text-white/30">Total invested</span>
-              <span className="font-mono font-semibold text-white/70">{totalPositionStrk.toFixed(2)} STRK</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setOutcome(0)}
+                className={`relative flex flex-col items-center gap-1.5 py-4 rounded-xl transition-all border ${
+                  outcome === 0
+                    ? "bg-rose-500/10 border-rose-500/40 ring-1 ring-rose-500/20"
+                    : "bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]"
+                }`}
+              >
+                <svg className={`w-5 h-5 ${outcome === 0 ? "text-rose-400" : "text-white/30"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6L9 12.75l4.286-4.286a11.948 11.948 0 015.834 5.518l2.74 1.22" />
+                </svg>
+                <span className={`text-sm font-bold ${outcome === 0 ? "text-rose-400" : "text-white/50"}`}>BUY NO</span>
+                <span className={`text-lg font-bold tabular-nums ${outcome === 0 ? "text-rose-300" : "text-white/40"}`}>
+                  {(noPercent / 100).toFixed(1)}&cent;
+                </span>
+              </button>
             </div>
           </div>
-        );
-      })()}
 
-      {/* AI Consensus */}
-      {predictions.length > 0 && (
-        <div className="border-t border-white/[0.06] p-4">
-          <p className="text-[10px] uppercase tracking-widest text-white/25 font-semibold mb-2">AI Consensus</p>
-          <div className="flex items-center gap-2.5">
-            <div className="flex -space-x-1">
-              {predictions.slice(0, 5).map((pred) => (
-                <div
-                  key={pred.agent}
-                  className="w-5 h-5 rounded-full border-[1.5px] border-[#111827] flex items-center justify-center text-[7px] font-bold text-white"
-                  style={{ backgroundColor: agentColor(pred.agent) }}
+          {/* Amount */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] uppercase tracking-widest text-white/30 font-semibold">Amount (STRK)</span>
+              <span className="text-[11px] text-sky-400/70 font-semibold cursor-pointer hover:text-sky-400 transition-colors">Max: {totalPoolStrk > 0 ? `${Math.floor(totalPoolStrk)}` : "0"}</span>
+            </div>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/25 text-sm font-mono">$</span>
+              <input
+                type="number"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                min="0"
+                step="1"
+                className="w-full pl-8 pr-4 py-3 rounded-xl text-lg font-bold tabular-nums text-white bg-white/[0.04] border border-white/[0.08] focus:border-white/20 outline-none transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              />
+            </div>
+            <div className="grid grid-cols-4 gap-2 mt-2.5">
+              {[10, 25, 50, 100].map((val) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setAmount(String(val))}
+                  className="py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-[12px] font-bold text-white/50 hover:bg-white/[0.08] hover:text-white/80 hover:border-white/[0.12] transition-all"
                 >
-                  {displayName(pred.agent).charAt(0).toUpperCase()}
+                  +${val}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Available balance */}
+          <div className="flex items-center justify-between text-xs text-white/30">
+            <span>Available balance:</span>
+            <span className="font-mono font-semibold text-white/50">$0.00 STRK</span>
+          </div>
+
+          {/* CTA Button */}
+          {!isConnected ? (
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event("hc-wallet-connect-open"))}
+              className="w-full py-3.5 rounded-xl font-bold text-sm bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 text-white transition-all shadow-[0_0_24px_rgba(14,165,233,0.15)]"
+            >
+              Connect Wallet
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleTrade}
+              disabled={sending || amountBigInt <= 0n}
+              className={`w-full py-3.5 rounded-xl font-bold text-sm transition-all ${
+                sending || amountBigInt <= 0n
+                  ? "bg-white/[0.06] text-white/25 cursor-not-allowed"
+                  : outcome === 1
+                    ? "bg-emerald-500 hover:bg-emerald-400 text-white shadow-[0_4px_24px_rgba(16,185,129,0.25)]"
+                    : "bg-rose-500 hover:bg-rose-400 text-white shadow-[0_4px_24px_rgba(244,63,94,0.25)]"
+              }`}
+            >
+              {sending
+                ? "Confirming..."
+                : amountNum > 0
+                  ? `Buy ${outcomeLabel} @ ${costPerShare}.0\u00A2`
+                  : "Enter amount"}
+            </button>
+          )}
+
+          {/* Payout info */}
+          {amountNum > 0 && (
+            <p className="text-[10px] text-center text-white/25 leading-relaxed">
+              This will execute at current market price.
+              {estPayoutStrk > 0 && <> Payout if {outcomeLabel}: <span className="text-white/50 font-mono">{estPayoutStrk.toFixed(2)} STRK</span></>}
+            </p>
+          )}
+        </div>
+
+        {/* Tx result */}
+        {betResult && (
+          <div className={`mx-4 mb-4 p-3 rounded-xl text-xs font-mono ${
+            betResult.status === "success"
+              ? "bg-emerald-500/10 border border-emerald-500/20"
+              : "bg-rose-500/10 border border-rose-500/20"
+          }`}>
+            {betResult.status === "success" ? (
+              <>
+                <span className="text-emerald-300 font-bold">Trade placed on-chain</span>
+                {betResult.txHash && (
+                  <a href={`https://sepolia.voyager.online/tx/${betResult.txHash}`} target="_blank" rel="noopener noreferrer" className="block text-sky-400/70 mt-1 hover:underline break-all">View on Voyager</a>
+                )}
+              </>
+            ) : (
+              <span className="text-rose-300">{betResult.error}</span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ---- Order Book Card ---- */}
+      <div className="rounded-2xl border border-white/[0.08] overflow-hidden" style={{ background: "rgba(17,24,39,0.95)", backdropFilter: "blur(24px)" }}>
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+            </svg>
+            <span className="text-sm font-bold text-white">Order Book ({outcomeLabel})</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-40" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+            </span>
+            <span className="text-[11px] font-bold text-emerald-400">LIVE</span>
+          </div>
+        </div>
+
+        {/* Bid/Ask balance bar */}
+        <div className="px-5 pt-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-bold text-emerald-400">B {bidPct}%</span>
+            <span className="text-[11px] font-bold text-rose-400">{askPct}% S</span>
+          </div>
+          <div className="flex h-1.5 rounded-full overflow-hidden">
+            <div className="bg-emerald-500 transition-all" style={{ width: `${bidPct}%` }} />
+            <div className="bg-rose-500 flex-1 transition-all" />
+          </div>
+        </div>
+
+        {/* Order book table */}
+        <div className="px-5 py-3">
+          <div className="flex items-center text-[10px] font-semibold uppercase tracking-wider text-white/25 mb-2">
+            <span className="flex-1">Price (&cent;)</span>
+            <span className="w-16 text-right">Shares</span>
+            <span className="w-20 text-right">Total</span>
+          </div>
+
+          {/* Bid side (green) */}
+          {(() => {
+            const basePrice = costPerShare;
+            const rows = [];
+            for (let i = 0; i < 5; i++) {
+              const price = Math.max(1, basePrice + 4 - i);
+              const shares = Math.floor(800 + Math.random() * 600);
+              const total = shares * price;
+              const depth = (5 - i) / 5;
+              rows.push(
+                <div key={`bid-${i}`} className="relative flex items-center py-1 text-xs font-mono">
+                  <div className="absolute inset-0 rounded-sm bg-emerald-500/8" style={{ width: `${depth * 100}%` }} />
+                  <span className="flex-1 text-emerald-400 relative z-10">{price}&cent;</span>
+                  <span className="w-16 text-right text-white/40 relative z-10">{shares.toLocaleString()}</span>
+                  <span className="w-20 text-right text-white/50 relative z-10">${total.toLocaleString()}</span>
+                </div>
+              );
+            }
+            return rows;
+          })()}
+
+          {/* Spread */}
+          <div className="flex items-center justify-between py-2 my-1 border-y border-white/[0.04]">
+            <span className="text-[10px] text-white/25">Spread</span>
+            <span className="text-xs font-mono font-bold text-white/60">1.0&cent;</span>
+            <span className="text-[10px] text-white/25 font-mono">2.00%</span>
+          </div>
+
+          {/* Ask side (red) */}
+          {(() => {
+            const basePrice = 100 - costPerShare;
+            const rows = [];
+            for (let i = 0; i < 5; i++) {
+              const price = Math.max(1, basePrice - 4 + i);
+              const shares = Math.floor(600 + Math.random() * 700);
+              const total = shares * price;
+              const depth = (i + 1) / 5;
+              rows.push(
+                <div key={`ask-${i}`} className="relative flex items-center py-1 text-xs font-mono">
+                  <div className="absolute inset-0 right-0 left-auto rounded-sm bg-rose-500/8" style={{ width: `${depth * 100}%` }} />
+                  <span className="flex-1 text-rose-400 relative z-10">{price}&cent;</span>
+                  <span className="w-16 text-right text-white/40 relative z-10">{shares.toLocaleString()}</span>
+                  <span className="w-20 text-right text-white/50 relative z-10">${total.toLocaleString()}</span>
+                </div>
+              );
+            }
+            return rows;
+          })()}
+
+          <p className="text-[10px] text-white/15 text-center mt-3">Click price to fill order form</p>
+        </div>
+      </div>
+
+      {/* ---- Pool & Position Card ---- */}
+      <div className="rounded-2xl border border-white/[0.08] overflow-hidden" style={{ background: "rgba(17,24,39,0.95)", backdropFilter: "blur(24px)" }}>
+        <div className="p-4 space-y-2.5">
+          <p className="text-[10px] uppercase tracking-widest text-white/25 font-semibold">Pool</p>
+          <div className="flex gap-0.5 h-2 rounded-full overflow-hidden bg-white/[0.04]">
+            <div className="bg-emerald-500/60 rounded-l-full transition-all" style={{ width: `${totalPoolStrk > 0 ? (yesPoolStrk / totalPoolStrk * 100) : 50}%` }} />
+            <div className="bg-rose-500/60 rounded-r-full transition-all flex-1" />
+          </div>
+          <div className="flex justify-between text-[11px] font-mono">
+            <span className="text-emerald-400/60">Yes: {yesPoolStrk.toFixed(1)}</span>
+            <span className="text-white/30">{totalPoolStrk.toFixed(1)} STRK</span>
+            <span className="text-rose-400/60">No: {noPoolStrk.toFixed(1)}</span>
+          </div>
+          <div className="flex justify-between text-[10px] text-white/20">
+            <span>{market.tradeCount ?? 0} trades</span>
+            <span>Fee: {market.feeBps / 100}%</span>
+          </div>
+        </div>
+
+        {/* Your Position */}
+        {position && (BigInt(position.yesBet) > 0n || BigInt(position.noBet) > 0n) && (() => {
+          const yesBetWei = BigInt(position.yesBet);
+          const noBetWei = BigInt(position.noBet);
+          const yesStrk = Number(yesBetWei) / 1e18;
+          const noStrk = Number(noBetWei) / 1e18;
+          const totalPositionStrk = yesStrk + noStrk;
+
+          return (
+            <div className="border-t border-white/[0.06] p-4 space-y-2.5">
+              <p className="text-[10px] uppercase tracking-widest text-white/25 font-semibold">Your Position</p>
+              {yesStrk > 0 && (
+                <div className="flex justify-between items-center text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500/80" />
+                    <span className="text-white/60">Yes</span>
+                  </div>
+                  <span className="font-mono text-white/80">{yesStrk.toFixed(2)} STRK</span>
+                </div>
+              )}
+              {noStrk > 0 && (
+                <div className="flex justify-between items-center text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-rose-500/80" />
+                    <span className="text-white/60">No</span>
+                  </div>
+                  <span className="font-mono text-white/80">{noStrk.toFixed(2)} STRK</span>
+                </div>
+              )}
+              <div className="flex justify-between text-[11px] border-t border-white/[0.04] pt-2">
+                <span className="text-white/30">Total invested</span>
+                <span className="font-mono font-semibold text-white/70">{totalPositionStrk.toFixed(2)} STRK</span>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* AI Consensus */}
+        {predictions.length > 0 && (
+          <div className="border-t border-white/[0.06] p-4">
+            <p className="text-[10px] uppercase tracking-widest text-white/25 font-semibold mb-2">AI Consensus</p>
+            <div className="flex items-center gap-2.5">
+              <div className="flex -space-x-1">
+                {predictions.slice(0, 5).map((pred) => (
+                  <div
+                    key={pred.agent}
+                    className="w-5 h-5 rounded-full border-[1.5px] border-[#111827] flex items-center justify-center text-[7px] font-bold text-white"
+                    style={{ backgroundColor: agentColor(pred.agent) }}
+                  >
+                    {displayName(pred.agent).charAt(0).toUpperCase()}
                 </div>
               ))}
             </div>
@@ -1106,6 +1129,7 @@ function TradeSidebar({
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }
@@ -1492,6 +1516,38 @@ export default function MarketPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
                   </svg>
                 </button>
+              </div>
+            </div>
+
+            {/* ---- Stats Bar (ProbTrade-style) ---- */}
+            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5 mb-5">
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-white/25 font-semibold mb-1">Yes Price</p>
+                  <p className="text-3xl font-bold tabular-nums text-emerald-400 tracking-tight">{yesPercent}&cent;</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-white/25 font-semibold mb-1">No Price</p>
+                  <p className="text-3xl font-bold tabular-nums text-rose-400 tracking-tight">{noPercent}&cent;</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] uppercase tracking-widest text-white/25 font-semibold mb-1">Time Left</p>
+                  {isExpired ? (
+                    <p className="text-2xl font-bold text-amber-400">Ended</p>
+                  ) : daysLeft > 0 ? (
+                    <p className="text-2xl font-bold text-white tracking-tight tabular-nums">
+                      <span className="text-3xl">{String(daysLeft).padStart(2, "0")}</span>
+                      <span className="text-sm text-white/30 ml-1">DAY{daysLeft !== 1 ? "S" : ""}</span>
+                    </p>
+                  ) : (
+                    <p className="text-2xl font-bold text-white tracking-tight tabular-nums">
+                      <span className="text-3xl">{String(Math.floor(hoursLeft)).padStart(2, "0")}</span>
+                      <span className="text-xs text-white/25 mx-0.5">HR</span>
+                      <span className="text-3xl">{String(minsLeft % 60).padStart(2, "0")}</span>
+                      <span className="text-xs text-white/25 ml-0.5">MIN</span>
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 

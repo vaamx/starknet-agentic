@@ -69,6 +69,11 @@ const envSchema = z.object({
   OLLAMA_RESOLUTION_MODEL: z.string().optional(),
   OLLAMA_TRIAGE_MODEL: z.string().optional(),
   OLLAMA_API_KEY: z.string().optional(),
+  // OpenForecaster-8B (local via Ollama) — arXiv:2512.25070
+  OPENFORECASTER_ENABLED: z.string().default("true"),
+  OPENFORECASTER_MODEL: z.string().default("openforecaster:8b-q4"),
+  OPENFORECASTER_ENSEMBLE_COUNT: z.string().default("3"),
+  OPENFORECASTER_TEMPERATURE: z.string().default("0.6"),
   ANTHROPIC_API_KEY: z.string().optional(),
   XAI_API_KEY: z.string().optional(),
   XAI_BASE_URL: z.string().url().default("https://api.x.ai/v1"),
@@ -233,6 +238,22 @@ const envSchema = z.object({
   COMPUTE_RESERVE_ENABLED:   z.string().default("false"),
   COMPUTE_RESERVE_THRESHOLD: z.string().default("200"),
   COMPUTE_RESERVE_PERCENT:   z.string().default("20"),
+  // Market Discovery Pipeline — per-source toggles & cadence
+  MARKET_DISCOVERY_ENABLED: z.string().default("true"),
+  DISCOVERY_NEWS_ENABLED: z.string().default("true"),
+  DISCOVERY_NEWS_EVERY_TICKS: z.string().default("10"),
+  DISCOVERY_CRYPTO_ENABLED: z.string().default("true"),
+  DISCOVERY_CRYPTO_VOLATILITY_THRESHOLD: z.string().default("0.02"),
+  DISCOVERY_SPORTS_ENABLED: z.string().default("true"),
+  DISCOVERY_SPORTS_EVERY_TICKS: z.string().default("20"),
+  DISCOVERY_POLYMARKET_ENABLED: z.string().default("true"),
+  DISCOVERY_SOCIAL_ENABLED: z.string().default("true"),
+  DISCOVERY_SOCIAL_EVERY_TICKS: z.string().default("15"),
+  DISCOVERY_TAVILY_ENABLED: z.string().default("true"),
+  DISCOVERY_TAVILY_EVERY_TICKS: z.string().default("12"),
+  DISCOVERY_LLM_QUESTION_GEN: z.string().default("true"),
+  DISCOVERY_MAX_MARKETS_PER_DAY: z.string().default("20"),
+  DISCOVERY_COOLDOWN_SECS: z.string().default("300"),
   // Phase G — API rate limiting
   RATE_LIMIT_BACKEND: z.enum(["memory", "upstash"]).default("memory"),
   RATE_LIMIT_GLOBAL_PER_MIN: z.string().default("120"),
@@ -385,6 +406,17 @@ export const config = {
   ollamaResolutionModel: rawConfig.OLLAMA_RESOLUTION_MODEL,
   ollamaTriageModel: rawConfig.OLLAMA_TRIAGE_MODEL,
   ollamaApiKey: rawConfig.OLLAMA_API_KEY,
+  // OpenForecaster-8B derived helpers
+  openForecasterEnabled: rawConfig.OPENFORECASTER_ENABLED !== "false",
+  openForecasterModel: rawConfig.OPENFORECASTER_MODEL,
+  openForecasterEnsembleCount: Math.max(
+    1,
+    Math.min(7, parseInt(rawConfig.OPENFORECASTER_ENSEMBLE_COUNT, 10) || 3)
+  ),
+  openForecasterTemperature: Math.max(
+    0,
+    Math.min(2, parseFloat(rawConfig.OPENFORECASTER_TEMPERATURE) || 0.6)
+  ),
   xaiBaseUrl: rawConfig.XAI_BASE_URL.replace(/\/+$/, ""),
   xaiNativeToolsEnabled: rawConfig.XAI_ENABLE_NATIVE_TOOLS !== "false",
   xaiWebSearchEnabled: rawConfig.XAI_ENABLE_WEB_SEARCH !== "false",
@@ -588,6 +620,23 @@ export const config = {
     1000,
     parseInt(rawConfig.AGENT_ALERT_REQUEST_TIMEOUT_MS, 10) || 8000
   ),
+
+  // ── Market Discovery Pipeline derived helpers ──────────────────────────
+  discoveryEnabled: rawConfig.MARKET_DISCOVERY_ENABLED !== "false",
+  discoveryNewsEnabled: rawConfig.DISCOVERY_NEWS_ENABLED !== "false",
+  discoveryNewsEveryTicks: Math.max(1, parseInt(rawConfig.DISCOVERY_NEWS_EVERY_TICKS, 10) || 10),
+  discoveryCryptoEnabled: rawConfig.DISCOVERY_CRYPTO_ENABLED !== "false",
+  discoveryCryptoVolatilityThreshold: Math.max(0.001, parseFloat(rawConfig.DISCOVERY_CRYPTO_VOLATILITY_THRESHOLD) || 0.02),
+  discoverySportsEnabled: rawConfig.DISCOVERY_SPORTS_ENABLED !== "false",
+  discoverySportsEveryTicks: Math.max(1, parseInt(rawConfig.DISCOVERY_SPORTS_EVERY_TICKS, 10) || 20),
+  discoveryPolymarketEnabled: rawConfig.DISCOVERY_POLYMARKET_ENABLED !== "false",
+  discoverySocialEnabled: rawConfig.DISCOVERY_SOCIAL_ENABLED !== "false",
+  discoverySocialEveryTicks: Math.max(1, parseInt(rawConfig.DISCOVERY_SOCIAL_EVERY_TICKS, 10) || 15),
+  discoveryTavilyEnabled: rawConfig.DISCOVERY_TAVILY_ENABLED !== "false",
+  discoveryTavilyEveryTicks: Math.max(1, parseInt(rawConfig.DISCOVERY_TAVILY_EVERY_TICKS, 10) || 12),
+  discoveryLlmQuestionGen: rawConfig.DISCOVERY_LLM_QUESTION_GEN !== "false",
+  discoveryMaxMarketsPerDay: Math.max(1, parseInt(rawConfig.DISCOVERY_MAX_MARKETS_PER_DAY, 10) || 20),
+  discoveryCooldownSecs: Math.max(30, parseInt(rawConfig.DISCOVERY_COOLDOWN_SECS, 10) || 300),
 
   // ── Phase C: X-402 derived helpers ──────────────────────────────────────
   x402Enabled:           rawConfig.X402_ENABLED === "true",

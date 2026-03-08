@@ -21,11 +21,19 @@ interface FeaturedHeroProps {
 }
 
 const CAT_META: Record<string, { icon: string; label: string; color: string; sub?: string }> = {
-  sports:   { icon: "\u{1F3C8}", label: "Sports", color: "#10b981" },
-  crypto:   { icon: "\u20BF",    label: "Crypto", color: "#f59e0b", sub: "Markets" },
-  politics: { icon: "\u{1F3DB}\uFE0F", label: "Politics", color: "#6366f1", sub: "Geopolitics" },
-  tech:     { icon: "\u{1F4BB}", label: "Tech",   color: "#8b5cf6", sub: "AI \u00B7 Innovation" },
-  other:    { icon: "\u{1F30D}", label: "World",  color: "#ec4899", sub: "Global Events" },
+  sports:      { icon: "\u{1F3C8}", label: "Sports",      color: "#10b981" },
+  crypto:      { icon: "\u20BF",    label: "Crypto",      color: "#f59e0b", sub: "Markets" },
+  politics:    { icon: "\u{1F3DB}\uFE0F", label: "Politics", color: "#6366f1", sub: "Geopolitics" },
+  tech:        { icon: "\u{1F4BB}", label: "Tech",        color: "#8b5cf6", sub: "AI \u00B7 Innovation" },
+  elections:   { icon: "\u{1F5F3}\uFE0F", label: "Elections", color: "#818cf8" },
+  geopolitics: { icon: "\u{1F30D}", label: "Geopolitics", color: "#f472b6" },
+  finance:     { icon: "\u{1F4C8}", label: "Finance",     color: "#22d3ee" },
+  earnings:    { icon: "\u{1F4B0}", label: "Earnings",    color: "#a78bfa" },
+  economy:     { icon: "\u{1F3E6}", label: "Economy",     color: "#fbbf24" },
+  climate:     { icon: "\u{1F33F}", label: "Climate",     color: "#4ade80" },
+  culture:     { icon: "\u{1F3AC}", label: "Culture",     color: "#fb923c" },
+  world:       { icon: "\u{1F310}", label: "World",       color: "#ec4899" },
+  other:       { icon: "\u{1F30D}", label: "World",       color: "#ec4899", sub: "Global Events" },
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -46,7 +54,6 @@ function useLiveCountdown(resolutionTime: number): string {
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
-/** Rolling 5-minute cycle for crypto markets — countdown, price-to-beat snapshot, time window */
 function useCryptoCycle(currentPrice: number) {
   const CYCLE_MS = 5 * 60 * 1000;
   const [now, setNow] = useState(Date.now());
@@ -91,11 +98,9 @@ function useLivePrice(basePrice: number, seed: number) {
     const id = setInterval(() => {
       tick++;
       setPrice(prev => {
-        // Target oscillates around base — ±0.15%
         const target = basePrice
           + Math.sin(seed * 3.1 + tick * 0.12) * basePrice * 0.0015
           + Math.cos(seed * 7.7 + tick * 0.07) * basePrice * 0.001;
-        // Pull toward target + visible noise
         const pull = (target - prev) * 0.08;
         const micro = (Math.random() - 0.5) * basePrice * 0.0005;
         const next = prev + pull + micro;
@@ -127,42 +132,6 @@ function useLiveProb(basePct: number, seed: number) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   LIVE TRADE FEED
-   ═══════════════════════════════════════════════════════════ */
-interface TradeEvent { id: number; amount: number; side: "yes" | "no"; y: number; }
-
-function useLiveTrades() {
-  const [trades, setTrades] = useState<TradeEvent[]>([]);
-  const idRef = useRef(0);
-  useEffect(() => {
-    // Initial burst of trades
-    const initial: TradeEvent[] = [];
-    for (let i = 0; i < 4; i++) {
-      initial.push({ id: ++idRef.current, amount: Math.floor(Math.random() * 50) + 1, side: Math.random() > 0.35 ? "yes" : "no", y: 15 + i * 18 });
-    }
-    setTrades(initial);
-    const id = setInterval(() => {
-      const trade: TradeEvent = { id: ++idRef.current, amount: Math.floor(Math.random() * 90) + 1, side: Math.random() > 0.35 ? "yes" : "no", y: 10 + Math.random() * 65 };
-      setTrades(prev => { const next = [...prev, trade]; return next.length > 8 ? next.slice(-8) : next; });
-    }, 2000 + Math.random() * 2000);
-    return () => clearInterval(id);
-  }, []);
-  return trades;
-}
-
-function TradeFeedOverlay({ trades }: { trades: TradeEvent[] }) {
-  return (
-    <div className="absolute inset-0 pointer-events-none overflow-hidden z-10">
-      {trades.slice(-6).map((t, i) => (
-        <div key={t.id} className="absolute left-2 animate-trade-slide-in" style={{ top: `${12 + i * 11}%` }}>
-          <span className={`text-[13px] font-mono font-bold tabular-nums ${t.side === "yes" ? "text-neo-green/70" : "text-neo-red/70"}`}>+ ${t.amount}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
    CHART GENERATORS
    ═══════════════════════════════════════════════════════════ */
 function seededRand(seed: number, i: number): number {
@@ -183,16 +152,11 @@ function genChartData(prob: number, seed: number, n: number): number[] {
 
 function genPricePath(basePrice: number, seed: number, n: number): number[] {
   const pts: number[] = [];
-  // Dynamic crypto price — oscillates up and down around base
-  // Multiple overlapping wave frequencies create realistic-looking movement
   let v = basePrice;
   for (let i = 0; i < n; i++) {
-    // Random step — creates noise texture
     const step = (seededRand(seed, i) - 0.5) * basePrice * 0.0008;
-    // Two overlapping oscillations at different frequencies — creates peaks and valleys
     const wave1 = Math.sin(seed * 2.3 + i * 0.15) * basePrice * 0.0006;
     const wave2 = Math.cos(seed * 5.1 + i * 0.08) * basePrice * 0.0004;
-    // Mean-revert to prevent drift, but loose enough to allow swings
     const revert = (basePrice - v) * 0.03;
     v += step + wave1 + wave2 + revert;
     pts.push(v);
@@ -201,7 +165,7 @@ function genPricePath(basePrice: number, seed: number, n: number): number[] {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   LIVE SVG CHART — fills container, grows with new points
+   LIVE SVG CHART — fills container, production-grade
    ═══════════════════════════════════════════════════════════ */
 function LiveChart({ initialPoints, color, yUnit, targetPrice, decimals: decProp }: {
   initialPoints: number[]; color: string; yUnit?: "%" | "$"; targetPrice?: number; decimals?: number;
@@ -212,7 +176,6 @@ function LiveChart({ initialPoints, color, yUnit, targetPrice, decimals: decProp
   const [dims, setDims] = useState({ w: 0, h: 0 });
   const [hover, setHover] = useState<{ x: number; idx: number } | null>(null);
 
-  // Measure container so viewBox matches real pixels — no stretch
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -224,7 +187,6 @@ function LiveChart({ initialPoints, color, yUnit, targetPrice, decimals: decProp
     return () => ro.disconnect();
   }, []);
 
-  // Live updates — random walk with gentle mean-reversion
   const baseRef = useRef(initialPoints[Math.floor(initialPoints.length / 2)]);
   const tickRef = useRef(0);
   useEffect(() => {
@@ -305,7 +267,6 @@ function LiveChart({ initialPoints, color, yUnit, targetPrice, decimals: decProp
 
   const hoverVal = hover ? points[hover.idx] : null;
 
-  // Don't render SVG until measured
   if (dims.w === 0) return <div ref={wrapRef} className="w-full h-full" />;
 
   return (
@@ -325,7 +286,6 @@ function LiveChart({ initialPoints, color, yUnit, targetPrice, decimals: decProp
             <stop offset="100%" stopColor={color} stopOpacity="0.01" />
           </linearGradient>
         </defs>
-        {/* Gridlines + Y labels */}
         {ticks.map((v, i) => (
           <g key={i}>
             <line x1={pL} y1={toY(v)} x2={W - pR} y2={toY(v)} stroke="rgba(255,255,255,0.035)" strokeDasharray="2,5" />
@@ -334,7 +294,6 @@ function LiveChart({ initialPoints, color, yUnit, targetPrice, decimals: decProp
             </text>
           </g>
         ))}
-        {/* Target line */}
         {targetInRange && (() => {
           const tgtY = Math.max(pT, Math.min(pT + cH, toY(targetPrice!)));
           return (
@@ -345,14 +304,11 @@ function LiveChart({ initialPoints, color, yUnit, targetPrice, decimals: decProp
             </g>
           );
         })()}
-        {/* Time axis */}
         {timeLabels.map((t, i) => (
           <text key={i} x={pL + (i / 4) * cW} y={H - 6} fontSize="11" fontFamily="var(--font-mono)" fill="rgba(255,255,255,0.3)" textAnchor="middle">{t}</text>
         ))}
-        {/* Area + line */}
         <path d={areaD} fill={`url(#lg-${color.replace('#','')})`} />
         <path d={d} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        {/* Dynamic endpoint — pulse rings */}
         <circle cx={lx} cy={ly} r="6" fill={color} opacity="0.04">
           <animate attributeName="r" values="6;16;6" dur="2.5s" repeatCount="indefinite" />
           <animate attributeName="opacity" values="0.06;0.01;0.06" dur="2.5s" repeatCount="indefinite" />
@@ -362,12 +318,10 @@ function LiveChart({ initialPoints, color, yUnit, targetPrice, decimals: decProp
         </circle>
         <circle cx={lx} cy={ly} r="4" fill={color} />
         <circle cx={lx} cy={ly} r="1.5" fill="white" />
-        {/* Current value badge */}
         <rect x={lx - 32} y={ly - 22} width="64" height="18" rx="4" fill="rgba(0,0,0,0.75)" stroke={color} strokeWidth="0.5" strokeOpacity="0.4" />
         <text x={lx} y={ly - 10} textAnchor="middle" fontSize="11" fontFamily="var(--font-mono)" fontWeight="700" fill={color}>
           {fmtY(last)}
         </text>
-        {/* Hover crosshair + tooltip */}
         {hover && hoverVal !== null && (() => {
           const hoverTime = new Date(now.getTime() - ((points.length - 1 - hover.idx) / (points.length - 1)) * 90000);
           const hh = hoverTime.getHours() % 12 || 12;
@@ -375,7 +329,6 @@ function LiveChart({ initialPoints, color, yUnit, targetPrice, decimals: decProp
           const ss = String(hoverTime.getSeconds()).padStart(2, "0");
           const ampm = hoverTime.getHours() >= 12 ? "PM" : "AM";
           const hoverTimeStr = `${hh}:${mm}:${ss} ${ampm}`;
-          // Clamp tooltip so it doesn't overflow SVG edges
           const tipW = 88, tipH = 28;
           const tipX = Math.max(tipW / 2, Math.min(W - tipW / 2, hover.x));
           const tipY = toY(hoverVal) - 32;
@@ -399,11 +352,26 @@ function LiveChart({ initialPoints, color, yUnit, targetPrice, decimals: decProp
   );
 }
 
+/* ── Dual-line chart for head-to-head markets ── */
 function DualLiveChart({ pts1, pts2, c1, c2, l1, l2 }: { pts1: number[]; pts2: number[]; c1: string; c2: string; l1: string; l2: string }) {
   const [p1, setP1] = useState(pts1);
   const [p2, setP2] = useState(pts2);
   const svgRef = useRef<SVGSVGElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [dims, setDims] = useState({ w: 0, h: 0 });
   const [hover, setHover] = useState<{ x: number; idx: number } | null>(null);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => {
+      const { width, height } = entries[0].contentRect;
+      if (width > 0 && height > 0) setDims({ w: Math.round(width), h: Math.round(height) });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   useEffect(() => {
     const id = setInterval(() => {
       setP1(prev => { const last = prev[prev.length - 1]; const next = [...prev, Math.max(2, Math.min(98, last + (Math.random() - 0.48) * 1.5))]; return next.length > 70 ? next.slice(-70) : next; });
@@ -412,7 +380,8 @@ function DualLiveChart({ pts1, pts2, c1, c2, l1, l2 }: { pts1: number[]; pts2: n
     return () => clearInterval(id);
   }, []);
 
-  const W = 600, H = 260, pL = 0, pR = 68, pT = 8, pB = 28;
+  const W = dims.w || 600, H = dims.h || 280;
+  const pL = 0, pR = 68, pT = 12, pB = 28;
   const cW = W - pL - pR, cH = H - pT - pB;
   const all = [...p1, ...p2];
   const mn = Math.min(...all), mx = Math.max(...all);
@@ -446,45 +415,79 @@ function DualLiveChart({ pts1, pts2, c1, c2, l1, l2 }: { pts1: number[]; pts2: n
     setHover({ x: toX(Math.max(0, Math.min(n - 1, idx))), idx: Math.max(0, Math.min(n - 1, idx)) });
   }, [n, cW, W, pL, pR]);
 
+  if (dims.w === 0) return <div ref={wrapRef} className="w-full h-full" />;
+
   return (
-    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full h-full cursor-crosshair" preserveAspectRatio="none"
-      onMouseMove={handleMouse} onMouseLeave={() => setHover(null)}>
-      {ticks.map((v, i) => (<g key={i}><line x1={pL} y1={toY(v)} x2={W - pR} y2={toY(v)} stroke="rgba(255,255,255,0.035)" strokeDasharray="2,5" /><text x={W - pR + 8} y={toY(v) + 4} fontSize="12" fontFamily="var(--font-mono)" fill="rgba(255,255,255,0.35)">{Math.round(v)}%</text></g>))}
-      <path d={mkBezier(p1)} fill="none" stroke={c1} strokeWidth="2" strokeLinecap="round" />
-      <path d={mkBezier(p2)} fill="none" stroke={c2} strokeWidth="2" strokeLinecap="round" />
-      <circle cx={toX(p1.length - 1)} cy={toY(last1)} r="6" fill={c1} opacity="0.06"><animate attributeName="r" values="6;12;6" dur="2s" repeatCount="indefinite" /></circle>
-      <circle cx={toX(p1.length - 1)} cy={toY(last1)} r="3.5" fill={c1} />
-      <circle cx={toX(p2.length - 1)} cy={toY(last2)} r="6" fill={c2} opacity="0.06"><animate attributeName="r" values="6;12;6" dur="2s" repeatCount="indefinite" /></circle>
-      <circle cx={toX(p2.length - 1)} cy={toY(last2)} r="3.5" fill={c2} />
-      {/* Endpoint labels */}
-      <text x={toX(p1.length - 1) + 8} y={toY(last1) - 1} fontSize="10" fontFamily="var(--font-heading)" fontWeight="700" fill={c1}>{l1}</text>
-      <text x={toX(p1.length - 1) + 8} y={toY(last1) + 11} fontSize="12" fontFamily="var(--font-heading)" fontWeight="800" fill={c1}>{Math.round(last1)}%</text>
-      <text x={toX(p2.length - 1) + 8} y={toY(last2) - 1} fontSize="10" fontFamily="var(--font-heading)" fontWeight="700" fill={c2}>{l2}</text>
-      <text x={toX(p2.length - 1) + 8} y={toY(last2) + 11} fontSize="12" fontFamily="var(--font-heading)" fontWeight="800" fill={c2}>{Math.round(last2)}%</text>
-      {/* Hover crosshair */}
-      {hover && (() => {
-        const v1 = p1[Math.min(hover.idx, p1.length - 1)];
-        const v2 = p2[Math.min(hover.idx, p2.length - 1)];
-        return (
-          <g>
-            <line x1={hover.x} y1={pT} x2={hover.x} y2={pT + cH} stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="3,3" />
-            <circle cx={hover.x} cy={toY(v1)} r="4" fill={c1} stroke="white" strokeWidth="1.5" />
-            <circle cx={hover.x} cy={toY(v2)} r="4" fill={c2} stroke="white" strokeWidth="1.5" />
-            <rect x={hover.x - 28} y={toY(v1) - 20} width="56" height="16" rx="4" fill="rgba(0,0,0,0.75)" stroke="rgba(255,255,255,0.12)" strokeWidth="0.5" />
-            <text x={hover.x} y={toY(v1) - 9} textAnchor="middle" fontSize="9.5" fontFamily="var(--font-mono)" fontWeight="600" fill={c1}>{Math.round(v1)}%</text>
-            <rect x={hover.x - 28} y={toY(v2) - 20} width="56" height="16" rx="4" fill="rgba(0,0,0,0.75)" stroke="rgba(255,255,255,0.12)" strokeWidth="0.5" />
-            <text x={hover.x} y={toY(v2) - 9} textAnchor="middle" fontSize="9.5" fontFamily="var(--font-mono)" fontWeight="600" fill={c2}>{Math.round(v2)}%</text>
-          </g>
-        );
-      })()}
-    </svg>
+    <div ref={wrapRef} className="w-full h-full">
+      <svg ref={svgRef} width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="w-full h-full cursor-crosshair block"
+        onMouseMove={handleMouse} onMouseLeave={() => setHover(null)}>
+        <defs>
+          <linearGradient id={`area-${c1.replace('#','')}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={c1} stopOpacity="0.08" />
+            <stop offset="100%" stopColor={c1} stopOpacity="0.01" />
+          </linearGradient>
+          <linearGradient id={`area-${c2.replace('#','')}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={c2} stopOpacity="0.06" />
+            <stop offset="100%" stopColor={c2} stopOpacity="0.01" />
+          </linearGradient>
+        </defs>
+        {ticks.map((v, i) => (<g key={i}><line x1={pL} y1={toY(v)} x2={W - pR} y2={toY(v)} stroke="rgba(255,255,255,0.03)" strokeDasharray="2,5" /><text x={W - pR + 8} y={toY(v) + 4} fontSize="11" fontFamily="var(--font-mono)" fill="rgba(255,255,255,0.25)">{Math.round(v)}%</text></g>))}
+        {/* Area fills */}
+        <path d={`${mkBezier(p1)} L ${toX(p1.length - 1).toFixed(1)} ${(pT + cH).toFixed(1)} L ${pL.toFixed(1)} ${(pT + cH).toFixed(1)} Z`} fill={`url(#area-${c1.replace('#','')})`} />
+        {/* Lines */}
+        <path d={mkBezier(p1)} fill="none" stroke={c1} strokeWidth="2.5" strokeLinecap="round" />
+        <path d={mkBezier(p2)} fill="none" stroke={c2} strokeWidth="2" strokeLinecap="round" strokeDasharray="6,4" opacity="0.7" />
+        {/* Endpoints */}
+        <circle cx={toX(p1.length - 1)} cy={toY(last1)} r="8" fill={c1} opacity="0.05"><animate attributeName="r" values="8;16;8" dur="2s" repeatCount="indefinite" /></circle>
+        <circle cx={toX(p1.length - 1)} cy={toY(last1)} r="4.5" fill={c1} />
+        <circle cx={toX(p1.length - 1)} cy={toY(last1)} r="1.5" fill="white" />
+        <circle cx={toX(p2.length - 1)} cy={toY(last2)} r="6" fill={c2} opacity="0.05"><animate attributeName="r" values="6;12;6" dur="2s" repeatCount="indefinite" /></circle>
+        <circle cx={toX(p2.length - 1)} cy={toY(last2)} r="3.5" fill={c2} />
+        {/* Endpoint labels */}
+        <rect x={toX(p1.length - 1) + 8} y={toY(last1) - 12} width="54" height="24" rx="6" fill="rgba(0,0,0,0.7)" stroke={c1} strokeWidth="0.5" strokeOpacity="0.4" />
+        <text x={toX(p1.length - 1) + 14} y={toY(last1) + 3} fontSize="12" fontFamily="var(--font-mono)" fontWeight="700" fill={c1}>{Math.round(last1)}%</text>
+        <rect x={toX(p2.length - 1) + 8} y={toY(last2) - 12} width="54" height="24" rx="6" fill="rgba(0,0,0,0.7)" stroke={c2} strokeWidth="0.5" strokeOpacity="0.4" />
+        <text x={toX(p2.length - 1) + 14} y={toY(last2) + 3} fontSize="12" fontFamily="var(--font-mono)" fontWeight="700" fill={c2}>{Math.round(last2)}%</text>
+        {/* Hover crosshair */}
+        {hover && (() => {
+          const v1 = p1[Math.min(hover.idx, p1.length - 1)];
+          const v2 = p2[Math.min(hover.idx, p2.length - 1)];
+          return (
+            <g>
+              <line x1={hover.x} y1={pT} x2={hover.x} y2={pT + cH} stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="3,3" />
+              <circle cx={hover.x} cy={toY(v1)} r="4" fill={c1} stroke="white" strokeWidth="1.5" />
+              <circle cx={hover.x} cy={toY(v2)} r="4" fill={c2} stroke="white" strokeWidth="1.5" />
+              <rect x={hover.x - 28} y={toY(v1) - 20} width="56" height="16" rx="4" fill="rgba(0,0,0,0.8)" stroke={c1} strokeWidth="0.5" strokeOpacity="0.5" />
+              <text x={hover.x} y={toY(v1) - 9} textAnchor="middle" fontSize="10" fontFamily="var(--font-mono)" fontWeight="600" fill={c1}>{Math.round(v1)}%</text>
+              <rect x={hover.x - 28} y={toY(v2) - 20} width="56" height="16" rx="4" fill="rgba(0,0,0,0.8)" stroke={c2} strokeWidth="0.5" strokeOpacity="0.5" />
+              <text x={hover.x} y={toY(v2) - 9} textAnchor="middle" fontSize="10" fontFamily="var(--font-mono)" fontWeight="600" fill={c2}>{Math.round(v2)}%</text>
+            </g>
+          );
+        })()}
+      </svg>
+    </div>
   );
 }
 
+/* ── Multi-line chart for multi-option markets ── */
 function MultiLineLiveChart({ lines }: { lines: { initialPoints: number[]; color: string; label: string }[] }) {
   const [allLines, setAllLines] = useState(lines.map(l => ({ ...l, points: [...l.initialPoints] })));
   const svgRef = useRef<SVGSVGElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [dims, setDims] = useState({ w: 0, h: 0 });
   const [hover, setHover] = useState<{ x: number; idx: number } | null>(null);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => {
+      const { width, height } = entries[0].contentRect;
+      if (width > 0 && height > 0) setDims({ w: Math.round(width), h: Math.round(height) });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   useEffect(() => {
     const id = setInterval(() => {
       setAllLines(prev => prev.map(line => { const last = line.points[line.points.length - 1]; const next = [...line.points, Math.max(2, Math.min(98, last + (Math.random() - 0.5) * 1.8))]; return { ...line, points: next.length > 70 ? next.slice(-70) : next }; }));
@@ -492,7 +495,8 @@ function MultiLineLiveChart({ lines }: { lines: { initialPoints: number[]; color
     return () => clearInterval(id);
   }, []);
 
-  const W = 600, H = 260, pL = 0, pR = 68, pT = 8, pB = 28;
+  const W = dims.w || 600, H = dims.h || 260;
+  const pL = 0, pR = 68, pT = 8, pB = 28;
   const cW = W - pL - pR, cH = H - pT - pB;
   const all = allLines.flatMap(l => l.points);
   const mn = Math.min(...all), mx = Math.max(...all);
@@ -525,33 +529,36 @@ function MultiLineLiveChart({ lines }: { lines: { initialPoints: number[]; color
     setHover({ x: toX(Math.max(0, Math.min(n - 1, idx))), idx: Math.max(0, Math.min(n - 1, idx)) });
   }, [n, cW, W, pL, pR]);
 
+  if (dims.w === 0) return <div ref={wrapRef} className="w-full h-full" />;
+
   return (
-    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full h-full cursor-crosshair" preserveAspectRatio="none"
-      onMouseMove={handleMouse} onMouseLeave={() => setHover(null)}>
-      {ticks.map((v, i) => (<g key={i}><line x1={pL} y1={toY(v)} x2={W - pR} y2={toY(v)} stroke="rgba(255,255,255,0.035)" strokeDasharray="2,5" /><text x={W - pR + 8} y={toY(v) + 4} fontSize="12" fontFamily="var(--font-mono)" fill="rgba(255,255,255,0.35)">{Math.round(v)}%</text></g>))}
-      {allLines.map((line, li) => {
-        const last = line.points[line.points.length - 1];
-        return (<g key={li}><path d={mkBezier(line.points)} fill="none" stroke={line.color} strokeWidth="2" strokeLinecap="round" opacity="0.85" />
-          <circle cx={toX(line.points.length - 1)} cy={toY(last)} r="6" fill={line.color} opacity="0.06"><animate attributeName="r" values="6;12;6" dur="2s" repeatCount="indefinite" /></circle>
-          <circle cx={toX(line.points.length - 1)} cy={toY(last)} r="3.5" fill={line.color} /></g>);
-      })}
-      {/* Hover crosshair */}
-      {hover && (
-        <g>
-          <line x1={hover.x} y1={pT} x2={hover.x} y2={pT + cH} stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="3,3" />
-          {allLines.map((line, li) => {
-            const v = line.points[Math.min(hover.idx, line.points.length - 1)];
-            return (
-              <g key={li}>
-                <circle cx={hover.x} cy={toY(v)} r="3.5" fill={line.color} stroke="white" strokeWidth="1.5" />
-                <rect x={hover.x + 6} y={toY(v) - 8} width="42" height="16" rx="4" fill="rgba(0,0,0,0.75)" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-                <text x={hover.x + 27} y={toY(v) + 4} textAnchor="middle" fontSize="9" fontFamily="var(--font-mono)" fontWeight="600" fill={line.color}>{Math.round(v)}%</text>
-              </g>
-            );
-          })}
-        </g>
-      )}
-    </svg>
+    <div ref={wrapRef} className="w-full h-full">
+      <svg ref={svgRef} width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="w-full h-full cursor-crosshair block"
+        onMouseMove={handleMouse} onMouseLeave={() => setHover(null)}>
+        {ticks.map((v, i) => (<g key={i}><line x1={pL} y1={toY(v)} x2={W - pR} y2={toY(v)} stroke="rgba(255,255,255,0.035)" strokeDasharray="2,5" /><text x={W - pR + 8} y={toY(v) + 4} fontSize="12" fontFamily="var(--font-mono)" fill="rgba(255,255,255,0.35)">{Math.round(v)}%</text></g>))}
+        {allLines.map((line, li) => {
+          const last = line.points[line.points.length - 1];
+          return (<g key={li}><path d={mkBezier(line.points)} fill="none" stroke={line.color} strokeWidth="2" strokeLinecap="round" opacity="0.85" />
+            <circle cx={toX(line.points.length - 1)} cy={toY(last)} r="6" fill={line.color} opacity="0.06"><animate attributeName="r" values="6;12;6" dur="2s" repeatCount="indefinite" /></circle>
+            <circle cx={toX(line.points.length - 1)} cy={toY(last)} r="3.5" fill={line.color} /></g>);
+        })}
+        {hover && (
+          <g>
+            <line x1={hover.x} y1={pT} x2={hover.x} y2={pT + cH} stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="3,3" />
+            {allLines.map((line, li) => {
+              const v = line.points[Math.min(hover.idx, line.points.length - 1)];
+              return (
+                <g key={li}>
+                  <circle cx={hover.x} cy={toY(v)} r="3.5" fill={line.color} stroke="white" strokeWidth="1.5" />
+                  <rect x={hover.x + 6} y={toY(v) - 8} width="42" height="16" rx="4" fill="rgba(0,0,0,0.75)" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
+                  <text x={hover.x + 27} y={toY(v) + 4} textAnchor="middle" fontSize="9" fontFamily="var(--font-mono)" fontWeight="600" fill={line.color}>{Math.round(v)}%</text>
+                </g>
+              );
+            })}
+          </g>
+        )}
+      </svg>
+    </div>
   );
 }
 
@@ -563,10 +570,28 @@ function detectSportSub(question: string): string {
   if (/nba|lakers|celtics|warriors|bucks|nuggets|76ers|knicks/.test(q)) return "Basketball \u00B7 NBA";
   if (/nfl|super bowl|seahawks|patriots|chiefs|eagles|sb lx/.test(q)) return "Football \u00B7 NFL";
   if (/mlb|yankees|dodgers|world series/.test(q)) return "Baseball \u00B7 MLB";
-  if (/ufc|boxing/.test(q)) return "Combat Sports";
-  if (/premier league|la liga|champions league|world cup/.test(q)) return "Football \u00B7 Soccer";
-  if (/formula 1|f1/.test(q)) return "Motorsport \u00B7 F1";
-  if (/ncaa|ncaaf|march madness/.test(q)) return "College Sports";
+  if (/ufc|mma|boxing|bellator|pfl/.test(q)) return "Combat Sports";
+  if (/premier league|arsenal|manchester|liverpool|chelsea|tottenham/.test(q)) return "Football \u00B7 Premier League";
+  if (/la liga|real madrid|barcelona|atletico/.test(q)) return "Football \u00B7 La Liga";
+  if (/serie a|inter milan|ac milan|juventus|napoli/.test(q)) return "Football \u00B7 Serie A";
+  if (/bundesliga|bayern|dortmund|leverkusen/.test(q)) return "Football \u00B7 Bundesliga";
+  if (/ligue 1|psg|marseille|monaco|lille/.test(q)) return "Football \u00B7 Ligue 1";
+  if (/liga mx|club america|monterrey|tigres/.test(q)) return "Football \u00B7 Liga MX";
+  if (/champions league|europa league/.test(q)) return "Football \u00B7 UEFA";
+  if (/world cup|copa america|euro 20/.test(q)) return "Football \u00B7 International";
+  if (/formula 1|f1|grand prix/.test(q)) return "Motorsport \u00B7 F1";
+  if (/nascar|indycar|daytona/.test(q)) return "Motorsport";
+  if (/tennis|wimbledon|us open|australian open|french open|roland garros/.test(q)) return "Tennis";
+  if (/golf|pga|masters|british open/.test(q)) return "Golf";
+  if (/cricket|ipl|test match|t20/.test(q)) return "Cricket";
+  if (/rugby|six nations/.test(q)) return "Rugby";
+  if (/ncaa|ncaaf|march madness|college/.test(q)) return "College Sports";
+  if (/nhl|hockey|stanley cup/.test(q)) return "Hockey \u00B7 NHL";
+  if (/mls|inter miami|la galaxy|lafc/.test(q)) return "Football \u00B7 MLS";
+  if (/olympics|paralympics/.test(q)) return "Olympics";
+  if (/esports|league of legends|valorant|dota/.test(q)) return "Esports";
+  if (/cycling|tour de france/.test(q)) return "Cycling";
+  if (/horse racing|kentucky derby/.test(q)) return "Horse Racing";
   return "Live Sports";
 }
 
@@ -578,11 +603,178 @@ function fmtVol(poolWei: bigint): string {
   return "\u2014";
 }
 
-/* ═══════════════════════════════════════════════════════════
-   CATEGORY HERO LAYOUTS — Polymarket-style
-   Stats across top, buttons+chat left, chart fills right
-   ═══════════════════════════════════════════════════════════ */
+/** Extract two sides from a prediction question */
+function extractMatchup(question: string): { team1: string; team2: string; sport: string } {
+  const q = question;
+  // "X vs Y" or "X vs. Y"
+  const vsMatch = q.match(/(.+?)\s+vs\.?\s+(.+?)(?:\s+[-\u2013]|\s+winner|\?|$)/i);
+  if (vsMatch) {
+    return { team1: vsMatch[1].trim(), team2: vsMatch[2].trim(), sport: detectSportSub(q) };
+  }
+  // "Will X beat Y" / "Will X win against Y"
+  const beatMatch = q.match(/Will (?:the )?(.+?)\s+(?:beat|win against|defeat)\s+(?:the )?(.+?)[\s?]/i);
+  if (beatMatch) {
+    return { team1: beatMatch[1].trim(), team2: beatMatch[2].trim(), sport: detectSportSub(q) };
+  }
+  // "Will X win [the thing]"
+  const winMatch = q.match(/Will (?:the )?(.+?)\s+(?:win|cover|score)/i);
+  if (winMatch) {
+    return { team1: winMatch[1].trim(), team2: "Opponent", sport: detectSportSub(q) };
+  }
+  return { team1: "Team A", team2: "Team B", sport: detectSportSub(q) };
+}
 
+/** Get sport-specific icon */
+function getSportIcon(sport: string): string {
+  if (/NBA|Basketball/i.test(sport)) return "\u{1F3C0}";
+  if (/NFL|Football(?! \u00B7)/i.test(sport)) return "\u{1F3C8}";
+  if (/MLB|Baseball/i.test(sport)) return "\u26BE";
+  if (/Combat|UFC|MMA|Boxing/i.test(sport)) return "\u{1F94A}";
+  if (/Premier|La Liga|Serie|Bundesliga|Ligue|Liga MX|UEFA|MLS|International|Football/i.test(sport)) return "\u26BD";
+  if (/F1|Motorsport|NASCAR/i.test(sport)) return "\u{1F3CE}\uFE0F";
+  if (/Tennis/i.test(sport)) return "\u{1F3BE}";
+  if (/Golf/i.test(sport)) return "\u26F3";
+  if (/Cricket/i.test(sport)) return "\u{1F3CF}";
+  if (/Rugby/i.test(sport)) return "\u{1F3C9}";
+  if (/Hockey|NHL/i.test(sport)) return "\u{1F3D2}";
+  if (/Olympics/i.test(sport)) return "\u{1F3C5}";
+  if (/Esports/i.test(sport)) return "\u{1F3AE}";
+  if (/Cycling/i.test(sport)) return "\u{1F6B4}";
+  if (/Horse/i.test(sport)) return "\u{1F3C7}";
+  return "\u{1F3C6}";
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SPORTS HERO — Polymarket-style matchup card
+   Prominent dual-line chart, team avatars, live scoreboard,
+   clean bet buttons with odds
+   ═══════════════════════════════════════════════════════════ */
+function SportsHero({ market, onBet }: { market: Market; onBet: (id: number, o?: 0 | 1) => void }) {
+  const { pct: yesPct, ticked } = useLiveProb(Math.round(market.impliedProbYes * 100), market.id);
+  const noPct = 100 - yesPct;
+  const { team1, team2, sport } = extractMatchup(market.question);
+  const sportIcon = getSportIcon(sport);
+
+  const secsToResolve = market.resolutionTime - Date.now() / 1000;
+  const isLive = secsToResolve > 0 && secsToResolve < 3600;
+
+  // Team colors — consistent from market ID
+  const t1Hue = (market.id * 47) % 360;
+  const t2Hue = (t1Hue + 180) % 360;
+  const t1Color = `hsl(${t1Hue}, 70%, 55%)`;
+  const t2Color = `hsl(${t2Hue}, 65%, 50%)`;
+
+  // Live scores
+  const [score1, setScore1] = useState(Math.floor(seededRand(market.id, 1) * 28 + 7));
+  const [score2, setScore2] = useState(Math.floor(seededRand(market.id, 2) * 28 + 7));
+  useEffect(() => {
+    if (!isLive) return;
+    const id = setInterval(() => {
+      if (Math.random() > 0.7) {
+        if (Math.random() > 0.5) setScore1(p => p + Math.ceil(Math.random() * 3));
+        else setScore2(p => p + Math.ceil(Math.random() * 3));
+      }
+    }, 8000);
+    return () => clearInterval(id);
+  }, [isLive]);
+
+  // Dual chart data
+  const chart1 = useMemo(() => genChartData(market.impliedProbYes, market.id, 55), [market.id, market.impliedProbYes]);
+  const chart2 = useMemo(() => genChartData(1 - market.impliedProbYes, market.id + 999, 55), [market.id, market.impliedProbYes]);
+
+  const t1Short = team1.length > 12 ? team1.slice(0, 10) + "." : team1;
+  const t2Short = team2.length > 12 ? team2.slice(0, 10) + "." : team2;
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      {/* ── Matchup header: Team avatars + scoreboard ── */}
+      <div className="shrink-0 flex items-center justify-center gap-4 sm:gap-8 py-3 mb-2">
+        {/* Team 1 */}
+        <div className="flex flex-col items-center gap-1.5">
+          <div
+            className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center text-[18px] sm:text-[20px] font-heading font-black text-white shadow-lg"
+            style={{ background: `linear-gradient(135deg, ${t1Color}, ${t1Color}dd)`, boxShadow: `0 4px 20px ${t1Color}40` }}
+          >
+            {team1.slice(0, 3).toUpperCase()}
+          </div>
+          <span className="text-[11px] sm:text-[12px] text-white/60 font-heading font-semibold text-center max-w-[100px] truncate">{t1Short}</span>
+        </div>
+
+        {/* Score / Live indicator */}
+        <div className="text-center">
+          {isLive ? (
+            <>
+              <div className="text-[28px] sm:text-[36px] font-heading font-black text-white tabular-nums tracking-tight leading-none">
+                <span key={`h-${score1}`} className="animate-count-up">{score1}</span>
+                <span className="text-white/15 mx-2">&ndash;</span>
+                <span key={`a-${score2}`} className="animate-count-up">{score2}</span>
+              </div>
+              <div className="flex items-center justify-center gap-1.5 mt-1.5">
+                <span className="w-2 h-2 rounded-full bg-neo-red animate-live-breathe" />
+                <span className="text-[10px] font-heading font-bold text-neo-red uppercase tracking-wide">Live</span>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-col items-center">
+              <span className="text-[28px] sm:text-[36px] font-heading font-black text-white/15">vs</span>
+              <span className="text-[10px] text-white/25 font-heading font-semibold mt-0.5">{sport}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Team 2 */}
+        <div className="flex flex-col items-center gap-1.5">
+          <div
+            className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center text-[18px] sm:text-[20px] font-heading font-black text-white shadow-lg"
+            style={{ background: `linear-gradient(135deg, ${t2Color}, ${t2Color}dd)`, boxShadow: `0 4px 20px ${t2Color}40` }}
+          >
+            {team2.slice(0, 3).toUpperCase()}
+          </div>
+          <span className="text-[11px] sm:text-[12px] text-white/60 font-heading font-semibold text-center max-w-[100px] truncate">{t2Short}</span>
+        </div>
+      </div>
+
+      {/* ── Bet buttons — two colored side-by-side ── */}
+      <div className="shrink-0 flex gap-3 mb-3 px-1">
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); onBet(market.id, 1); }}
+          className={`flex-1 py-3 rounded-xl text-center transition-all active:scale-[0.97] ${ticked ? "animate-prob-tick" : ""}`}
+          style={{
+            background: `${t1Color}18`,
+            border: `1.5px solid ${t1Color}35`,
+          }}
+        >
+          <span className="block text-[14px] font-heading font-bold" style={{ color: t1Color }}>{t1Short}</span>
+          <span className="block text-[20px] font-heading font-black tabular-nums leading-none mt-0.5" style={{ color: t1Color }}>{yesPct}%</span>
+        </button>
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); onBet(market.id, 0); }}
+          className="flex-1 py-3 rounded-xl text-center transition-all active:scale-[0.97]"
+          style={{
+            background: `${t2Color}18`,
+            border: `1.5px solid ${t2Color}35`,
+          }}
+        >
+          <span className="block text-[14px] font-heading font-bold" style={{ color: t2Color }}>{t2Short}</span>
+          <span className="block text-[20px] font-heading font-black tabular-nums leading-none mt-0.5" style={{ color: t2Color }}>{noPct}%</span>
+        </button>
+      </div>
+
+      {/* ── Chart — prominent, fills remaining space ── */}
+      <div className="flex-1 min-h-0 rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,0.015)", border: "1px solid rgba(255,255,255,0.04)" }}>
+        <div className="h-full px-2 py-1">
+          <DualLiveChart pts1={chart1} pts2={chart2} c1={t1Color} c2={t2Color} l1={t1Short} l2={t2Short} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CRYPTO HERO — Price-to-beat cycle with live chart
+   ═══════════════════════════════════════════════════════════ */
 function CryptoHero({ market, onBet }: { market: Market; onBet: (id: number, o?: 0 | 1) => void }) {
   const q = market.question.toLowerCase();
   let basePrice = 65000, ticker = "BTC";
@@ -595,30 +787,24 @@ function CryptoHero({ market, onBet }: { market: Market; onBet: (id: number, o?:
   const { price: currentPrice, delta: priceDelta, flash } = useLivePrice(startPrice, market.id);
   const { pct: yesPct, ticked } = useLiveProb(Math.round(market.impliedProbYes * 100), market.id);
   const { countdown, priceToBeat, timeWindow } = useCryptoCycle(currentPrice);
-  const trades = useLiveTrades();
   const pricePts = useMemo(() => genPricePath(startPrice, market.id, 60), [startPrice, market.id]);
 
-  // Formatting
-  const priceDec = basePrice < 10 ? 4 : basePrice < 100 ? 2 : basePrice < 10000 ? 2 : 2;
+  const priceDec = basePrice < 10 ? 4 : 2;
   const fmtP = (v: number) => `$${v.toLocaleString(undefined, { minimumFractionDigits: priceDec, maximumFractionDigits: priceDec })}`;
 
-  // UP/DOWN multipliers derived from market odds
-  // When pool is empty/unfunded yesPct is 0 or 100 — fall back to ~50/50
   const effectiveYes = yesPct >= 5 && yesPct <= 95 ? yesPct : 50;
   const upMult = Math.min(10, 100 / effectiveYes).toFixed(1);
   const downMult = Math.min(10, 100 / (100 - effectiveYes)).toFixed(1);
 
-  // Delta from price-to-beat
   const beatDelta = currentPrice - priceToBeat;
   const beating = beatDelta >= 0;
 
   return (
-    <>
-      {/* ── Date/time window ── */}
-      <p className="text-[11px] text-white/25 font-mono mb-2.5">{timeWindow}</p>
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      <p className="text-[11px] text-white/25 font-mono mb-2 shrink-0">{timeWindow}</p>
 
-      {/* ── Hero: Price to Beat | Current Price | Countdown ── */}
-      <div className="flex items-end justify-between mb-3 flex-wrap gap-y-2">
+      {/* Price hero row */}
+      <div className="shrink-0 flex items-end justify-between mb-3 flex-wrap gap-y-2">
         <div className="flex items-end gap-5 lg:gap-8">
           <div>
             <span className="text-[11px] text-white/35 font-heading font-semibold tracking-wide">Price to Beat</span>
@@ -643,8 +829,8 @@ function CryptoHero({ market, onBet }: { market: Market; onBet: (id: number, o?:
         </div>
       </div>
 
-      {/* ── UP / DOWN buttons — Polymarket style ── */}
-      <div className="flex gap-3 mb-3">
+      {/* UP/DOWN buttons */}
+      <div className="shrink-0 flex gap-3 mb-3">
         <button type="button" onClick={(e) => { e.preventDefault(); onBet(market.id, 1); }}
           className={`flex-1 py-3 rounded-xl text-center font-heading font-extrabold bg-neo-orange/[0.18] border border-neo-orange/30 hover:bg-neo-orange/[0.28] hover:border-neo-orange/45 active:scale-[0.97] transition-all ${ticked ? "animate-prob-tick" : ""}`}>
           <span className="text-neo-orange text-[17px]">UP <span className="tabular-nums">{upMult}x</span></span>
@@ -655,172 +841,17 @@ function CryptoHero({ market, onBet }: { market: Market; onBet: (id: number, o?:
         </button>
       </div>
 
-      {/* ── Agent feed LEFT | Chart RIGHT ── */}
-      <div className="flex flex-col lg:flex-row gap-0 flex-1 min-h-0 overflow-hidden">
-        <div className="lg:w-[300px] shrink-0 flex flex-col h-full min-h-0 lg:pr-3 lg:border-r lg:border-white/[0.04]">
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <LiveChatFeed
-              category="crypto"
-              question={market.question}
-              marketId={market.id}
-            />
-          </div>
-        </div>
-        <div className="flex-1 min-w-0 relative lg:pl-2 mt-2 lg:mt-0 h-full">
-          <TradeFeedOverlay trades={trades} />
-          <div className="h-full">
-            <LiveChart initialPoints={pricePts} color="#f59e0b" yUnit="$" targetPrice={priceToBeat} />
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function SportsHero({ market, onBet }: { market: Market; onBet: (id: number, o?: 0 | 1) => void }) {
-  const { pct: yesPct, ticked } = useLiveProb(Math.round(market.impliedProbYes * 100), market.id);
-  const q = market.question;
-  const teamMatch = q.match(/Will (?:the )?(.+?)\s+(?:win|beat|cover|score)/i);
-  const team1 = teamMatch?.[1] || "Yes";
-  const secsToResolve = market.resolutionTime - Date.now() / 1000;
-  const isLive = secsToResolve > 0 && secsToResolve < 3600;
-  const quarter = isLive ? `Q${Math.floor(seededRand(market.id, 3) * 4) + 1}` : "";
-
-  const [score1, setScore1] = useState(Math.floor(seededRand(market.id, 1) * 28 + 7));
-  const [score2, setScore2] = useState(Math.floor(seededRand(market.id, 2) * 28 + 7));
-  useEffect(() => {
-    if (!isLive) return;
-    const id = setInterval(() => {
-      if (Math.random() > 0.7) {
-        if (Math.random() > 0.5) setScore1(p => p + Math.ceil(Math.random() * 3));
-        else setScore2(p => p + Math.ceil(Math.random() * 3));
-      }
-    }, 8000);
-    return () => clearInterval(id);
-  }, [isLive]);
-
-  const chartPts = useMemo(() => genChartData(market.impliedProbYes, market.id, 50), [market.id, market.impliedProbYes]);
-
-  // Cycleable spread & total
-  const SPREADS = [1.5, 2.5, 3.5, 6.5, 7.5];
-  const TOTALS = [41.5, 44.5, 47.5, 50.5, 53.5];
-  const seedSpreadIdx = Math.floor(seededRand(market.id, 10) * SPREADS.length);
-  const seedTotalIdx = Math.floor(seededRand(market.id, 11) * TOTALS.length);
-  const [spreadIdx, setSpreadIdx] = useState(seedSpreadIdx);
-  const [totalIdx, setTotalIdx] = useState(seedTotalIdx);
-  const spread = SPREADS[spreadIdx % SPREADS.length];
-  const total = TOTALS[totalIdx % TOTALS.length];
-  const tm1Short = team1.length > 6 ? team1.slice(0, 3).toUpperCase() : team1;
-
-  return (
-    <div className="flex flex-col lg:flex-row gap-0 flex-1 min-h-0 overflow-hidden">
-      {/* ── Left column: teams, spread/total, scoreboard ── */}
-      <div className="lg:w-[42%] shrink-0 flex flex-col h-full min-h-0 overflow-hidden lg:pr-4 lg:border-r lg:border-white/[0.04]">
-        {/* Team buttons */}
-        <div className="shrink-0 flex gap-2.5 mb-3">
-          <button type="button" onClick={(e) => { e.preventDefault(); onBet(market.id, 1); }}
-            className={`flex-1 py-2.5 rounded-lg text-center font-heading font-bold bg-red-500/[0.15] hover:bg-red-500/[0.25] active:scale-[0.97] transition-all ${ticked ? "animate-prob-tick" : ""}`}>
-            <span className="text-red-400 text-[14px] block">{team1}</span>
-            <span className="text-red-400/60 text-[11px] tabular-nums">{yesPct}%</span>
-          </button>
-          <button type="button" onClick={(e) => { e.preventDefault(); onBet(market.id, 0); }}
-            className="flex-1 py-2.5 rounded-lg text-center font-heading font-bold bg-blue-500/[0.12] hover:bg-blue-500/[0.2] active:scale-[0.97] transition-all">
-            <span className="text-blue-400 text-[14px] block">Opponent</span>
-            <span className="text-blue-400/60 text-[11px] tabular-nums">{100 - yesPct}%</span>
-          </button>
-        </div>
-
-        {/* Spread — cycleable */}
-        <div className="shrink-0 mb-2">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] text-white/40 font-heading font-semibold uppercase tracking-wide">Spread</span>
-            <div className="flex items-center gap-1">
-              <button type="button" onClick={() => setSpreadIdx(i => (i - 1 + SPREADS.length) % SPREADS.length)}
-                className="w-5 h-5 rounded flex items-center justify-center text-white/25 hover:text-white/50 hover:bg-white/[0.06] transition-colors">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
-              </button>
-              <span className="text-[12px] text-white/50 font-mono font-bold tabular-nums w-7 text-center">{spread}</span>
-              <button type="button" onClick={() => setSpreadIdx(i => (i + 1) % SPREADS.length)}
-                className="w-5 h-5 rounded flex items-center justify-center text-white/25 hover:text-white/50 hover:bg-white/[0.06] transition-colors">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
-              </button>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={(e) => { e.preventDefault(); onBet(market.id, 1); }}
-              className="flex-1 py-1.5 rounded-lg text-center font-heading font-bold bg-white/[0.04] hover:bg-white/[0.08] active:scale-[0.97] transition-all">
-              <span className="text-white/60 text-[12px] tabular-nums">{tm1Short} -{spread}</span>
-            </button>
-            <button type="button" onClick={(e) => { e.preventDefault(); onBet(market.id, 0); }}
-              className="flex-1 py-1.5 rounded-lg text-center font-heading font-bold bg-white/[0.04] hover:bg-white/[0.08] active:scale-[0.97] transition-all">
-              <span className="text-white/60 text-[12px] tabular-nums">OPP +{spread}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Total — cycleable */}
-        <div className="shrink-0 mb-2">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] text-white/40 font-heading font-semibold uppercase tracking-wide">Total</span>
-            <div className="flex items-center gap-1">
-              <button type="button" onClick={() => setTotalIdx(i => (i - 1 + TOTALS.length) % TOTALS.length)}
-                className="w-5 h-5 rounded flex items-center justify-center text-white/25 hover:text-white/50 hover:bg-white/[0.06] transition-colors">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
-              </button>
-              <span className="text-[12px] text-white/50 font-mono font-bold tabular-nums w-7 text-center">{total}</span>
-              <button type="button" onClick={() => setTotalIdx(i => (i + 1) % TOTALS.length)}
-                className="w-5 h-5 rounded flex items-center justify-center text-white/25 hover:text-white/50 hover:bg-white/[0.06] transition-colors">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
-              </button>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={(e) => { e.preventDefault(); onBet(market.id, 1); }}
-              className="flex-1 py-1.5 rounded-lg text-center font-heading font-bold bg-white/[0.04] hover:bg-white/[0.08] active:scale-[0.97] transition-all">
-              <span className="text-white/60 text-[12px] tabular-nums">O {total}</span>
-            </button>
-            <button type="button" onClick={(e) => { e.preventDefault(); onBet(market.id, 0); }}
-              className="flex-1 py-1.5 rounded-lg text-center font-heading font-bold bg-white/[0.04] hover:bg-white/[0.08] active:scale-[0.97] transition-all">
-              <span className="text-white/60 text-[12px] tabular-nums">U {total}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Compact scoreboard */}
-        <div className="mt-auto shrink-0 pt-2 border-t border-white/[0.04]">
-          <div className="flex items-center justify-center gap-3">
-            <div className="w-7 h-7 rounded-md bg-red-500/[0.12] flex items-center justify-center text-[10px] font-heading font-extrabold text-red-400">
-              {team1.slice(0, 3).toUpperCase()}
-            </div>
-            <div className="text-center">
-              <div className="text-[20px] font-heading font-extrabold text-white tabular-nums tracking-tight leading-none">
-                <span key={`h-${score1}`} className="animate-count-up">{score1}</span>
-                <span className="text-white/15 mx-1">-</span>
-                <span key={`a-${score2}`} className="animate-count-up">{score2}</span>
-              </div>
-              {isLive && (
-                <span className="text-[9px] font-heading font-bold text-red-400 flex items-center justify-center gap-1 mt-0.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-live-breathe" />
-                  LIVE {quarter && `\u2022 ${quarter}`}
-                </span>
-              )}
-            </div>
-            <div className="w-7 h-7 rounded-md bg-blue-500/[0.12] flex items-center justify-center text-[10px] font-heading font-extrabold text-blue-400">
-              OPP
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Right column: single probability chart (blue) ── */}
-      <div className="flex-1 min-w-0 lg:pl-2 mt-2 lg:mt-0 h-full">
-        <LiveChart initialPoints={chartPts} color="#3b82f6" yUnit="%" />
+      {/* Chart — fills remaining space */}
+      <div className="flex-1 min-h-0">
+        <LiveChart initialPoints={pricePts} color="#f59e0b" yUnit="$" targetPrice={priceToBeat} />
       </div>
     </div>
   );
 }
 
-/* ── Politics candidate pools — keyed by market ID ── */
+/* ═══════════════════════════════════════════════════════════
+   POLITICS / ELECTIONS HERO — Multi-candidate chart
+   ═══════════════════════════════════════════════════════════ */
 const POLITICS_OPTION_COLORS = ["#3b82f6", "#60a5fa", "#f59e0b", "#f97316"];
 
 const POLITICS_OPTION_POOL: Record<number, string[]> = {
@@ -830,7 +861,6 @@ const POLITICS_OPTION_POOL: Record<number, string[]> = {
 const POLITICS_OPTION_FALLBACK = ["Candidate A", "Candidate B", "Candidate C", "Candidate D"];
 
 function PoliticsHero({ market, onBet }: { market: Market; onBet: (id: number, o?: 0 | 1) => void }) {
-  // Generate 4 seeded options from market.id
   const options = useMemo(() => {
     const names = POLITICS_OPTION_POOL[market.id] ?? POLITICS_OPTION_FALLBACK;
     const probs = [
@@ -854,9 +884,8 @@ function PoliticsHero({ market, onBet }: { market: Market; onBet: (id: number, o
 
   return (
     <div className="flex flex-col lg:flex-row gap-0 flex-1 min-h-0 overflow-hidden">
-      {/* ── Left column: candidate list + news feed ── */}
+      {/* Left: candidates */}
       <div className="lg:w-[42%] shrink-0 flex flex-col h-full min-h-0 overflow-hidden lg:pr-4">
-        {/* Candidate rows — clickable */}
         <div className="shrink-0 flex flex-col">
           {options.map((opt, i) => (
             <button key={i} type="button"
@@ -869,16 +898,12 @@ function PoliticsHero({ market, onBet }: { market: Market; onBet: (id: number, o
             </button>
           ))}
         </div>
-
-        {/* News feed below candidates */}
         <div className="flex-1 min-h-0 overflow-hidden mt-2 border-t border-white/[0.04] pt-2">
           <LiveNewsFeed question={market.question} marketId={market.id} />
         </div>
       </div>
-
-      {/* ── Right column: legend + multi-line chart ── */}
+      {/* Right: chart */}
       <div className="flex-1 min-w-0 flex flex-col lg:pl-3 mt-2 lg:mt-0 h-full">
-        {/* Legend row */}
         <div className="shrink-0 flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-1">
           {options.map((opt, i) => (
             <div key={i} className="flex items-center gap-1.5">
@@ -890,7 +915,6 @@ function PoliticsHero({ market, onBet }: { market: Market; onBet: (id: number, o
             </div>
           ))}
         </div>
-        {/* Chart */}
         <div className="flex-1 min-h-0">
           <MultiLineLiveChart lines={chartLines} />
         </div>
@@ -899,6 +923,9 @@ function PoliticsHero({ market, onBet }: { market: Market; onBet: (id: number, o
   );
 }
 
+/* ═══════════════════════════════════════════════════════════
+   DEFAULT HERO — Generic Yes/No with chat + chart
+   ═══════════════════════════════════════════════════════════ */
 function DefaultHero({ market, onBet }: { market: Market; onBet: (id: number, o?: 0 | 1) => void }) {
   const { pct: yesPct, ticked } = useLiveProb(Math.round(market.impliedProbYes * 100), market.id);
   const noPct = 100 - yesPct;
@@ -906,14 +933,13 @@ function DefaultHero({ market, onBet }: { market: Market; onBet: (id: number, o?
   const chartPts = useMemo(() => genChartData(market.impliedProbYes, market.id, 60), [market.id, market.impliedProbYes]);
   const chartColor = yesPct >= 50 ? "#10b981" : "#3b82f6";
   const countdown = useLiveCountdown(market.resolutionTime);
-  const trades = useLiveTrades();
 
   return (
-    <>
-      {/* ── Prob + countdown row ── */}
-      <div className="flex items-center justify-between mb-2.5">
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      {/* Prob + countdown row */}
+      <div className="shrink-0 flex items-center justify-between mb-3">
         <div className="flex items-baseline gap-1.5">
-          <span className={`text-[28px] font-heading font-extrabold tabular-nums leading-none ${yesPct >= 50 ? "text-neo-green" : "text-neo-red"} ${ticked ? "animate-prob-tick" : ""}`} key={yesPct}>{yesPct}%</span>
+          <span className={`text-[32px] font-heading font-extrabold tabular-nums leading-none ${yesPct >= 50 ? "text-neo-green" : "text-neo-red"} ${ticked ? "animate-prob-tick" : ""}`} key={yesPct}>{yesPct}%</span>
           <span className="text-[12px] text-white/25 font-heading font-medium">chance</span>
         </div>
         <div className="text-right">
@@ -922,106 +948,27 @@ function DefaultHero({ market, onBet }: { market: Market; onBet: (id: number, o?
         </div>
       </div>
 
+      {/* Bet buttons */}
+      <div className="shrink-0 flex gap-2.5 mb-3">
+        <button type="button" onClick={(e) => { e.preventDefault(); onBet(market.id, 1); }}
+          className={`flex-1 py-2.5 rounded-xl text-center font-heading font-bold bg-neo-green/[0.1] border border-neo-green/20 hover:bg-neo-green/[0.18] hover:border-neo-green/30 active:scale-[0.97] transition-all ${ticked ? "animate-prob-tick" : ""}`}>
+          <span className="text-neo-green text-[14px]">Yes <span className="tabular-nums">{yesPct}&cent;</span></span>
+        </button>
+        <button type="button" onClick={(e) => { e.preventDefault(); onBet(market.id, 0); }}
+          className="flex-1 py-2.5 rounded-xl text-center font-heading font-bold bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.1] active:scale-[0.97] transition-all">
+          <span className="text-white/40 text-[14px]">No <span className="tabular-nums">{noPct}&cent;</span></span>
+        </button>
+      </div>
+
+      {/* Chat + Chart side by side on lg */}
       <div className="flex flex-col lg:flex-row gap-0 flex-1 min-h-0 overflow-hidden">
         <div className="lg:w-[260px] shrink-0 flex flex-col h-full min-h-0 lg:pr-3 lg:border-r lg:border-white/[0.04]">
-          <div className="shrink-0 flex gap-2 mb-2.5">
-            <button type="button" onClick={(e) => { e.preventDefault(); onBet(market.id, 1); }}
-              className={`flex-1 py-2 rounded-xl text-center font-heading font-bold bg-neo-green/[0.1] border border-neo-green/20 hover:bg-neo-green/[0.18] hover:border-neo-green/30 active:scale-[0.97] transition-all ${ticked ? "animate-prob-tick" : ""}`}>
-              <span className="text-neo-green text-[13px]">Yes <span className="tabular-nums">{yesPct}¢</span></span>
-            </button>
-            <button type="button" onClick={(e) => { e.preventDefault(); onBet(market.id, 0); }}
-              className="flex-1 py-2 rounded-xl text-center font-heading font-bold bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.1] active:scale-[0.97] transition-all">
-              <span className="text-white/40 text-[13px]">No <span className="tabular-nums">{noPct}¢</span></span>
-            </button>
-          </div>
           <div className="flex-1 min-h-0 overflow-hidden">
-            <LiveChatFeed
-              category={category}
-              question={market.question}
-              marketId={market.id}
-            />
+            <LiveChatFeed category={category} question={market.question} marketId={market.id} />
           </div>
         </div>
-        <div className="flex-1 min-w-0 relative lg:pl-2 mt-2 lg:mt-0 h-full">
-          <TradeFeedOverlay trades={trades} />
-          <div className="h-full">
-            <LiveChart initialPoints={chartPts} color={chartColor} yUnit="%" />
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   WORLD HERO — Polymarket multi-option card
-   Left: candidate list (clickable) | Right: legend + multi-line chart
-   ═══════════════════════════════════════════════════════════ */
-
-const WORLD_OPTION_COLORS = ["#3b82f6", "#22d3ee", "#f59e0b", "#f97316"];
-
-/** Per-market option pools — keyed by market ID for deterministic candidates */
-const WORLD_OPTION_POOL: Record<number, string[]> = {
-  902: ["Hassan Khomeini", "Alireza Arafi", "Position abolished", "Gholam-Hossein Mohseni-Eje'i"],
-  903: ["Ratified by 2027", "Delayed past 2028", "Partial framework only", "No agreement reached"],
-};
-const WORLD_OPTION_FALLBACK = ["Option A", "Option B", "Option C", "Option D"];
-
-function WorldHero({ market, onBet }: { market: Market; onBet: (id: number, o?: 0 | 1) => void }) {
-  // Generate 4 seeded options from market.id
-  const options = useMemo(() => {
-    const names = WORLD_OPTION_POOL[market.id] ?? WORLD_OPTION_FALLBACK;
-    const probs = [
-      12 + Math.floor(seededRand(market.id, 1) * 10),
-      10 + Math.floor(seededRand(market.id, 2) * 8),
-      8 + Math.floor(seededRand(market.id, 3) * 8),
-      7 + Math.floor(seededRand(market.id, 4) * 7),
-    ].sort((a, b) => b - a);
-    return probs.map((prob, i) => ({
-      name: names[i] ?? `Option ${i + 1}`,
-      prob,
-      color: WORLD_OPTION_COLORS[i],
-      chartData: genChartData(prob / 100, market.id + i * 17, 60),
-    }));
-  }, [market.id]);
-
-  const chartLines = useMemo(() =>
-    options.map(o => ({ initialPoints: o.chartData, color: o.color, label: o.name })),
-    [options],
-  );
-
-  return (
-    <div className="flex flex-col lg:flex-row gap-0 flex-1 min-h-0 overflow-hidden">
-      {/* ── Left column: candidate list (each row is a bet target) ── */}
-      <div className="lg:w-[38%] shrink-0 flex flex-col h-full min-h-0 overflow-hidden lg:pr-4">
-        {/* Option rows — clickable, no Yes/No */}
-        <div className="flex flex-col mt-1">
-          {options.map((opt, i) => (
-            <button key={i} type="button"
-              onClick={(e) => { e.preventDefault(); onBet(market.id, 1); }}
-              className={`flex items-center justify-between py-3.5 text-left group/opt hover:bg-white/[0.03] -mx-1 px-1 rounded-md transition-colors ${i < options.length - 1 ? "border-b border-white/[0.06]" : ""}`}>
-              <span className="text-[14px] text-white/70 font-heading font-medium truncate group-hover/opt:text-white/90 transition-colors">{opt.name}</span>
-              <span className="text-[20px] font-heading font-extrabold tabular-nums leading-none shrink-0 ml-4" style={{ color: opt.color }}>{opt.prob}%</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Right column: legend + multi-line chart ── */}
-      <div className="flex-1 min-w-0 flex flex-col lg:pl-3 mt-2 lg:mt-0 h-full">
-        {/* Legend row */}
-        <div className="shrink-0 flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-1">
-          {options.map((opt, i) => (
-            <div key={i} className="flex items-center gap-1.5">
-              <div className="w-[7px] h-[7px] rounded-full" style={{ backgroundColor: opt.color }} />
-              <span className="text-[11px] text-white/50 font-heading font-medium">{opt.name}</span>
-              <span className="text-[11px] font-heading font-bold tabular-nums" style={{ color: opt.color }}>{opt.prob}%</span>
-            </div>
-          ))}
-        </div>
-        {/* Chart */}
-        <div className="flex-1 min-h-0">
-          <MultiLineLiveChart lines={chartLines} />
+        <div className="flex-1 min-w-0 lg:pl-2 mt-2 lg:mt-0 h-full">
+          <LiveChart initialPoints={chartPts} color={chartColor} yUnit="%" />
         </div>
       </div>
     </div>
@@ -1042,12 +989,10 @@ export default function FeaturedHero({ markets, predictions, weightedProbs, late
   }, [markets]);
 
   const breakingNews = useMemo(() => {
-    // Use all markets, generate plausible small diffs for display
     return markets
       .map(m => {
         const wp = typeof weightedProbs[m.id] === "number" ? (weightedProbs[m.id] as number) : m.impliedProbYes;
         const aiProb = Math.round(wp * 100) || Math.round(30 + seededRand(m.id, 99) * 50);
-        // Small realistic diff: ±1-5%
         const rawDiff = typeof weightedProbs[m.id] === "number"
           ? Math.round((wp - m.impliedProbYes) * 100)
           : Math.round((seededRand(m.id, 77) - 0.5) * 8);
@@ -1058,7 +1003,6 @@ export default function FeaturedHero({ markets, predictions, weightedProbs, late
       .slice(0, 7);
   }, [markets, weightedProbs]);
 
-  // Extract trending keywords from market questions instead of just categories
   const hotTopics = useMemo(() => {
     const TOPIC_KEYWORDS: [RegExp, string][] = [
       [/super bowl|nfl|seahawks|patriots|touchdown|quarterback|mvp/i, "Super Bowl"],
@@ -1073,6 +1017,9 @@ export default function FeaturedHero({ markets, predictions, weightedProbs, late
       [/election|vote|congress/i, "Elections"],
       [/ceasefire|war|ukraine|russia/i, "Geopolitics"],
       [/crypto|defi|token/i, "Crypto"],
+      [/premier league|la liga|serie a|champions league/i, "Football"],
+      [/ufc|boxing|mma/i, "Combat Sports"],
+      [/nba|basketball/i, "NBA"],
     ];
     const seen = new Set<string>();
     const topics: { label: string; count: number; volume: bigint }[] = [];
@@ -1084,7 +1031,7 @@ export default function FeaturedHero({ markets, predictions, weightedProbs, late
       const vol = matching.reduce((acc, m) => acc + safeBigInt(m.totalPool), 0n);
       topics.push({ label, count: matching.length, volume: vol });
     }
-    return topics.sort((a, b) => b.count - a.count).slice(0, 5);
+    return topics.sort((a, b) => b.count - a.count).slice(0, 6);
   }, [markets]);
 
   useEffect(() => {
@@ -1099,112 +1046,125 @@ export default function FeaturedHero({ markets, predictions, weightedProbs, late
   const category = categorizeMarket(featured.question);
   const catMeta = CAT_META[category] || CAT_META.other;
   const catSub = catMeta.sub ?? (category === "sports" ? detectSportSub(featured.question) : undefined);
-  const sportsIcon = category === "sports" && /nba|lakers|celtics|warriors|bucks/i.test(featured.question) ? "\u{1F3C0}" : catMeta.icon;
   const poolVol = fmtVol(safeBigInt(featured.totalPool));
   const featuredSecsLeft = featured.resolutionTime - Date.now() / 1000;
   const isLive = featuredSecsLeft > 0 && featuredSecsLeft < 3600;
 
+  // Pick sport icon for sports category
+  const displayIcon = category === "sports" ? getSportIcon(detectSportSub(featured.question)) : catMeta.icon;
+
+  // Category-specific hero renderer
+  function renderHero() {
+    const key = featured.id;
+    if (category === "sports") return <SportsHero key={key} market={featured} onBet={onBet} />;
+    if (category === "crypto") return <CryptoHero key={key} market={featured} onBet={onBet} />;
+    if (category === "politics" || category === "elections") return <PoliticsHero key={key} market={featured} onBet={onBet} />;
+    return <DefaultHero key={key} market={featured} onBet={onBet} />;
+  }
+
   return (
-    <div className="mb-5 animate-card-enter">
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_340px] gap-3 items-stretch">
+    <div className="mb-6 animate-card-enter">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_340px] gap-4 items-stretch">
         {/* ─── Hero card ─── */}
-        <div className={`market-card overflow-hidden relative flex flex-col h-[540px] ${isLive ? "market-card-live" : ""}`}>
-          {/* Dot-grid texture overlay */}
+        <div className={`market-card overflow-hidden relative flex flex-col h-[560px] ${isLive ? "market-card-live" : ""}`}>
+          {/* Subtle dot-grid texture */}
           <div className="absolute inset-0 pointer-events-none z-0" style={{
-            backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px)",
-            backgroundSize: "20px 20px",
+            backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.02) 1px, transparent 1px)",
+            backgroundSize: "24px 24px",
           }} />
+
           {/* Title bar */}
           <div className="relative z-[1] flex items-center justify-between px-5 lg:px-6 pt-4 pb-0 gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              {category === "crypto" ? (
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-[22px] shrink-0 shadow-lg shadow-neo-orange/10"
-                     style={{ background: catMeta.color }}>
-                  <span className="text-white font-bold drop-shadow-sm">{catMeta.icon}</span>
-                </div>
-              ) : (
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg shrink-0" style={{ background: `${catMeta.color}12`, border: `1px solid ${catMeta.color}20` }}>
-                  {sportsIcon}
-                </div>
-              )}
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-[18px] shrink-0"
+                   style={{ background: `${catMeta.color}12`, border: `1px solid ${catMeta.color}20` }}>
+                {displayIcon}
+              </div>
               <div className="min-w-0">
-                <h2 className={`font-heading font-bold text-white leading-snug truncate ${category === "crypto" ? "text-[18px] lg:text-[20px]" : "text-[16px] lg:text-[18px]"}`}>{featured.question}</h2>
+                <h2 className="font-heading font-bold text-white leading-snug text-[16px] lg:text-[18px] line-clamp-2">{featured.question}</h2>
                 <div className="flex items-center gap-1.5 text-[10px] font-heading font-medium mt-0.5">
                   <span style={{ color: catMeta.color }}>{catMeta.label}</span>
                   {catSub && <><span className="text-white/12">&middot;</span><span className="text-white/25">{catSub}</span></>}
+                  <span className="text-white/12">&middot;</span>
+                  <span className="text-white/20 font-mono tabular-nums">{poolVol} Vol</span>
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
               {isLive && (
-                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase bg-neo-red/[0.1] text-neo-red border border-neo-red/15">
+                <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase bg-neo-red/[0.1] text-neo-red border border-neo-red/15">
                   <span className="w-1.5 h-1.5 rounded-full bg-neo-red animate-live-breathe" />LIVE
                 </span>
               )}
+              <Link
+                href={`/market/${featured.id}`}
+                className="p-2 rounded-lg bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] transition-colors no-underline"
+              >
+                <svg className="w-4 h-4 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                </svg>
+              </Link>
             </div>
           </div>
 
-          {/* Category-specific content — key forces remount on market switch */}
-          <div className="relative z-[1] px-5 lg:px-6 pt-3 pb-0 flex-1 min-h-0 flex flex-col">
-            {category === "sports" && <SportsHero key={featured.id} market={featured} onBet={onBet} />}
-            {category === "crypto" && <CryptoHero key={featured.id} market={featured} onBet={onBet} />}
-            {category === "politics" && <PoliticsHero key={featured.id} market={featured} onBet={onBet} />}
-            {category === "other" && <WorldHero key={featured.id} market={featured} onBet={onBet} />}
-            {category !== "sports" && category !== "crypto" && category !== "politics" && category !== "other" && <DefaultHero key={featured.id} market={featured} onBet={onBet} />}
+          {/* Category-specific content */}
+          <div className="relative z-[1] px-5 lg:px-6 pt-3 pb-3 flex-1 min-h-0 flex flex-col">
+            {renderHero()}
           </div>
 
           {/* Footer */}
-          <div className="relative z-[1] flex items-center justify-between px-5 lg:px-6 py-1.5 border-t border-white/[0.04]">
-            <span className="text-[12px] font-mono font-semibold text-white/30 tabular-nums">
-              {(() => {
-                const pool = Number(safeBigInt(featured.totalPool)) / 1e18;
-                if (pool >= 1000) return `$${(pool / 1000).toFixed(1)}K Vol`;
-                if (pool > 0) return `$${pool.toFixed(0)} Vol`;
-                return "$0 Vol";
-              })()}
-            </span>
-            <div className="flex items-center gap-3">
-              {isLive && <span className="flex items-center gap-1 text-neo-red/60 text-[11px] font-bold"><span className="w-1.5 h-1.5 rounded-full bg-neo-red animate-live-breathe" />LIVE</span>}
-              <span className="flex items-center gap-2 font-heading font-semibold text-white/30 text-[13px]">
-                <TamagotchiBadge autonomousMode={true} marketDataSource="onchain" marketDataStale={false} activeAgents={1} nextTickIn={null} size={16} />
-                HiveCaster
+          <div className="relative z-[1] flex items-center justify-between px-5 lg:px-6 py-2 border-t border-white/[0.04]">
+            <div className="flex items-center gap-4">
+              <span className="text-[12px] font-mono font-semibold text-white/25 tabular-nums">
+                {poolVol} Vol
               </span>
+              {isLive && <span className="flex items-center gap-1 text-neo-red/60 text-[11px] font-bold"><span className="w-1.5 h-1.5 rounded-full bg-neo-red animate-live-breathe" />LIVE</span>}
             </div>
+            <span className="flex items-center gap-2 font-heading font-semibold text-white/25 text-[12px]">
+              <TamagotchiBadge autonomousMode={true} marketDataSource="onchain" marketDataStale={false} activeAgents={1} nextTickIn={null} size={14} />
+              HiveCaster
+            </span>
           </div>
         </div>
 
         {/* ─── Right sidebar — Breaking News + Hot Topics ─── */}
-        <div className="hidden xl:flex flex-col gap-0 h-[540px]">
+        <div className="hidden xl:flex flex-col gap-0 h-[560px]">
           <div className="neo-card overflow-hidden flex flex-col h-full">
             {/* Breaking News */}
-            <div className="px-4 pt-4 pb-3">
-              <h3 className="font-heading text-[14px] font-bold text-white/80 mb-3 flex items-center gap-2">
+            <div className="px-4 pt-4 pb-2">
+              <h3 className="font-heading text-[13px] font-bold text-white/70 mb-3 flex items-center gap-2">
                 <div className="w-6 h-6 rounded-md bg-neo-red/10 border border-neo-red/20 flex items-center justify-center">
                   <svg className="w-3 h-3 text-neo-red" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" /></svg>
                 </div>
                 Breaking news
-                <span className="ml-auto flex items-center gap-1.5 rounded-md border border-neo-red/15 bg-neo-red/[0.06] px-1.5 py-0.5">
+                <span className="ml-auto flex items-center gap-1 rounded-md border border-neo-red/15 bg-neo-red/[0.06] px-1.5 py-0.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-neo-red animate-live-breathe" />
                   <span className="text-[9px] font-bold text-neo-red/80">LIVE</span>
                 </span>
               </h3>
-              {breakingNews.slice(0, 4).map((item, i) => (
-                <Link key={item.market.id} href={`/market/${item.market.id}`} className="flex items-center gap-2.5 no-underline group/item py-2 border-b border-white/[0.04] last:border-0">
-                  <span className="text-[11px] text-white/18 font-mono tabular-nums w-3 shrink-0 text-right">{i + 1}</span>
-                  <span className="flex-1 min-w-0 text-[12px] text-white/50 leading-snug group-hover/item:text-white/80 transition-colors truncate">{item.market.question}</span>
-                  <div className="shrink-0 text-right ml-1.5">
-                    <span className="text-[16px] font-heading font-extrabold text-white tabular-nums leading-none">{item.aiProb}%</span>
-                  </div>
-                  {item.diff !== 0 && <span className={`text-[10px] font-mono font-semibold tabular-nums shrink-0 ${item.diff > 0 ? "text-neo-green" : "text-neo-red"}`}>{item.diff > 0 ? "\u2197" : "\u2198"}{Math.abs(item.diff)}%</span>}
-                </Link>
-              ))}
+              <div className="space-y-0">
+                {breakingNews.slice(0, 5).map((item, i) => (
+                  <Link key={item.market.id} href={`/market/${item.market.id}`} className="flex items-center gap-2.5 no-underline group/item py-2.5 border-b border-white/[0.04] last:border-0">
+                    <span className="text-[11px] text-white/15 font-mono tabular-nums w-3 shrink-0 text-right">{i + 1}</span>
+                    <span className="flex-1 min-w-0 text-[12px] text-white/45 leading-snug group-hover/item:text-white/75 transition-colors line-clamp-2">{item.market.question}</span>
+                    <div className="shrink-0 text-right ml-1">
+                      <span className="text-[15px] font-heading font-extrabold text-white tabular-nums leading-none">{item.aiProb}%</span>
+                    </div>
+                    {item.diff !== 0 && (
+                      <span className={`text-[10px] font-mono font-semibold tabular-nums shrink-0 ${item.diff > 0 ? "text-neo-green" : "text-neo-red"}`}>
+                        {item.diff > 0 ? "\u2197" : "\u2198"}{Math.abs(item.diff)}%
+                      </span>
+                    )}
+                  </Link>
+                ))}
+              </div>
             </div>
 
-            <div className="border-t border-dashed border-white/[0.05] mx-4" />
+            <div className="border-t border-dashed border-white/[0.04] mx-4" />
 
             {/* Hot Topics */}
-            <div className="px-4 pt-3 pb-3">
-              <h3 className="font-heading text-[14px] font-bold text-white/80 mb-3 flex items-center gap-2">
+            <div className="px-4 pt-3 pb-2 flex-1">
+              <h3 className="font-heading text-[13px] font-bold text-white/70 mb-3 flex items-center gap-2">
                 <div className="w-6 h-6 rounded-md bg-neo-orange/10 border border-neo-orange/20 flex items-center justify-center">
                   <svg className="w-3 h-3 text-neo-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" /><path strokeLinecap="round" strokeLinejoin="round" d="M12 18a3.75 3.75 0 00.495-7.467 5.99 5.99 0 00-1.925 3.546 5.974 5.974 0 01-2.133-1A3.75 3.75 0 0012 18z" /></svg>
                 </div>
@@ -1212,18 +1172,18 @@ export default function FeaturedHero({ markets, predictions, weightedProbs, late
               </h3>
               {hotTopics.map((t, i) => (
                 <div key={t.label} className="flex items-center gap-2 group/topic cursor-pointer py-2 border-b border-white/[0.04] last:border-0">
-                  <span className="text-[11px] text-white/18 font-mono tabular-nums w-3 shrink-0 text-right">{i + 1}</span>
+                  <span className="text-[11px] text-white/15 font-mono tabular-nums w-3 shrink-0 text-right">{i + 1}</span>
                   <TamagotchiBadge autonomousMode={true} marketDataSource="onchain" marketDataStale={false} activeAgents={1} nextTickIn={null} size={14} />
-                  <span className="flex-1 text-[13px] text-white/65 font-heading font-semibold group-hover/topic:text-white/85 transition-colors">{t.label}</span>
-                  <span className="text-[10px] text-white/25 font-mono tabular-nums whitespace-nowrap">{fmtVol(t.volume)}</span>
-                  <svg className="w-3 h-3 text-white/12 shrink-0 group-hover/topic:text-white/35 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+                  <span className="flex-1 text-[13px] text-white/55 font-heading font-semibold group-hover/topic:text-white/80 transition-colors">{t.label}</span>
+                  <span className="text-[10px] text-white/20 font-mono tabular-nums whitespace-nowrap">{fmtVol(t.volume)}</span>
+                  <svg className="w-3 h-3 text-white/10 shrink-0 group-hover/topic:text-white/30 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
                 </div>
               ))}
             </div>
 
             {/* Explore all */}
-            <div className="mt-auto px-4 pb-4">
-              <button type="button" className="w-full py-2.5 rounded-lg text-[12px] font-heading font-semibold text-white/30 border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05] hover:text-white/50 transition-all">
+            <div className="px-4 pb-4 mt-auto">
+              <button type="button" className="w-full py-2.5 rounded-xl text-[12px] font-heading font-semibold text-white/25 border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05] hover:text-white/45 transition-all">
                 Explore all
               </button>
             </div>
@@ -1244,14 +1204,14 @@ export default function FeaturedHero({ markets, predictions, weightedProbs, late
           <div className="flex items-center gap-2">
             {activeSlide > 0 && (
               <button type="button" onClick={() => setActiveSlide(activeSlide - 1)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-full border border-white/[0.08] bg-white/[0.02] text-[12px] text-white/40 font-heading font-medium hover:bg-white/[0.06] hover:text-white/60 transition-all">
+                className="flex items-center gap-1.5 px-4 py-2 rounded-full border border-white/[0.08] bg-white/[0.02] text-[12px] text-white/35 font-heading font-medium hover:bg-white/[0.06] hover:text-white/55 transition-all">
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
                 {featuredMarkets[activeSlide - 1].question.slice(0, 22)}...
               </button>
             )}
             {activeSlide < featuredMarkets.length - 1 && (
               <button type="button" onClick={() => setActiveSlide(activeSlide + 1)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-full border border-white/[0.08] bg-white/[0.02] text-[12px] text-white/40 font-heading font-medium hover:bg-white/[0.06] hover:text-white/60 transition-all">
+                className="flex items-center gap-1.5 px-4 py-2 rounded-full border border-white/[0.08] bg-white/[0.02] text-[12px] text-white/35 font-heading font-medium hover:bg-white/[0.06] hover:text-white/55 transition-all">
                 {featuredMarkets[activeSlide + 1].question.slice(0, 22)}...
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
               </button>

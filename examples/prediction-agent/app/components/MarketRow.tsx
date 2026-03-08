@@ -5,6 +5,9 @@ import { categorizeMarket } from "@/lib/categories";
 import { safeBigInt } from "./dashboard/utils";
 import type { AgentPrediction, LatestAgentTake, Market } from "./dashboard/types";
 
+export type SortField = "market" | "category" | "yes" | "no" | "volume" | "ends";
+export type SortDir = "asc" | "desc";
+
 interface MarketRowProps {
   market: Market;
   predictions?: AgentPrediction[];
@@ -13,15 +16,23 @@ interface MarketRowProps {
   onBet: (marketId: number, outcome?: 0 | 1) => void;
 }
 
-const CAT_STYLE: Record<string, string> = {
-  sports: "bg-neo-green/10 text-neo-green border-neo-green/20",
-  crypto: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  politics: "bg-rose-500/10 text-rose-400 border-rose-500/20",
-  tech: "bg-violet-500/10 text-violet-400 border-violet-500/20",
-  other: "bg-neo-orange/10 text-neo-orange border-neo-orange/20",
+const CAT_STYLE: Record<string, { bg: string; text: string; border: string }> = {
+  sports:      { bg: "bg-emerald-500/10", text: "text-emerald-400", border: "border-emerald-500/20" },
+  crypto:      { bg: "bg-amber-500/10",   text: "text-amber-400",   border: "border-amber-500/20" },
+  politics:    { bg: "bg-indigo-500/10",   text: "text-indigo-400",  border: "border-indigo-500/20" },
+  elections:   { bg: "bg-rose-500/10",     text: "text-rose-400",    border: "border-rose-500/20" },
+  geopolitics: { bg: "bg-red-500/10",      text: "text-red-400",     border: "border-red-500/20" },
+  tech:        { bg: "bg-violet-500/10",   text: "text-violet-400",  border: "border-violet-500/20" },
+  finance:     { bg: "bg-sky-500/10",      text: "text-sky-400",     border: "border-sky-500/20" },
+  earnings:    { bg: "bg-teal-500/10",     text: "text-teal-400",    border: "border-teal-500/20" },
+  economy:     { bg: "bg-cyan-500/10",     text: "text-cyan-400",    border: "border-cyan-500/20" },
+  culture:     { bg: "bg-pink-500/10",     text: "text-pink-400",    border: "border-pink-500/20" },
+  world:       { bg: "bg-fuchsia-500/10",  text: "text-fuchsia-400", border: "border-fuchsia-500/20" },
+  climate:     { bg: "bg-lime-500/10",     text: "text-lime-400",    border: "border-lime-500/20" },
+  other:       { bg: "bg-orange-500/10",   text: "text-orange-400",  border: "border-orange-500/20" },
 };
 
-function formatVolume(poolWei: bigint): string {
+export function formatVolume(poolWei: bigint): string {
   const whole = poolWei / 10n ** 18n;
   const num = Number(whole);
   if (num >= 1_000_000) return `$${(num / 1_000_000).toFixed(1)}M`;
@@ -30,7 +41,7 @@ function formatVolume(poolWei: bigint): string {
   return "—";
 }
 
-function formatTimeLeft(resolutionTime: number): { label: string; urgent: boolean } {
+export function formatTimeLeft(resolutionTime: number): { label: string; urgent: boolean } {
   const secsLeft = resolutionTime - Date.now() / 1000;
   if (secsLeft <= 0) return { label: "Ended", urgent: true };
   const days = Math.floor(secsLeft / 86400);
@@ -39,6 +50,43 @@ function formatTimeLeft(resolutionTime: number): { label: string; urgent: boolea
   if (days > 0) return { label: `${days}d`, urgent: days <= 3 };
   if (hours > 0) return { label: `${hours}h`, urgent: true };
   return { label: `${Math.floor(secsLeft / 60)}m`, urgent: true };
+}
+
+/** Sortable column header for table view */
+export function SortableHeader({
+  label,
+  field,
+  activeField,
+  activeDir,
+  onSort,
+  align = "left",
+  className = "",
+  colorClass,
+}: {
+  label: string;
+  field: SortField;
+  activeField: SortField;
+  activeDir: SortDir;
+  onSort: (field: SortField) => void;
+  align?: "left" | "right";
+  className?: string;
+  colorClass?: string;
+}) {
+  const isActive = activeField === field;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(field)}
+      className={`inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+        align === "right" ? "ml-auto flex-row-reverse" : ""
+      } ${isActive ? (colorClass ?? "text-white/60") : (colorClass ?? "text-white/25")} hover:text-white/50 ${className}`}
+    >
+      {label}
+      <svg className={`w-3 h-3 shrink-0 transition-transform ${isActive ? "opacity-100" : "opacity-0"} ${isActive && activeDir === "asc" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+      </svg>
+    </button>
+  );
 }
 
 export default function MarketRow({
@@ -58,7 +106,7 @@ export default function MarketRow({
   const isExpired = time.label === "Ended";
 
   const category = categorizeMarket(market.question);
-  const catStyle = CAT_STYLE[category] ?? CAT_STYLE.other;
+  const cs = CAT_STYLE[category] ?? CAT_STYLE.other;
 
   const aiProb =
     typeof weightedProb === "number" ? Math.round(weightedProb * 100) : null;
@@ -68,15 +116,15 @@ export default function MarketRow({
       href={`/market/${market.id}`}
       className="group block no-underline animate-card-enter"
     >
-      <div className="flex items-center gap-4 px-4 lg:px-5 py-4 rounded-xl border border-transparent hover:border-white/[0.06] hover:bg-white/[0.02] transition-all duration-150">
+      <div className="flex items-center gap-4 px-4 lg:px-5 py-3.5 rounded-xl border border-transparent hover:border-white/[0.06] hover:bg-white/[0.02] transition-all duration-150">
         {/* Market info — question + category */}
         <div className="flex-1 min-w-0">
           <h3 className="font-heading text-[14px] font-semibold leading-snug text-white/90 group-hover:text-white transition-colors truncate">
             {market.question}
           </h3>
-          <div className="flex items-center gap-2 mt-1.5">
+          <div className="flex items-center gap-2 mt-1">
             <span
-              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${catStyle}`}
+              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${cs.bg} ${cs.text} ${cs.border}`}
             >
               {category}
             </span>
@@ -89,7 +137,7 @@ export default function MarketRow({
         </div>
 
         {/* Yes price + bar */}
-        <div className="w-[88px] shrink-0 text-right">
+        <div className="w-[80px] shrink-0 text-right">
           {!isExpired ? (
             <button
               type="button"
@@ -105,7 +153,7 @@ export default function MarketRow({
               </span>
               <div className="mt-1 h-[3px] rounded-full bg-white/[0.04] overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-neo-green prob-fill-yes"
+                  className="h-full rounded-full bg-neo-green"
                   style={{ width: `${yesPct}%` }}
                 />
               </div>
@@ -116,7 +164,7 @@ export default function MarketRow({
         </div>
 
         {/* No price + bar */}
-        <div className="w-[88px] shrink-0 text-right">
+        <div className="w-[80px] shrink-0 text-right">
           {!isExpired ? (
             <button
               type="button"
@@ -144,16 +192,16 @@ export default function MarketRow({
 
         {/* Volume */}
         <div className="hidden sm:block w-[80px] shrink-0 text-right">
-          <span className="text-[13px] font-mono text-white/25 tabular-nums">
+          <span className="text-[13px] font-mono text-white/30 tabular-nums">
             {volume}
           </span>
         </div>
 
         {/* Time to end */}
-        <div className="hidden md:block w-[48px] shrink-0 text-right">
+        <div className="hidden md:block w-[56px] shrink-0 text-right">
           <span
             className={`text-[13px] font-mono tabular-nums ${
-              time.urgent ? "text-orange-400/70" : "text-white/20"
+              time.urgent ? "text-orange-400/70" : "text-white/25"
             }`}
           >
             {time.label}

@@ -21,6 +21,10 @@ import {
   resolveLlmModel,
 } from "./llm-provider";
 import {
+  isOpenForecasterModel,
+  ensembleForecast,
+} from "./openforecaster";
+import {
   fetchTavilySearch,
   fetchPolymarketData,
   fetchCryptoPrices,
@@ -465,18 +469,54 @@ export async function* agenticForecastMarket(
     return result!;
   }
 
-  // Local-model path currently runs deterministic source gathering + final local synthesis
-  // via forecastMarket() without Anthropic function-calling turns.
+  // Local-model path: OpenForecaster uses ensemble mode with XML tags;
+  // other local models use forecastMarket() with standard prompting.
   if (forecastProvider === "local") {
+    const isOF = isOpenForecasterModel(model);
     yield {
       type: "tool_call",
-      toolName: "local_model_forecast",
+      toolName: isOF ? "openforecaster_ensemble" : "local_model_forecast",
       toolUseId: `local_${Date.now()}`,
       input: {
         provider: "ollama",
         model,
+        ...(isOF ? { ensemble: config.openForecasterEnsembleCount } : {}),
       },
     };
+
+    if (isOF) {
+      // OpenForecaster-8B: ensemble forecast with XML tag parsing
+      const ensembleResult = await ensembleForecast(question, {
+        researchBrief: context.researchBrief,
+        currentMarketProb: context.currentMarketProb,
+        timeUntilResolution: context.timeUntilResolution,
+        agentPredictions: context.agentPredictions,
+        model,
+      });
+      // Yield reasoning as chunks
+      const chunkSize = 120;
+      for (let i = 0; i < ensembleResult.reasoning.length; i += chunkSize) {
+        yield {
+          type: "reasoning_chunk",
+          content: ensembleResult.reasoning.slice(i, i + chunkSize),
+        };
+      }
+      yield {
+        type: "tool_result",
+        toolName: "openforecaster_ensemble",
+        toolUseId: `of_result_${Date.now()}`,
+        result: `Ensemble: ${ensembleResult.validRuns} valid runs, probabilities: ${ensembleResult.rawProbabilities.map((p) => `${(p * 100).toFixed(1)}%`).join(", ")}`,
+        isError: ensembleResult.validRuns === 0,
+        source: "openforecaster",
+        dataPoints: ensembleResult.validRuns,
+      };
+      return {
+        reasoning: ensembleResult.reasoning,
+        probability: ensembleResult.probability,
+      };
+    }
+
+    // Standard local model path
     const gen = forecastMarket(question, {
       ...context,
       systemPrompt,

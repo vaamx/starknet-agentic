@@ -163,16 +163,41 @@ export function getBetMultiplier(tier: SurvivalTier): number {
   }
 }
 
-/** Get the Claude model identifier for a given tier. */
+/**
+ * Get the model identifier for a given survival tier.
+ *
+ * Three-model hybrid strategy:
+ *   thriving  → Grok (xAI) — 0.102 Brier on ForecastBench, native X/web search
+ *   healthy   → Claude Sonnet — strong reasoning, moderate cost
+ *   low       → OpenForecaster-8B via Ollama — FREE, purpose-built forecaster
+ *   critical  → OpenForecaster-8B via Ollama — FREE, purpose-built forecaster
+ *
+ * The returned model string is automatically routed to the correct provider
+ * by llm-provider.ts modelMatchesProvider():
+ *   "grok*"           → xai
+ *   "*claude*"        → anthropic
+ *   everything else   → local (Ollama)
+ */
 export function getModelForTier(tier: SurvivalTier): string {
   const raw = config as any;
   switch (tier) {
-    case "thriving":  return raw.SURVIVAL_MODEL_THRIVING ?? "claude-opus-4-6";
-    case "healthy":   return raw.SURVIVAL_MODEL_HEALTHY  ?? "claude-sonnet-4-6";
+    case "thriving":
+      return raw.SURVIVAL_MODEL_THRIVING ?? "grok-4-latest";
+    case "healthy":
+      return raw.SURVIVAL_MODEL_HEALTHY ?? "claude-sonnet-4-6";
     case "low":
     case "critical":
+      // OpenForecaster-8B — free local inference, matches 100B+ on forecasting
+      if (config.openForecasterEnabled) {
+        return config.openForecasterModel;
+      }
+      return raw.SURVIVAL_MODEL_LOW ?? "claude-sonnet-4-6";
     case "dead":
-    default:          return raw.SURVIVAL_MODEL_LOW      ?? "claude-sonnet-4-6";
+    default:
+      if (config.openForecasterEnabled) {
+        return config.openForecasterModel;
+      }
+      return raw.SURVIVAL_MODEL_LOW ?? "claude-sonnet-4-6";
   }
 }
 

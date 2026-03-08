@@ -14,15 +14,15 @@ const TOPIC_TABS: { id: string; label: string; category: MarketCategory }[] = [
   { id: "politics", label: "Politics", category: "politics" },
   { id: "sports", label: "Sports", category: "sports" },
   { id: "crypto", label: "Crypto", category: "crypto" },
-  { id: "finance", label: "Finance", category: "crypto" },
-  { id: "geopolitics", label: "Geopolitics", category: "politics" },
-  { id: "earnings", label: "Earnings", category: "crypto" },
+  { id: "finance", label: "Finance", category: "finance" },
+  { id: "geopolitics", label: "Geopolitics", category: "geopolitics" },
+  { id: "earnings", label: "Earnings", category: "earnings" },
   { id: "tech", label: "Tech", category: "tech" },
-  { id: "culture", label: "Culture", category: "other" },
-  { id: "world", label: "World", category: "other" },
-  { id: "economy", label: "Economy", category: "politics" },
-  { id: "climate", label: "Climate & Science", category: "other" },
-  { id: "elections", label: "Elections", category: "politics" },
+  { id: "culture", label: "Culture", category: "culture" },
+  { id: "world", label: "World", category: "world" },
+  { id: "economy", label: "Economy", category: "economy" },
+  { id: "climate", label: "Climate & Science", category: "climate" },
+  { id: "elections", label: "Elections", category: "elections" },
 ];
 
 interface CategoryNavProps {

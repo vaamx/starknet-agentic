@@ -12,9 +12,11 @@ import MarketGridCard, {
   type MarketExecutionSurface,
   type MarketSourceHeartbeat,
 } from "./MarketGridCard";
-import MarketRow from "./MarketRow";
+import MarketRow, { SortableHeader, type SortField, type SortDir, formatVolume } from "./MarketRow";
 import MarketAutomationDrawer from "./MarketAutomationDrawer";
 import AgentBriefPanel from "./AgentBriefPanel";
+import { categorizeMarket } from "@/lib/categories";
+import { safeBigInt } from "./dashboard/utils";
 import type {
   AgentPrediction,
   LatestAgentTake,
@@ -608,6 +610,21 @@ export default function MarketList({
   const [drawerBusy, setDrawerBusy] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
   const [runMessage, setRunMessage] = useState<string | null>(null);
+
+  // Sort state for table view
+  const [sortField, setSortField] = useState<SortField>("volume");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const handleSort = useCallback((field: SortField) => {
+    setSortField((prev) => {
+      if (prev === field) {
+        setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+        return prev;
+      }
+      setSortDir("desc");
+      return field;
+    });
+  }, []);
 
   const [briefOpen, setBriefOpen] = useState(false);
   const [briefData, setBriefData] = useState<AgentBriefView | null>(null);
@@ -1442,29 +1459,56 @@ export default function MarketList({
     );
   }
 
+  // Sort markets for table view
+  const tableSortedMarkets = useMemo(() => {
+    return [...markets].sort((a, b) => {
+      const dir = sortDir === "asc" ? 1 : -1;
+      switch (sortField) {
+        case "market":
+          return dir * a.question.localeCompare(b.question);
+        case "category":
+          return dir * categorizeMarket(a.question).localeCompare(categorizeMarket(b.question));
+        case "yes":
+          return dir * (a.impliedProbYes - b.impliedProbYes);
+        case "no":
+          return dir * ((1 - a.impliedProbYes) - (1 - b.impliedProbYes));
+        case "volume": {
+          const va = safeBigInt(a.totalPool);
+          const vb = safeBigInt(b.totalPool);
+          if (va === vb) return 0;
+          return dir * (va > vb ? 1 : -1);
+        }
+        case "ends":
+          return dir * (a.resolutionTime - b.resolutionTime);
+        default:
+          return 0;
+      }
+    });
+  }, [markets, sortField, sortDir]);
+
   return (
     <div>
       {controlRail}
       <div className="rounded-xl border border-white/[0.04] bg-white/[0.01] overflow-hidden">
-        <div className="flex items-center gap-4 px-4 lg:px-5 py-3 border-b border-white/[0.04] bg-white/[0.01]">
+        <div className="flex items-center gap-4 px-4 lg:px-5 py-3 border-b border-white/[0.04] bg-white/[0.015]">
           <div className="flex-1 min-w-0">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-white/25">Market</span>
+            <SortableHeader label="Market" field="market" activeField={sortField} activeDir={sortDir} onSort={handleSort} />
           </div>
-          <div className="w-[88px] shrink-0 text-right">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-neo-green/40">Yes</span>
+          <div className="w-[80px] shrink-0 text-right">
+            <SortableHeader label="Yes" field="yes" activeField={sortField} activeDir={sortDir} onSort={handleSort} align="right" colorClass="text-neo-green/50" />
           </div>
-          <div className="w-[88px] shrink-0 text-right">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-red-400/40">No</span>
+          <div className="w-[80px] shrink-0 text-right">
+            <SortableHeader label="No" field="no" activeField={sortField} activeDir={sortDir} onSort={handleSort} align="right" colorClass="text-red-400/50" />
           </div>
-          <div className="hidden sm:block w-[80px] shrink-0 text-right">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-white/25">Volume</span>
+          <div className="hidden sm:flex w-[80px] shrink-0 justify-end">
+            <SortableHeader label="Volume" field="volume" activeField={sortField} activeDir={sortDir} onSort={handleSort} align="right" />
           </div>
-          <div className="hidden md:block w-[48px] shrink-0 text-right">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-white/25">Ends</span>
+          <div className="hidden md:flex w-[56px] shrink-0 justify-end">
+            <SortableHeader label="Ends" field="ends" activeField={sortField} activeDir={sortDir} onSort={handleSort} align="right" />
           </div>
           <div className="w-3.5 shrink-0 hidden lg:block" />
         </div>
-        {markets.map((market, i) => (
+        {tableSortedMarkets.map((market, i) => (
           <div key={market.id} className={i > 0 ? "border-t border-white/[0.03]" : ""} style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}>
             <MarketRow market={market} predictions={predictions[market.id]} weightedProb={weightedProbs[market.id]} latestTake={latestTakes[market.id]} onBet={onBet} />
           </div>

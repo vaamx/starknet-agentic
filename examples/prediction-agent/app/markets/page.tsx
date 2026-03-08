@@ -4,6 +4,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "rea
 import Link from "next/link";
 import SimpleHeader from "../components/SimpleHeader";
 import CategoryNav from "../components/CategoryNav";
+import CategorySidebar, { SUBCATEGORIES } from "../components/CategorySidebar";
 import FeaturedHero from "../components/FeaturedHero";
 import MarketList from "../components/MarketList";
 import BetForm from "../components/BetForm";
@@ -141,6 +142,7 @@ export default function Dashboard() {
   // UI state
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<MarketCategory>("all");
+  const [activeSubcategory, setActiveSubcategory] = useState<string | null>(null);
   const [betMarketId, setBetMarketId] = useState<number | null>(null);
   const [betPreselectedOutcome, setBetPreselectedOutcome] = useState<
     0 | 1 | undefined
@@ -182,32 +184,20 @@ export default function Dashboard() {
   const categoryTabs = useMemo(
     () => [
       { id: "all" as MarketCategory, label: "All", count: categoryCounts.all },
-      {
-        id: "sports" as MarketCategory,
-        label: "Sports",
-        count: categoryCounts.sports,
-      },
-      {
-        id: "crypto" as MarketCategory,
-        label: "Crypto",
-        count: categoryCounts.crypto,
-      },
-      {
-        id: "politics" as MarketCategory,
-        label: "Politics",
-        count: categoryCounts.politics,
-      },
-      {
-        id: "tech" as MarketCategory,
-        label: "Tech",
-        count: categoryCounts.tech,
-      },
-      {
-        id: "other" as MarketCategory,
-        label: "World",
-        count: categoryCounts.other,
-      },
-    ],
+      { id: "politics" as MarketCategory, label: "Politics", count: categoryCounts.politics },
+      { id: "elections" as MarketCategory, label: "Elections", count: categoryCounts.elections },
+      { id: "geopolitics" as MarketCategory, label: "Geopolitics", count: categoryCounts.geopolitics },
+      { id: "sports" as MarketCategory, label: "Sports", count: categoryCounts.sports },
+      { id: "crypto" as MarketCategory, label: "Crypto", count: categoryCounts.crypto },
+      { id: "finance" as MarketCategory, label: "Finance", count: categoryCounts.finance },
+      { id: "earnings" as MarketCategory, label: "Earnings", count: categoryCounts.earnings },
+      { id: "tech" as MarketCategory, label: "Tech", count: categoryCounts.tech },
+      { id: "economy" as MarketCategory, label: "Economy", count: categoryCounts.economy },
+      { id: "climate" as MarketCategory, label: "Climate", count: categoryCounts.climate },
+      { id: "culture" as MarketCategory, label: "Culture", count: categoryCounts.culture },
+      { id: "world" as MarketCategory, label: "World", count: categoryCounts.world },
+      { id: "other" as MarketCategory, label: "Other", count: categoryCounts.other },
+    ].filter((tab) => tab.id === "all" || tab.count > 0),
     [categoryCounts]
   );
 
@@ -219,10 +209,17 @@ export default function Dashboard() {
         !String(market.id).includes(normalizedQuery)
       )
         return false;
-      if (activeCategory === "all") return true;
-      return categorizeMarket(market.question) === activeCategory;
+      if (activeCategory !== "all" && categorizeMarket(market.question) !== activeCategory)
+        return false;
+      // Subcategory regex filter
+      if (activeSubcategory && activeCategory !== "all") {
+        const subs = SUBCATEGORIES[activeCategory];
+        const sub = subs?.find((s) => s.label === activeSubcategory);
+        if (sub && !sub.regex.test(market.question)) return false;
+      }
+      return true;
     });
-  }, [markets, normalizedQuery, activeCategory]);
+  }, [markets, normalizedQuery, activeCategory, activeSubcategory]);
 
   const sortedMarkets = useMemo(() => {
     return [...filteredMarkets].sort((a, b) => {
@@ -519,11 +516,23 @@ export default function Dashboard() {
       <CategoryNav
         tabs={categoryTabs}
         activeCategory={activeCategory}
-        onSetCategory={setActiveCategory}
+        onSetCategory={(cat) => { setActiveCategory(cat); setActiveSubcategory(null); }}
       />
 
       {/* Main content */}
       <main className="max-w-[1400px] mx-auto px-3 sm:px-4 lg:px-5 py-4">
+        <div className="flex gap-5">
+          {/* Category sidebar — desktop only */}
+          <CategorySidebar
+            markets={markets}
+            activeCategory={activeCategory}
+            activeSubcategory={activeSubcategory}
+            onSetCategory={setActiveCategory}
+            onSetSubcategory={setActiveSubcategory}
+          />
+
+          {/* Content column */}
+          <div className="flex-1 min-w-0">
           {/* Agent status bar */}
           {!loading && !sessionLoading && (
             <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 flex flex-wrap items-center gap-3 sm:gap-4">
@@ -732,6 +741,8 @@ export default function Dashboard() {
             fundingReady={survivalTier !== "dead"}
             viewMode={viewMode}
           />
+          </div>{/* end content column */}
+        </div>{/* end flex */}
       </main>
 
       {/* Modals */}

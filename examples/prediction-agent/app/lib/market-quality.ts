@@ -1,10 +1,4 @@
-export type MarketCategory =
-  | "crypto"
-  | "macro"
-  | "politics"
-  | "tech"
-  | "sports"
-  | "other";
+import { categorizeMarket, type MarketCategory } from "./categories";
 
 export interface MarketQuestionReview {
   normalizedQuestion: string;
@@ -34,23 +28,7 @@ function clampScore(value: number): number {
 }
 
 function detectCategory(question: string): MarketCategory {
-  const q = question.toLowerCase();
-  if (/\b(eth|btc|crypto|defi|token|starknet|bitcoin|ethereum)\b/.test(q)) {
-    return "crypto";
-  }
-  if (/\b(cpi|inflation|fed|gdp|recession|jobs|treasury)\b/.test(q)) {
-    return "macro";
-  }
-  if (/\b(election|president|senate|congress|vote|bill|policy)\b/.test(q)) {
-    return "politics";
-  }
-  if (/\b(apple|google|openai|chip|ai|software|launch)\b/.test(q)) {
-    return "tech";
-  }
-  if (/\b(nfl|nba|super bowl|world cup|championship|win)\b/.test(q)) {
-    return "sports";
-  }
-  return "other";
+  return categorizeMarket(question);
 }
 
 export function reviewMarketQuestion(question: string): MarketQuestionReview {

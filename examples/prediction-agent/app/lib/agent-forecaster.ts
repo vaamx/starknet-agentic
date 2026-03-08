@@ -6,6 +6,12 @@ import {
   getLlmConfigurationError,
   resolveLlmModel,
 } from "./llm-provider";
+import {
+  isOpenForecasterModel,
+  buildOpenForecasterPrompt,
+  parseOpenForecasterResponse,
+  ensembleForecast,
+} from "./openforecaster";
 
 const SYSTEM_PROMPT = `You are a calibrated superforecaster AI agent operating on Starknet.
 
@@ -106,6 +112,24 @@ export async function* forecastMarket(
         yield event.delta.text;
       }
     }
+  } else if (forecastProvider === "local" && isOpenForecasterModel(model)) {
+    // OpenForecaster-8B path: use ensemble forecasting with XML tag format
+    const ensembleResult = await ensembleForecast(
+      question,
+      {
+        researchBrief: context.researchBrief,
+        currentMarketProb: context.currentMarketProb,
+        timeUntilResolution: context.timeUntilResolution,
+        agentPredictions: context.agentPredictions,
+        model,
+      },
+      config.openForecasterEnsembleCount
+    );
+    fullText = ensembleResult.reasoning;
+    for (const chunk of chunkText(fullText)) {
+      yield chunk;
+    }
+    return { reasoning: fullText, probability: ensembleResult.probability };
   } else {
     fullText = await completeText({
       task: "forecast",

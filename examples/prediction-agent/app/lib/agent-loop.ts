@@ -25,7 +25,7 @@ import {
   type MarketContext,
   type ResearchEvent,
 } from "./research-agent";
-import { discoverMarkets } from "./market-discovery";
+import { discoverMarkets, incrementDiscoveryTick, recordMarketCreated } from "./market-discovery";
 import {
   gatherResearch,
   type DataSourceName,
@@ -35,7 +35,9 @@ import { fetchCryptoPrices } from "./data-sources/crypto-prices";
 import {
   categorizeMarket,
   estimateEngagementScore,
+  toBaseCategory,
   type MarketCategory,
+  type BaseCategory,
 } from "./categories";
 import {
   AGENT_PERSONAS,
@@ -239,19 +241,18 @@ const ALL_DATA_SOURCE_NAMES = new Set<DataSourceName>([
 
 type DiscoverableCategory = Exclude<MarketCategory, "all">;
 
-const CATEGORY_SOURCE_PRIORITIES: Record<DiscoverableCategory, DataSourceName[]> = {
+const CATEGORY_SOURCE_PRIORITIES: Partial<Record<DiscoverableCategory, DataSourceName[]>> & Record<BaseCategory, DataSourceName[]> = {
   sports: ["espn", "news", "web", "social", "polymarket", "rss", "x"],
-  crypto: [
-    "coingecko",
-    "onchain",
-    "polymarket",
-    "news",
-    "web",
-    "social",
-    "x",
-    "rss",
-  ],
+  crypto: ["coingecko", "onchain", "polymarket", "news", "web", "social", "x", "rss"],
   politics: ["news", "web", "rss", "social", "x", "polymarket", "tavily"],
+  elections: ["news", "web", "polymarket", "social", "x", "tavily", "rss"],
+  geopolitics: ["news", "web", "tavily", "social", "x", "rss", "polymarket"],
+  finance: ["news", "web", "polymarket", "coingecko", "social", "rss"],
+  earnings: ["news", "web", "polymarket", "social", "rss"],
+  economy: ["news", "web", "tavily", "social", "rss", "polymarket"],
+  climate: ["news", "web", "tavily", "rss", "social", "github"],
+  culture: ["news", "social", "web", "x", "rss", "polymarket"],
+  world: ["news", "web", "tavily", "rss", "social", "x"],
   tech: ["news", "web", "github", "social", "rss", "x", "polymarket"],
   other: ["news", "web", "rss", "social", "x", "polymarket", "tavily"],
 };
@@ -265,6 +266,11 @@ function toDataSourceName(value: string): DataSourceName | null {
 
 function normalizeCategory(category: MarketCategory): DiscoverableCategory {
   return category === "all" ? "other" : category;
+}
+
+/** Map any category to 5-bucket counts for backward-compat category balancing. */
+function toBaseCategoryKey(category: MarketCategory): "sports" | "crypto" | "politics" | "tech" | "other" {
+  return toBaseCategory(category);
 }
 
 function pickResearchSources(
@@ -281,7 +287,8 @@ function pickResearchSources(
     selected.push(source);
   };
 
-  for (const source of CATEGORY_SOURCE_PRIORITIES[category]) {
+  const priorities = CATEGORY_SOURCE_PRIORITIES[category] ?? CATEGORY_SOURCE_PRIORITIES[toBaseCategory(category)] ?? CATEGORY_SOURCE_PRIORITIES.other;
+  for (const source of priorities) {
     add(source);
   }
 
@@ -698,6 +705,7 @@ class AgentLoop {
     await ensureAgentSpawnerHydrated();
     this.tickCount++;
     this.lastTickAt = Date.now();
+    incrementDiscoveryTick();
     void setPersistedLoopRuntime({
       tickCount: this.tickCount,
       lastTickAt: this.lastTickAt,
@@ -838,7 +846,7 @@ class AgentLoop {
       }
     }
 
-    const openCategoryCounts = {
+    const openCategoryCounts: Record<BaseCategory, number> = {
       sports: 0,
       crypto: 0,
       politics: 0,
@@ -850,8 +858,8 @@ class AgentLoop {
         resolveMarketQuestion(market.id, market.questionHash)
       );
       if (category !== "all") {
-        openCategoryCounts[category] =
-          (openCategoryCounts[category] ?? 0) + 1;
+        const base = toBaseCategoryKey(category);
+        openCategoryCounts[base] = (openCategoryCounts[base] ?? 0) + 1;
       }
     }
     const nonCryptoOpenCount =
@@ -1795,8 +1803,9 @@ class AgentLoop {
       const question = resolveMarketQuestion(market.id, market.questionHash);
       const category = categorizeMarket(question);
       if (category !== "all") {
-        openCategoryCounts[category] =
-          (openCategoryCounts[category] ?? 0) + 1;
+        const base = toBaseCategoryKey(category);
+        openCategoryCounts[base] =
+          (openCategoryCounts[base] ?? 0) + 1;
       }
     }
 
@@ -1971,7 +1980,8 @@ class AgentLoop {
                   ? -0.2
                   : 0
             : 0;
-        const categoryCount = openCategoryCounts[category] ?? 0;
+        const baseCategory = toBaseCategoryKey(category as MarketCategory);
+        const categoryCount = openCategoryCounts[baseCategory] ?? 0;
         const underrepresentedBoost =
           category !== "crypto" && categoryCount <= 1
             ? nonCryptoShortage
@@ -2049,6 +2059,7 @@ class AgentLoop {
     if (result.marketId !== undefined) {
       registerQuestion(result.marketId, questionRaw);
     }
+    recordMarketCreated();
 
     let detail = `Created new market: "${questionRaw}"`;
     if (forcedCategory) {
@@ -2059,6 +2070,7 @@ class AgentLoop {
     } else if (result.allowlistError) {
       detail += ` (allowlist failed: ${result.allowlistError})`;
     }
+    detail += ` [resolution: ${picked.suggestedResolutionDays}d]`;
 
     emit(
       this.createAction({

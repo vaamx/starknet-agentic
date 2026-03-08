@@ -133,10 +133,18 @@ export default function MarketsDomainSection({
   if (activeCategory === "all" && !normalizedQuery) {
     const sectionOrder: Array<{ id: MarketCategory; label: string }> = [
       { id: "politics", label: "Politics" },
+      { id: "elections", label: "Elections" },
+      { id: "geopolitics", label: "Geopolitics" },
       { id: "sports", label: "Sports" },
       { id: "tech", label: "Tech" },
+      { id: "finance", label: "Finance" },
+      { id: "earnings", label: "Earnings" },
+      { id: "economy", label: "Economy" },
+      { id: "climate", label: "Climate & Science" },
+      { id: "culture", label: "Culture" },
       { id: "crypto", label: "Crypto" },
-      { id: "other", label: "World" },
+      { id: "world", label: "World" },
+      { id: "other", label: "Other" },
     ];
     const sections = sectionOrder
       .map((section) => ({
