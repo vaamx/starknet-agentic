@@ -121,6 +121,8 @@ const envSchema = z.object({
   AGENT_AUTO_RESOLVE_MAX_PER_TICK: z.string().default("1"),
   AGENT_AUTO_RESOLVE_COOLDOWN_SECS: z.string().default("900"),
   RESOLUTION_MAX_ATTEMPTS: z.string().default("10"),
+  AGENT_AUTO_CLAIM_ENABLED: z.string().default("true"),
+  AGENT_RECURRING_MARKETS_ENABLED: z.string().default("true"),
   AGENT_ACTORS_PER_TICK: z.string().default("3"),
   AGENT_MIN_EVIDENCE_SOURCES: z.string().default("2"),
   AGENT_MIN_EVIDENCE_POINTS: z.string().default("4"),
@@ -446,6 +448,8 @@ export const config = {
     1,
     parseInt(rawConfig.RESOLUTION_MAX_ATTEMPTS, 10) || 10
   ),
+  agentAutoClaimEnabled: rawConfig.AGENT_AUTO_CLAIM_ENABLED !== "false",
+  agentRecurringMarketsEnabled: rawConfig.AGENT_RECURRING_MARKETS_ENABLED !== "false",
   agentActorsPerTick: Math.max(
     1,
     Math.min(12, parseInt(rawConfig.AGENT_ACTORS_PER_TICK, 10) || 3)

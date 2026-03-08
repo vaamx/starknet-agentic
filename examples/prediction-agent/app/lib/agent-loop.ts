@@ -49,7 +49,7 @@ import {
 } from "./child-runtime";
 import { hydrateAgentAccount, storeAgentPrivateKey } from "./agent-key-custody";
 import { Account, RpcProvider } from "starknet";
-import { placeBet, recordPrediction, isAgentConfigured, createMarket, getSignerMode } from "./starknet-executor";
+import { placeBet, recordPrediction, isAgentConfigured, createMarket, getSignerMode, claimWinnings, getAgentAddress } from "./starknet-executor";
 import { config } from "./config";
 import { logThoughtOnChain } from "./huginn-executor";
 import { executeAvnuSwap } from "./defi-executor";
@@ -79,6 +79,12 @@ import {
 import { ensureAgentSpawnerHydrated, persistAgentSpawner } from "./agent-persistence";
 import { deriveConsensusAutotuneProfile } from "./consensus-autotune";
 import { tryResolveMarket } from "./resolution-oracle";
+import {
+  getMarketLifecycle,
+  extractRecurringTemplate,
+  generateSuccessorQuestion,
+  type ClaimCandidate,
+} from "./market-lifecycle";
 import {
   recordResolutionAttempt,
   getResolutionStatus,
@@ -147,7 +153,9 @@ export interface AgentAction {
     | "market_creation"
     | "runtime"
     | "defi_signal"
-    | "defi_swap";
+    | "defi_swap"
+    | "claim"
+    | "recurring_creation";
   marketId?: number;
   question?: string;
   detail: string;
@@ -442,6 +450,10 @@ class AgentLoop {
   private defiInterval = 7;
   private debateCounter = 0;
   private lastResolutionAttemptAt = new Map<number, number>();
+  /** Markets where auto-claim has been attempted (prevents repeated attempts) */
+  private claimedMarkets = new Set<number>();
+  /** Recurring markets already spawned (prevents duplicate successors) */
+  private recurringSpawned = new Set<number>();
   /** Last survival state — updated each tick */
   private lastSurvival: SurvivalState | null = null;
   /** Count of consecutive thriving ticks for replication guard */
@@ -776,6 +788,10 @@ class AgentLoop {
 
     if (!readOnlyMode) {
       await this.runPendingResolutions(captureEmit, markets, nowSec);
+      // Auto-claim sweep: collect winnings from resolved markets
+      await this.runAutoClaimSweep(captureEmit, markets);
+      // Recurring market creation: spawn successors for resolved crypto markets
+      await this.runRecurringMarketCreation(captureEmit, markets);
     }
 
     let openMarkets = markets.filter(
@@ -1190,7 +1206,12 @@ class AgentLoop {
       const context: MarketContext = {
         currentMarketProb: target.impliedProbYes,
         totalPool: (target.totalPool / 10n ** 18n).toString(),
-        timeUntilResolution: `${Math.max(0, Math.floor((target.resolutionTime - Date.now() / 1000) / 86400))} days`,
+        timeUntilResolution: (() => {
+          const secsLeft = Math.max(0, target.resolutionTime - Date.now() / 1000);
+          if (secsLeft < 3600) return `${Math.ceil(secsLeft / 60)} minutes`;
+          if (secsLeft < 86400) return `${Math.round(secsLeft / 3600)} hours`;
+          return `${Math.floor(secsLeft / 86400)} days`;
+        })(),
         systemPrompt: persona.systemPrompt,
         model: survival ? getModelForTier(survival.tier) : persona.model,
         agentPredictions: marketPeerPredictions
@@ -1683,21 +1704,26 @@ class AgentLoop {
         let betTxError: string | undefined;
         if (onChain) {
           try {
-            const outcomeNum: 0 | 1 = probability > 0.5 ? 1 : 0;
-            const txResult = await placeBet(
-              target.address,
-              outcomeNum,
-              betAmount,
-              config.COLLATERAL_TOKEN_ADDRESS,
-              execAccount
-            );
-            if (txResult.status === "success") {
-              betTxHash = txResult.txHash;
+            // Pre-check: skip if market is expired or no longer open
+            const nowSec = Math.floor(Date.now() / 1000);
+            if (target.status !== 0 || target.resolutionTime <= nowSec) {
+              betTxError = "Market no longer open — bet skipped";
             } else {
-              betTxError = txResult.error;
+              const outcomeNum: 0 | 1 = probability > 0.5 ? 1 : 0;
+              const txResult = await placeBet(
+                target.address,
+                outcomeNum,
+                betAmount,
+                config.COLLATERAL_TOKEN_ADDRESS,
+                execAccount
+              );
+              if (txResult.status === "success") {
+                betTxHash = txResult.txHash;
+              } else {
+                betTxError = txResult.error;
+              }
             }
           } catch {
-            // Bet tx failed
             betTxError = "Unhandled bet execution error";
           }
         }
@@ -1930,7 +1956,7 @@ class AgentLoop {
         }
         const resolutionTime =
           Math.floor(Date.now() / 1000) +
-          Math.max(1, suggestion.suggestedResolutionDays ?? 30) * 86_400;
+          Math.max(1, suggestion.suggestedResolutionDays ?? 1) * 86_400;
         const engagement = estimateEngagementScore(
           suggestion.question,
           resolutionTime
@@ -1995,12 +2021,12 @@ class AgentLoop {
     }
 
     const questionRaw = picked.question;
-    const durationDays = picked.suggestedResolutionDays ?? 30;
-    const onChainQuestion = toOnChainQuestion(questionRaw, durationDays);
+    const durationSecs = (picked.suggestedResolutionDays ?? 1) * 86_400;
+    const onChainQuestion = toOnChainQuestion(questionRaw, Math.ceil(durationSecs / 86_400));
 
     const result = await createMarket(
       onChainQuestion,
-      durationDays,
+      durationSecs,
       200,
       config.AGENT_ADDRESS
     );
@@ -2057,8 +2083,15 @@ class AgentLoop {
     if (!config.agentAutoResolveEnabled) return;
     if (this.tickCount % config.agentAutoResolveEvery !== 0) return;
 
+    // Use lifecycle-aware resolution buffer per market type
+    // (crypto: 30s, sports: 120s, general: 120s, quick: 30s)
     const pending = markets
-      .filter((m) => m.status === 0 && m.resolutionTime <= nowSec)
+      .filter((m) => {
+        if (m.status !== 0 || m.resolutionTime > nowSec) return false;
+        const question = resolveMarketQuestion(m.id, m.questionHash);
+        const lifecycle = getMarketLifecycle(m, question, nowSec);
+        return lifecycle.phase === "resolving";
+      })
       .sort((a, b) => a.resolutionTime - b.resolutionTime);
     if (pending.length === 0) return;
 
@@ -2215,6 +2248,149 @@ class AgentLoop {
           detail: `Resolution failed for "${question}": ${result.error ?? "unknown error"}`,
         })
       );
+    }
+  }
+
+  /**
+   * Auto-claim sweep: after a market resolves, attempt to claim the agent's
+   * winnings automatically. This prevents funds from being stuck in contracts.
+   * Only runs once per resolved market (tracked by claimedMarkets set).
+   */
+  private async runAutoClaimSweep(
+    emit: (action: AgentAction) => void,
+    markets: MarketState[]
+  ): Promise<void> {
+    if (!config.agentAutoClaimEnabled) return;
+    if (!isAgentConfigured()) return;
+    const agentAddr = getAgentAddress();
+    if (!agentAddr) return;
+
+    const resolved = markets.filter(
+      (m) => m.status === 2 && !this.claimedMarkets.has(m.id)
+    );
+    if (resolved.length === 0) return;
+
+    // Attempt up to 3 claims per tick to avoid gas spikes
+    let claimed = 0;
+    for (const market of resolved) {
+      if (claimed >= 3) break;
+      this.claimedMarkets.add(market.id);
+
+      // Check if agent has a winning position before claiming
+      try {
+        const { getUserPosition } = await import("./market-reader");
+        const pos = await getUserPosition(market.address, agentAddr);
+        const winningOutcome = market.winningOutcome ?? 0;
+        const winningBet = winningOutcome === 1 ? pos.yesBet : pos.noBet;
+
+        if (winningBet <= 0n) continue; // No winning position
+
+        const result = await claimWinnings(market.address);
+        claimed++;
+
+        const question = resolveMarketQuestion(market.id, market.questionHash);
+        if (result.status === "success") {
+          emit(
+            this.createAction({
+              agentId: "auto-claim",
+              agentName: "Auto-Claim",
+              type: "claim",
+              marketId: market.id,
+              question,
+              detail: `Claimed winnings from "${question}" [tx: ${result.txHash?.slice(0, 16)}...]`,
+              txHash: result.txHash,
+            })
+          );
+        } else {
+          // Remove from claimed set so it retries next tick
+          this.claimedMarkets.delete(market.id);
+          emit(
+            this.createAction({
+              agentId: "auto-claim",
+              agentName: "Auto-Claim",
+              type: "error",
+              marketId: market.id,
+              question,
+              detail: `Auto-claim failed for "${question}": ${result.error ?? "unknown"}`,
+            })
+          );
+        }
+      } catch (err: any) {
+        this.claimedMarkets.delete(market.id);
+        console.warn(`[auto-claim] Failed for market ${market.id}:`, err?.message);
+      }
+    }
+  }
+
+  /**
+   * Recurring market creation: when a crypto_recurring market resolves,
+   * spawn a successor with updated price data. This creates continuous
+   * 5-minute prediction cycles for crypto price markets.
+   */
+  private async runRecurringMarketCreation(
+    emit: (action: AgentAction) => void,
+    markets: MarketState[]
+  ): Promise<void> {
+    if (!config.agentRecurringMarketsEnabled) return;
+    if (!isAgentConfigured() || config.MARKET_FACTORY_ADDRESS === "0x0") return;
+
+    const resolved = markets.filter(
+      (m) => m.status === 2 && !this.recurringSpawned.has(m.id)
+    );
+    if (resolved.length === 0) return;
+
+    // Only spawn 1 successor per tick
+    for (const market of resolved) {
+      const question = resolveMarketQuestion(market.id, market.questionHash);
+      const durationSecs = 300; // Default 5 min for recurring
+      const template = extractRecurringTemplate(question, durationSecs);
+      if (!template) continue;
+
+      this.recurringSpawned.add(market.id);
+
+      // Fetch current price for the token
+      try {
+        const { fetchCryptoPrices: fetchPrices } = await import("./data-sources/crypto-prices");
+        const priceResult = await fetchPrices(template.tokenId);
+        const pricePoint = priceResult.data[0];
+        if (!pricePoint) continue;
+
+        const currentPrice = parseFloat(
+          String(pricePoint.value).replace(/[^0-9.]/g, "")
+        );
+        if (isNaN(currentPrice) || currentPrice <= 0) continue;
+
+        const successorQuestion = generateSuccessorQuestion(template, currentPrice);
+        const onChainQ = successorQuestion.slice(0, 31).replace(/[^\x20-\x7E]/g, "");
+        if (!onChainQ) continue;
+
+        const result = await createMarket(
+          onChainQ,
+          template.durationSecs,
+          template.feeBps,
+          config.AGENT_ADDRESS
+        );
+
+        if (result.status === "success") {
+          if (result.marketId !== undefined) {
+            registerQuestion(result.marketId, successorQuestion);
+          }
+          emit(
+            this.createAction({
+              agentId: "market-lifecycle",
+              agentName: "Market Lifecycle",
+              type: "recurring_creation",
+              marketId: result.marketId,
+              question: successorQuestion,
+              detail: `Recurring successor: "${successorQuestion}" (from market #${market.id})`,
+              txHash: result.txHash,
+            })
+          );
+          return; // Only 1 per tick
+        }
+      } catch (err: any) {
+        console.warn(`[recurring] Failed to spawn successor for market ${market.id}:`, err?.message);
+      }
     }
   }
 

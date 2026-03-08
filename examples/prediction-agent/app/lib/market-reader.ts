@@ -169,7 +169,7 @@ export interface LeaderboardEntry {
 // Prevents 76+ parallel RPC calls per consumer per page load.
 
 let marketsCache: { data: MarketState[]; fetchedAt: number } | null = null;
-const CACHE_TTL_MS = 30_000;
+const CACHE_TTL_MS = 10_000;
 
 /** Invalidate the market cache (e.g. after a bet or market creation). */
 export function invalidateMarketsCache(): void {
@@ -419,26 +419,43 @@ export async function getMarketState(id: number, address: string): Promise<Marke
     }
   }
 
+  const HALF = "500000000000000000";
+  const ONE = BigInt("1000000000000000000");
+  const infoArr = Array.isArray(info) ? info : [];
+  const probsArr = Array.isArray(probs) ? probs : [];
+  const rawProbYes = parseBigNumberish(probsArr[1]?.[1] ?? HALF);
+  const rawProbNo = parseBigNumberish(probsArr[0]?.[1] ?? HALF);
+  const pool = parseBigNumberish(totalPool);
+
   return {
     id,
     address,
-    questionHash: toAddressHex(info[0]),
-    resolutionTime: toSafeNumber(info[1]),
-    oracle: toAddressHex(info[2]),
-    collateralToken: toAddressHex(info[3]),
-    feeBps: toSafeNumber(info[4]),
+    questionHash: toAddressHex(infoArr[0] ?? 0),
+    resolutionTime: toSafeNumber(infoArr[1] ?? 0),
+    oracle: toAddressHex(infoArr[2] ?? 0),
+    collateralToken: toAddressHex(infoArr[3] ?? 0),
+    feeBps: toSafeNumber(infoArr[4] ?? 0),
     status: statusNum,
-    totalPool: parseBigNumberish(totalPool),
-    yesPool: parseBigNumberish(probs[1]?.[1] ?? 0),
-    noPool: parseBigNumberish(probs[0]?.[1] ?? 0),
-    impliedProbYes: fromScaled(
-      parseBigNumberish(probs[1]?.[1] ?? "500000000000000000")
-    ),
-    impliedProbNo: fromScaled(
-      parseBigNumberish(probs[0]?.[1] ?? "500000000000000000")
-    ),
+    totalPool: pool,
+    yesPool: pool * rawProbYes / ONE,
+    noPool: pool * rawProbNo / ONE,
+    impliedProbYes: fromScaled(rawProbYes),
+    impliedProbNo: fromScaled(rawProbNo),
     winningOutcome,
   };
+}
+
+/** Get a user's bet amounts for a market. */
+export async function getUserPosition(
+  marketAddress: string,
+  userAddress: string
+): Promise<{ yesBet: bigint; noBet: bigint }> {
+  const market = new Contract({ abi: MARKET_ABI as any, address: marketAddress, providerOrAccount: provider });
+  const [yesBet, noBet] = await Promise.all([
+    market.get_bet(userAddress, 1).then(parseBigNumberish).catch(() => 0n),
+    market.get_bet(userAddress, 0).then(parseBigNumberish).catch(() => 0n),
+  ]);
+  return { yesBet, noBet };
 }
 
 /** Get agent predictions for a market. */

@@ -45,8 +45,10 @@ export default function HeroMarket({
   const poolDisplay = (poolWei / 10n ** 18n).toString();
 
   const now = Date.now() / 1000;
-  const daysLeft = Math.max(0, Math.floor((market.resolutionTime - now) / 86400));
-  const hoursLeft = Math.max(0, Math.floor((market.resolutionTime - now) / 3600));
+  const secsLeft = Math.max(0, market.resolutionTime - now);
+  const daysLeft = Math.floor(secsLeft / 86400);
+  const hoursLeft = Math.floor(secsLeft / 3600);
+  const minsLeft = Math.ceil(secsLeft / 60);
 
   const voice = getAgentVoiceByName(latestTake?.agentName);
   const disagreement = computeDisagreement(predictions);
@@ -61,7 +63,7 @@ export default function HeroMarket({
           </span>
           <span className="text-xs text-white/30">|</span>
           <span className="text-xs text-white/40">
-            {daysLeft > 0 ? `${daysLeft}d left` : hoursLeft > 0 ? `${hoursLeft}h left` : "Closing"}
+            {daysLeft > 0 ? `${daysLeft}d left` : hoursLeft > 0 ? `${hoursLeft}h left` : minsLeft > 0 ? `${minsLeft}m left` : "Closing"}
           </span>
           {disagreement > 0.15 && (
             <span className="text-xs text-neo-orange">Contested</span>

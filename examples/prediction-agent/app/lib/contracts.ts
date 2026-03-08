@@ -45,13 +45,16 @@ export function buildBetCalls(
 /** Build create_market call for the factory. */
 export function buildCreateMarketCalls(
   question: string,
-  durationDays: number,
+  durationSeconds: number,
   feeBps: number,
   oracleAddress: string
 ): Call[] {
+  if (durationSeconds < 60) throw new Error("Market duration must be at least 60 seconds");
+  if (feeBps < 0 || feeBps > 1000) throw new Error("Fee must be 0-1000 bps (0-10%)");
   const trimmed = question.slice(0, 31).replace(/[^\x20-\x7E]/g, "");
-  const questionHash = shortString.encodeShortString(trimmed || "market");
-  const resolutionTime = Math.floor(Date.now() / 1000) + durationDays * 86400;
+  if (!trimmed) throw new Error("Question must contain at least one ASCII character");
+  const questionHash = shortString.encodeShortString(trimmed);
+  const resolutionTime = Math.floor(Date.now() / 1000) + durationSeconds;
 
   return [
     {
@@ -287,6 +290,24 @@ export function buildSellCurveCalls(
 
 // ── Guild call builders ───────────────────────────────────────────────
 
+/** Create a new guild on the registry. */
+export function buildCreateGuildCalls(
+  registryAddress: string,
+  nameHash: bigint,
+  minStake: bigint
+): Call[] {
+  return [
+    {
+      contractAddress: registryAddress,
+      entrypoint: "create_guild",
+      calldata: CallData.compile({
+        name_hash: nameHash,
+        min_stake: { low: minStake, high: 0n },
+      }),
+    },
+  ];
+}
+
 /** Approve STRK + join a guild with stake. */
 export function buildJoinGuildCalls(
   registryAddress: string,
@@ -330,6 +351,27 @@ export function buildLeaveGuildCalls(
 }
 
 /** Vote on a guild proposal. */
+export function buildCreateProposalCalls(
+  daoAddress: string,
+  guildId: bigint,
+  descriptionHash: bigint,
+  quorum: bigint,
+  deadline: number
+): Call[] {
+  return [
+    {
+      contractAddress: daoAddress,
+      entrypoint: "propose",
+      calldata: CallData.compile({
+        guild_id: { low: guildId, high: 0n },
+        description_hash: BigInt(descriptionHash),
+        quorum: { low: quorum, high: 0n },
+        deadline,
+      }),
+    },
+  ];
+}
+
 export function buildGuildVoteCalls(
   daoAddress: string,
   proposalId: bigint,

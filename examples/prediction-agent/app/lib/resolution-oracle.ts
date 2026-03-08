@@ -406,6 +406,25 @@ export async function tryResolveMarket(
   let resolveTxHash: string | undefined;
   let finalizeTxHash: string | undefined;
 
+  // Pre-check: verify market is still open to avoid wasted gas
+  try {
+    const { getMarketById } = await import("./market-reader");
+    const currentMarket = await getMarketById(marketId);
+    if (currentMarket && currentMarket.status !== 0) {
+      return {
+        status: "resolved",
+        outcome: decision.outcome,
+        evidence: decision.reasoning,
+        confidence: decision.confidence,
+        huginnTxHash,
+        huginnThoughtHash,
+        error: `Market already in status ${currentMarket.status} — on-chain resolution skipped`,
+      };
+    }
+  } catch {
+    // Pre-check failed — proceed with resolution attempt anyway
+  }
+
   const resolveCalls = buildResolveCalls(marketAddress, decision.outcome);
   const finalizeCalls = buildFinalizeCalls(marketId, decision.outcome);
 
@@ -426,6 +445,13 @@ export async function tryResolveMarket(
     try {
       const resolveTx = await account.execute(resolveCalls);
       resolveTxHash = resolveTx.transaction_hash;
+      // Retry finalize separately — best-effort for accuracy tracking
+      try {
+        const finalizeTx = await account.execute(finalizeCalls);
+        finalizeTxHash = finalizeTx.transaction_hash;
+      } catch (finalizeErr: any) {
+        console.warn("[resolution-oracle] Finalize retry failed (non-fatal):", finalizeErr?.message);
+      }
     } catch (resolveErr: any) {
       return {
         status: "error",

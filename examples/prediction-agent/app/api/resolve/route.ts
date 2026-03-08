@@ -9,11 +9,24 @@
 
 import { NextRequest } from "next/server";
 import { tryResolveMarket } from "@/lib/resolution-oracle";
+import { requireAuth } from "@/lib/require-auth";
 
 // Oracle involves an Anthropic API call + on-chain transactions — needs extended timeout.
 export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
+  // Require either a valid session or the heartbeat secret
+  const secret = process.env.HEARTBEAT_SECRET;
+  const authHeader = request.headers.get("authorization");
+  const user = requireAuth(request);
+  const hasSecretAuth = secret && authHeader === `Bearer ${secret}`;
+  if (!user && !hasSecretAuth) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   let body: any;
   try {
     body = await request.json();

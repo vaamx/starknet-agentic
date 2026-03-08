@@ -167,8 +167,10 @@ function buildRiskFlags(params: {
     flags.push("Risk budget is near limit.");
   }
   const secsToResolution = params.market.resolutionTime - nowUnix();
-  if (secsToResolution > 0 && secsToResolution <= 60 * 60) {
-    flags.push("Market resolves within one hour.");
+  // Flag only when less than 5 minutes or 20% of remaining time (whichever is smaller)
+  const closingThreshold = Math.min(300, Math.max(60, secsToResolution * 0.2));
+  if (secsToResolution > 0 && secsToResolution <= closingThreshold) {
+    flags.push(`Market resolves in ${Math.ceil(secsToResolution / 60)} minutes.`);
   }
   return flags;
 }

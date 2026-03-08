@@ -35,6 +35,8 @@ function makeSnapshot(overrides?: Partial<AgentMetricsSnapshot>): AgentMetricsSn
         runtime: 20,
         defi_signal: 6,
         defi_swap: 6,
+        claim: 0,
+        recurring_creation: 0,
       },
       errorRate: 0.05,
     },

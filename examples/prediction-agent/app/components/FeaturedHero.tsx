@@ -682,7 +682,8 @@ function SportsHero({ market, onBet }: { market: Market; onBet: (id: number, o?:
   const q = market.question;
   const teamMatch = q.match(/Will (?:the )?(.+?)\s+(?:win|beat|cover|score)/i);
   const team1 = teamMatch?.[1] || "Yes";
-  const isLive = market.resolutionTime - Date.now() / 1000 < 86400 * 3;
+  const secsToResolve = market.resolutionTime - Date.now() / 1000;
+  const isLive = secsToResolve > 0 && secsToResolve < 3600;
   const quarter = isLive ? `Q${Math.floor(seededRand(market.id, 3) * 4) + 1}` : "";
 
   const [score1, setScore1] = useState(Math.floor(seededRand(market.id, 1) * 28 + 7));
@@ -1100,7 +1101,8 @@ export default function FeaturedHero({ markets, predictions, weightedProbs, late
   const catSub = catMeta.sub ?? (category === "sports" ? detectSportSub(featured.question) : undefined);
   const sportsIcon = category === "sports" && /nba|lakers|celtics|warriors|bucks/i.test(featured.question) ? "\u{1F3C0}" : catMeta.icon;
   const poolVol = fmtVol(safeBigInt(featured.totalPool));
-  const isLive = featured.resolutionTime - Date.now() / 1000 < 86400 * 3;
+  const featuredSecsLeft = featured.resolutionTime - Date.now() / 1000;
+  const isLive = featuredSecsLeft > 0 && featuredSecsLeft < 3600;
 
   return (
     <div className="mb-5 animate-card-enter">

@@ -20,6 +20,8 @@ const ACTION_TYPES: AgentAction["type"][] = [
   "runtime",
   "defi_signal",
   "defi_swap",
+  "claim",
+  "recurring_creation",
 ];
 
 const RUNTIME_STATUS: ChildServerStatus[] = ["starting", "running", "stopping", "dead"];

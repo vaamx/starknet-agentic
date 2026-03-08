@@ -2,8 +2,12 @@
 
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
+import { useAccount } from "@starknet-react/core";
+import { shortString } from "starknet";
 import SiteHeader from "@/components/SiteHeader";
 import Footer from "@/components/Footer";
+import { friendlyTxError } from "@/lib/tx-errors";
+import { ECONOMY, buildCreateGuildCalls } from "@/lib/contracts";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -205,12 +209,118 @@ function GuildCard({ guild }: { guild: Guild }) {
   );
 }
 
+// ── Create Guild Modal ──────────────────────────────────────────────────────
+
+function CreateGuildModal({ onClose }: { onClose: () => void }) {
+  const { account } = useAccount();
+  const [name, setName] = useState("");
+  const [minStake, setMinStake] = useState("10");
+  const [sending, setSending] = useState(false);
+  const [txResult, setTxResult] = useState<{ status: string; txHash?: string; error?: string } | null>(null);
+
+  async function handleCreate() {
+    if (!account || !name.trim()) return;
+    setSending(true);
+    setTxResult(null);
+    try {
+      const trimmed = name.slice(0, 31).replace(/[^\x20-\x7E]/g, "");
+      const nameHash = BigInt(shortString.encodeShortString(trimmed || "guild"));
+      const stakeWei = BigInt(Math.floor((parseFloat(minStake) || 10) * 1e18));
+      const calls = buildCreateGuildCalls(ECONOMY.GUILD_REGISTRY, nameHash, stakeWei);
+      const res = await account.execute(calls);
+      setTxResult({ status: "success", txHash: res.transaction_hash });
+    } catch (err: any) {
+      setTxResult({ status: "error", error: friendlyTxError(err.message ?? String(err)) });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-md neo-card p-6 space-y-5">
+        <div className="flex items-center justify-between">
+          <h3 className="font-heading font-bold text-lg text-white">Create Guild</h3>
+          <button onClick={onClose} className="text-white/30 hover:text-white/60 transition-colors">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-[10px] uppercase tracking-wider text-white/30 font-semibold">
+              Guild Name (max 31 chars)
+            </label>
+            <input
+              type="text"
+              maxLength={31}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Alpha Forecasters"
+              className="h-10 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-sm text-white/80 placeholder:text-white/25 outline-none focus:border-white/[0.15] font-mono"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] uppercase tracking-wider text-white/30 font-semibold">
+              Minimum Stake (STRK)
+            </label>
+            <input
+              type="number"
+              min={1}
+              value={minStake}
+              onChange={(e) => setMinStake(e.target.value)}
+              placeholder="10"
+              className="h-10 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-sm text-white/80 placeholder:text-white/25 outline-none focus:border-white/[0.15] font-mono"
+            />
+            <p className="text-[10px] text-white/20">Members must stake at least this amount to join.</p>
+          </div>
+        </div>
+
+        <button
+          onClick={handleCreate}
+          disabled={sending || !name.trim()}
+          className="w-full rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-2.5 text-[12px] font-semibold text-cyan-300 hover:bg-cyan-400/15 hover:border-cyan-400/30 transition-all disabled:opacity-40"
+        >
+          {sending ? "Creating..." : "Create Guild"}
+        </button>
+
+        {txResult && (
+          <div className={`p-2.5 border text-xs font-mono rounded-lg ${
+            txResult.status === "success"
+              ? "border-emerald-400/30 bg-emerald-400/10"
+              : "border-red-400/30 bg-red-400/10"
+          }`}>
+            {txResult.status === "success" ? (
+              <a
+                href={`https://sepolia.voyager.online/tx/${txResult.txHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-emerald-300 hover:underline break-all"
+              >
+                Tx: {txResult.txHash?.slice(0, 20)}...
+              </a>
+            ) : (
+              <span className="text-red-300">{txResult.error}</span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function GuildsPage() {
   const { guilds: allGuilds, loading, error } = useGuilds();
+  const { isConnected } = useAccount();
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("members");
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   useEffect(() => {
     document.title = "Agent Guilds — DAOs on Starknet";
@@ -266,7 +376,13 @@ export default function GuildsPage() {
             </div>
           </div>
 
-          <button aria-label="Create a new guild" className="shrink-0 inline-flex items-center gap-2 rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-5 py-2.5 text-sm font-heading font-bold text-cyan-300 hover:bg-cyan-400/15 hover:border-cyan-400/30 transition-all">
+          <button
+            aria-label="Create a new guild"
+            onClick={() => setShowCreateModal(true)}
+            disabled={!isConnected}
+            className="shrink-0 inline-flex items-center gap-2 rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-5 py-2.5 text-sm font-heading font-bold text-cyan-300 hover:bg-cyan-400/15 hover:border-cyan-400/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            title={!isConnected ? "Connect wallet to create a guild" : undefined}
+          >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
@@ -347,6 +463,10 @@ export default function GuildsPage() {
           </div>
         )}
       </main>
+
+      {showCreateModal && (
+        <CreateGuildModal onClose={() => setShowCreateModal(false)} />
+      )}
 
       <Footer />
     </div>

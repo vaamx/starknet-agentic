@@ -130,7 +130,9 @@ export default function TradeLog({ isLoopRunning = false }: TradeLogProps) {
             parsed.type === "resolution" ||
             parsed.type === "market_creation" ||
             parsed.type === "defi_swap" ||
-            parsed.type === "debate")
+            parsed.type === "debate" ||
+            parsed.type === "claim" ||
+            parsed.type === "recurring_creation")
         ) {
           const activity: Activity = {
             id: parsed.id,

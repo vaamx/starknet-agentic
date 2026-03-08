@@ -184,7 +184,7 @@ export async function discoverMarkets(
         question,
         category: cat,
         suggestedResolutionDays:
-          cat === "sports" ? 10 : cat === "politics" ? 21 : 30,
+          cat === "sports" ? 1 : cat === "politics" ? 1 : 1,
         sourceUrl: item.url,
         estimatedProbability: item.confidence,
         reasoning: poly.summary,
@@ -208,7 +208,7 @@ export async function discoverMarkets(
         pushSuggestion({
           question,
           category: "crypto",
-          suggestedResolutionDays: 60,
+          suggestedResolutionDays: 1,
           reasoning: `Derived from live ${token} price data.`,
         });
       }
@@ -230,7 +230,7 @@ export async function discoverMarkets(
         pushSuggestion({
           question,
           category: cat,
-          suggestedResolutionDays: 14,
+          suggestedResolutionDays: 1,
           sourceUrl: item.url,
           reasoning: news.summary,
         });
@@ -249,7 +249,7 @@ export async function discoverMarkets(
         pushSuggestion({
           question,
           category: "sports",
-          suggestedResolutionDays: 7,
+          suggestedResolutionDays: 1,
           reasoning: espn.summary,
         });
       }
@@ -270,7 +270,7 @@ export async function discoverMarkets(
         pushSuggestion({
           question,
           category: categorizeMarket(question),
-          suggestedResolutionDays: 21,
+          suggestedResolutionDays: 1,
           sourceUrl: item.url,
           reasoning: rss.summary,
         });

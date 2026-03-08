@@ -695,13 +695,13 @@ export async function recordPrediction(
 /** Create a new prediction market via the factory (agent-only). */
 export async function createMarket(
   questionOrHash: string,
-  durationDaysOrResolutionTime = 30,
+  durationSecsOrResolutionTime = 300,
   feeBpsOrOracle: number | string = 200,
   oracleOrFeeBps?: string | number,
   executionSurface?: ExecutionSurface
 ): Promise<CreateMarketResult> {
   let questionHash = questionOrHash;
-  let resolutionTime = durationDaysOrResolutionTime;
+  let resolutionTime = durationSecsOrResolutionTime;
   let feeBps = 200;
   let oracleAddress: string | undefined;
   let surface = resolveExecutionSurface(executionSurface);
@@ -713,7 +713,7 @@ export async function createMarket(
       surface = resolveExecutionSurface(oracleOrFeeBps);
     }
   } else {
-    const durationDays = durationDaysOrResolutionTime;
+    const durationSecs = durationSecsOrResolutionTime;
     feeBps = feeBpsOrOracle;
     if (typeof oracleOrFeeBps === "string" && !isExecutionSurface(oracleOrFeeBps)) {
       oracleAddress = oracleOrFeeBps;
@@ -723,7 +723,7 @@ export async function createMarket(
     const trimmed = questionOrHash.slice(0, 31).replace(/[^\x20-\x7E]/g, "");
     questionHash = shortString.encodeShortString(trimmed || "market");
     resolutionTime =
-      Math.floor(Date.now() / 1000) + Math.max(1, durationDays) * 86_400;
+      Math.floor(Date.now() / 1000) + Math.max(60, durationSecs);
   }
 
   if (surface !== "direct") {

@@ -146,8 +146,8 @@ function formatTimeLeft(resolutionTime: number): { label: string; urgent: boolea
   if (secsLeft <= 0) return { label: "Ended", urgent: true, isNew: false, lifecycle: "ended" };
   const days = Math.floor(secsLeft / 86400);
   const hours = Math.floor(secsLeft / 3600);
-  const isNew = days > 25;
-  const lifecycle: MarketLifecycle = days <= 1 ? "closing" : isNew ? "seeding" : "active";
+  const lifecycle: MarketLifecycle = secsLeft <= 120 ? "closing" : secsLeft > 86400 ? "seeding" : "active";
+  const isNew = secsLeft > 86400;
   if (days > 30) return { label: `${Math.floor(days / 30)}mo`, urgent: false, isNew, lifecycle };
   if (days > 0) return { label: `${days}d`, urgent: days <= 3, isNew: false, lifecycle };
   if (hours > 0) return { label: `${hours}h`, urgent: true, isNew: false, lifecycle: "closing" };

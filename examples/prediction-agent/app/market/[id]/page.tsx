@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useAccount } from "@starknet-react/core";
 import { buildBetCalls, buildClaimCalls } from "@/lib/contracts";
 import { computePayout } from "@/lib/accuracy";
+import { friendlyTxError } from "@/lib/tx-errors";
 import { categorizeMarket } from "@/lib/categories";
 import { getAgentVoiceByName } from "@/lib/agent-voices";
 import SiteHeader from "@/components/SiteHeader";
@@ -125,12 +126,22 @@ function timeAgo(timestampSec: number): string {
   return `${Math.floor(delta / 86400)}d ago`;
 }
 
-/** Display a readable agent name — truncate hex addresses. */
+const AGENT_NAMES = ["AlphaForecaster", "BetaAnalyst", "GammaTrader", "DeltaScout", "EpsilonOracle"];
+
+/** Display a readable agent name — deterministic hash from hex address, no mutable state. */
 function displayName(name: string): string {
   if (/^0x[0-9a-fA-F]{20,}$/.test(name)) {
-    return `${name.slice(0, 6)}...${name.slice(-4)}`;
+    // Deterministic index from last 8 hex chars
+    const idx = parseInt(name.slice(-8), 16) % AGENT_NAMES.length;
+    return AGENT_NAMES[idx];
   }
   return name;
+}
+
+/** Get voice for an agent — resolve hex addresses to mapped names first. */
+function resolveVoice(agent: string) {
+  const name = displayName(agent);
+  return getAgentVoiceByName(name);
 }
 
 const AGENT_COLORS: Record<string, string> = {
@@ -142,7 +153,7 @@ const AGENT_COLORS: Record<string, string> = {
 };
 
 function agentColor(agent: string): string {
-  const voice = getAgentVoiceByName(agent);
+  const voice = resolveVoice(agent);
   return AGENT_COLORS[voice?.colorClass ?? ""] ?? "#4c8dff";
 }
 
@@ -420,6 +431,136 @@ function PriceChart({ trail, yesPercent, noPercent, predictions }: { trail: Mark
 }
 
 /* ------------------------------------------------------------------ */
+/*  Claim Banner — shown when market is resolved                        */
+/* ------------------------------------------------------------------ */
+
+function ClaimBanner({ market, onClaimed }: { market: Market; onClaimed?: () => void }) {
+  const { isConnected, account, address } = useAccount();
+  const [position, setPosition] = useState<{ yesBet: string; noBet: string } | null>(null);
+  const [claiming, setClaiming] = useState(false);
+  const [claimResult, setClaimResult] = useState<{ status: string; txHash?: string; error?: string } | null>(null);
+
+  useEffect(() => {
+    if (!isConnected || !address || !market?.id) { setPosition(null); return; }
+    let cancelled = false;
+    fetch(`/api/markets/${market.id}/position?user=${address}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (!cancelled && data) setPosition({ yesBet: data.yesBet, noBet: data.noBet }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isConnected, address, market?.id]);
+
+  if (!isConnected || !position) return null;
+
+  const winningOutcome = market.winningOutcome ?? 0;
+  const winningBet = BigInt(winningOutcome === 1 ? position.yesBet : position.noBet);
+  const losingBet = BigInt(winningOutcome === 1 ? position.noBet : position.yesBet);
+  const outcomeLabel = winningOutcome === 1 ? "Yes" : "No";
+
+  // User has no position at all
+  if (winningBet <= 0n && losingBet <= 0n) return null;
+
+  // User lost
+  if (winningBet <= 0n) {
+    const lostStrk = Number(losingBet) / 1e18;
+    return (
+      <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-4 mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-rose-500/20 flex items-center justify-center text-rose-400 text-lg">
+            &times;
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-rose-300">
+              Market resolved {outcomeLabel} &mdash; your position lost
+            </p>
+            <p className="text-xs text-rose-300/50 mt-0.5">
+              {lostStrk.toFixed(2)} STRK was in the losing pool. Better luck next time.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // User won — show claim button
+  const winStrk = Number(winningBet) / 1e18;
+  const estPayout = computePayout(
+    winningBet,
+    BigInt(market.totalPool ?? "0"),
+    BigInt(winningOutcome === 1 ? (market.yesPool ?? "0") : (market.noPool ?? "0")),
+    market.feeBps ?? 0
+  );
+  const payoutStrk = Number(estPayout) / 1e18;
+  const profit = payoutStrk - winStrk;
+
+  const handleClaim = async () => {
+    if (!account || claiming) return;
+    setClaiming(true);
+    setClaimResult(null);
+    try {
+      const calls = buildClaimCalls(market.address ?? "");
+      const tx = await account.execute(calls);
+      setClaimResult({ status: "success", txHash: tx.transaction_hash });
+      onClaimed?.();
+    } catch (err: any) {
+      setClaimResult({ status: "error", error: friendlyTxError(err) });
+    } finally {
+      setClaiming(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 to-emerald-500/5 p-5 mb-4">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-xl">
+            &#10003;
+          </div>
+          <div>
+            <p className="text-sm font-bold text-emerald-300">
+              You won! Market resolved {outcomeLabel}
+            </p>
+            <p className="text-xs text-emerald-300/60 mt-0.5">
+              Payout: <span className="font-mono font-bold text-emerald-300">{payoutStrk.toFixed(2)} STRK</span>
+              {profit > 0 && <span className="ml-2 text-emerald-400">(+{profit.toFixed(2)} profit)</span>}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={handleClaim}
+          disabled={claiming}
+          className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${
+            claiming
+              ? "bg-white/[0.06] text-white/25 cursor-wait"
+              : "bg-emerald-500 hover:bg-emerald-400 text-white shadow-[0_0_20px_rgba(16,185,129,0.3)]"
+          }`}
+        >
+          {claiming ? "Claiming..." : "Claim Winnings"}
+        </button>
+      </div>
+      {claimResult && (
+        <div className={`mt-3 p-3 rounded-lg text-xs font-mono ${
+          claimResult.status === "success"
+            ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
+            : "bg-rose-500/10 border border-rose-500/20 text-rose-300"
+        }`}>
+          {claimResult.status === "success" ? (
+            <>
+              Winnings claimed!
+              {claimResult.txHash && (
+                <a href={`https://sepolia.voyager.online/tx/${claimResult.txHash}`} target="_blank" rel="noopener noreferrer" className="block text-sky-400/70 mt-1 hover:underline break-all">View on Voyager</a>
+              )}
+            </>
+          ) : (
+            <span>{claimResult.error}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Trade Sidebar                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -428,18 +569,32 @@ function TradeSidebar({
   predictions,
   yesPercent,
   noPercent,
+  onTradeSuccess,
 }: {
   market: Market;
   predictions: AgentPrediction[];
   yesPercent: number;
   noPercent: number;
+  onTradeSuccess?: () => void;
 }) {
-  const { isConnected, account } = useAccount();
+  const { isConnected, account, address, status: walletStatus } = useAccount();
   const [sending, setSending] = useState(false);
   const [mode, setMode] = useState<"buy" | "sell">("buy");
   const [outcome, setOutcome] = useState<0 | 1>(1);
   const [amount, setAmount] = useState("");
   const [betResult, setBetResult] = useState<{ status: string; txHash?: string; error?: string } | null>(null);
+  const [position, setPosition] = useState<{ yesBet: string; noBet: string } | null>(null);
+
+  // Fetch user position when connected
+  useEffect(() => {
+    if (!isConnected || !address || !market?.id) { setPosition(null); return; }
+    let cancelled = false;
+    fetch(`/api/markets/${market.id}/position?user=${address}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (!cancelled && data) setPosition({ yesBet: data.yesBet, noBet: data.noBet }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isConnected, address, market?.id, betResult]);
 
   const amountNum = parseFloat(amount || "0");
   const amountBigInt = useMemo(() => {
@@ -458,7 +613,8 @@ function TradeSidebar({
 
   const estPayoutStrk = Number(estPayout) / 1e18;
   const estProfit = estPayoutStrk - amountNum;
-  const estMultiple = amountNum > 0 ? estPayoutStrk / amountNum : 0;
+  const estMultipleRaw = amountNum > 0 ? estPayoutStrk / amountNum : 0;
+  const estMultiple = Number.isFinite(estMultipleRaw) ? estMultipleRaw : 0;
   const costPerShare = outcome === 1 ? yesPercent : noPercent; // cost in cents to win 100 cents
 
   // Pool stats
@@ -481,8 +637,13 @@ function TradeSidebar({
         const response = await account.execute(calls);
         setBetResult({ status: "success", txHash: response.transaction_hash });
       }
+      // Refresh market data from chain after successful trade
+      if (onTradeSuccess) {
+        // Small delay to let the transaction propagate to the node
+        setTimeout(() => onTradeSuccess(), 3000);
+      }
     } catch (err: unknown) {
-      setBetResult({ status: "error", error: err instanceof Error ? err.message : String(err) });
+      setBetResult({ status: "error", error: friendlyTxError(err instanceof Error ? err.message : String(err)) });
     } finally {
       setSending(false);
     }
@@ -493,7 +654,7 @@ function TradeSidebar({
 
   return (
     <div className="rounded-2xl border border-white/[0.08] overflow-hidden" style={{ background: "rgba(17,24,39,0.95)", backdropFilter: "blur(24px)" }}>
-      {/* Buy / Sell tabs */}
+      {/* Buy / Claim tabs */}
       <div className="flex border-b border-white/[0.06]">
         {(["buy", "sell"] as const).map((m) => (
           <button
@@ -505,14 +666,24 @@ function TradeSidebar({
                 : "text-white/30 hover:text-white/50"
             }`}
           >
-            {m}
+            {m === "sell" ? "Claim" : m}
           </button>
         ))}
       </div>
 
       <div className="p-4 space-y-3">
-        {/* Outcome choice */}
-        <div>
+        {/* Claim tab: show explanation if market not resolved */}
+        {mode === "sell" && market.status !== 2 && (
+          <div className="rounded-xl border border-amber-400/20 bg-amber-400/[0.06] p-3 space-y-1.5">
+            <p className="text-[11px] font-semibold text-amber-300">Market not yet resolved</p>
+            <p className="text-[10px] text-amber-200/60 leading-relaxed">
+              You can claim winnings after the market resolves. Prediction markets don&apos;t allow selling positions before resolution &mdash; your STRK is locked until an outcome is decided.
+            </p>
+          </div>
+        )}
+
+        {/* Outcome choice — hidden in claim mode */}
+        {mode === "buy" && <div>
           <p className="text-[10px] uppercase tracking-widest text-white/30 font-semibold mb-2">Outcome</p>
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -542,10 +713,10 @@ function TradeSidebar({
               </div>
             </button>
           </div>
-        </div>
+        </div>}
 
-        {/* Amount */}
-        <div>
+        {/* Amount — only for buy mode */}
+        {mode === "buy" && <div>
           <p className="text-[10px] uppercase tracking-widest text-white/30 font-semibold mb-2">Amount (STRK)</p>
           <input
             type="number"
@@ -567,9 +738,10 @@ function TradeSidebar({
               </button>
             ))}
           </div>
-        </div>
+        </div>}
 
-        {/* Odds & Payout breakdown — always visible */}
+        {/* Odds & Payout breakdown — buy mode only */}
+        {mode === "buy" &&
         <div className="rounded-xl bg-white/[0.025] border border-white/[0.05] p-3 space-y-2.5">
           <div className="flex justify-between text-xs">
             <span className="text-white/35">Cost per share</span>
@@ -601,35 +773,47 @@ function TradeSidebar({
               </div>
             </>
           )}
-        </div>
+        </div>}
 
         {/* Trade button */}
-        {isConnected ? (
+        {!isConnected ? (
           <button
-            onClick={handleTrade}
-            disabled={sending || (mode === "buy" && amountBigInt <= 0n)}
-            className={`w-full py-3.5 rounded-xl font-bold text-sm transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
-              mode === "sell"
-                ? "bg-rose-500 hover:bg-rose-400 text-white"
-                : outcome === 1
-                  ? "bg-emerald-500 hover:bg-emerald-400 text-white"
-                  : "bg-rose-500 hover:bg-rose-400 text-white"
-            }`}
+            onClick={() => window.dispatchEvent(new Event("hc-wallet-connect-open"))}
+            className="w-full py-3.5 rounded-xl font-bold text-sm bg-gradient-to-r from-sky-500/80 to-cyan-500/80 hover:from-sky-500 hover:to-cyan-500 text-white transition-all"
           >
-            {sending
-              ? "Confirming..."
-              : mode === "sell"
-                ? "Sell Position"
-                : amountNum > 0
-                  ? `Buy ${outcomeLabel} \u2014 ${amountNum} STRK`
-                  : `Buy ${outcomeLabel}`}
+            Connect Wallet to Trade
+          </button>
+        ) : walletStatus === "reconnecting" || !account ? (
+          <button
+            className="w-full py-3.5 rounded-xl font-bold text-sm bg-white/[0.06] text-white/50 border border-white/10 cursor-wait"
+            disabled
+          >
+            <span className="inline-block w-3 h-3 border-2 border-white/20 border-t-white/60 rounded-full animate-spin mr-2 align-middle" />
+            Wallet connecting...
           </button>
         ) : (
           <button
-            className="w-full py-3.5 rounded-xl font-bold text-sm bg-white/[0.06] text-white/40 border border-dashed border-white/10 cursor-default"
-            disabled
+            onClick={handleTrade}
+            disabled={sending || (mode === "buy" && amountBigInt <= 0n) || (mode === "sell" && market.status !== 2)}
+            className={`w-full py-3.5 rounded-xl font-bold text-sm transition-all ${
+              sending || (mode === "buy" && amountBigInt <= 0n) || (mode === "sell" && market.status !== 2)
+                ? "bg-white/[0.06] text-white/25 cursor-not-allowed"
+                : mode === "sell"
+                  ? "bg-sky-500 hover:bg-sky-400 text-white shadow-[0_0_20px_rgba(14,165,233,0.2)]"
+                  : outcome === 1
+                    ? "bg-emerald-500 hover:bg-emerald-400 text-white shadow-[0_0_20px_rgba(16,185,129,0.2)]"
+                    : "bg-rose-500 hover:bg-rose-400 text-white shadow-[0_0_20px_rgba(244,63,94,0.2)]"
+            }`}
           >
-            Connect Wallet to Trade
+            {sending
+              ? "Confirming in wallet..."
+              : mode === "sell"
+                ? market.status === 2
+                  ? "Claim Winnings"
+                  : "Market not resolved yet"
+                : amountNum > 0
+                  ? `Buy ${outcomeLabel} \u2014 ${amountNum} STRK`
+                  : "Enter amount above"}
           </button>
         )}
 
@@ -650,7 +834,7 @@ function TradeSidebar({
           {betResult.status === "success" ? (
             <>
               <span className="text-emerald-300 font-bold">
-                {mode === "sell" ? "Position sold" : "Trade placed on-chain"}
+                {mode === "sell" ? "Winnings claimed" : "Trade placed on-chain"}
               </span>
               {betResult.txHash && (
                 <a
@@ -687,6 +871,57 @@ function TradeSidebar({
         </div>
       </div>
 
+      {/* Your Position */}
+      {position && (BigInt(position.yesBet) > 0n || BigInt(position.noBet) > 0n) && (() => {
+        const yesBetWei = BigInt(position.yesBet);
+        const noBetWei = BigInt(position.noBet);
+        const yesStrk = Number(yesBetWei) / 1e18;
+        const noStrk = Number(noBetWei) / 1e18;
+        const totalPositionStrk = yesStrk + noStrk;
+        const yesPayoutWei = yesBetWei > 0n ? computePayout(yesBetWei, BigInt(market.totalPool ?? "0"), BigInt(market.yesPool ?? "0"), market.feeBps ?? 0) : 0n;
+        const noPayoutWei = noBetWei > 0n ? computePayout(noBetWei, BigInt(market.totalPool ?? "0"), BigInt(market.noPool ?? "0"), market.feeBps ?? 0) : 0n;
+        const yesPayoutStrk = Number(yesPayoutWei) / 1e18;
+        const noPayoutStrk = Number(noPayoutWei) / 1e18;
+
+        return (
+          <div className="border-t border-white/[0.06] p-4 space-y-2.5">
+            <p className="text-[10px] uppercase tracking-widest text-white/25 font-semibold">Your Position</p>
+            {yesStrk > 0 && (
+              <div className="flex justify-between items-center text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500/80" />
+                  <span className="text-white/60">Yes</span>
+                </div>
+                <div className="text-right">
+                  <span className="font-mono text-white/80">{yesStrk.toFixed(2)} STRK</span>
+                  <span className="text-emerald-400/60 font-mono ml-2 text-[11px]">
+                    &rarr; {yesPayoutStrk.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            )}
+            {noStrk > 0 && (
+              <div className="flex justify-between items-center text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-rose-500/80" />
+                  <span className="text-white/60">No</span>
+                </div>
+                <div className="text-right">
+                  <span className="font-mono text-white/80">{noStrk.toFixed(2)} STRK</span>
+                  <span className="text-rose-400/60 font-mono ml-2 text-[11px]">
+                    &rarr; {noPayoutStrk.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            )}
+            <div className="flex justify-between text-[11px] border-t border-white/[0.04] pt-2">
+              <span className="text-white/30">Total invested</span>
+              <span className="font-mono font-semibold text-white/70">{totalPositionStrk.toFixed(2)} STRK</span>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* AI Consensus */}
       {predictions.length > 0 && (
         <div className="border-t border-white/[0.06] p-4">
@@ -718,7 +953,7 @@ function TradeSidebar({
 /* ------------------------------------------------------------------ */
 
 function AgentRow({ pred, marketYesPct }: { pred: AgentPrediction; marketYesPct: number }) {
-  const voice = getAgentVoiceByName(pred.agent);
+  const voice = resolveVoice(pred.agent);
   const probPct = Math.round(pred.predictedProb * 100);
   const isYes = probPct >= 50;
   const color = agentColor(pred.agent);
@@ -901,6 +1136,23 @@ export default function MarketPage() {
 
   useEffect(() => { fetchMarket(); }, [fetchMarket]);
 
+  /** Force-refresh market data from chain (cache-busting). Called after bets/trades. */
+  const refreshMarket = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/markets/${id}?refresh=1`, { cache: "no-store" });
+      if (!res.ok) return;
+      const json = await res.json();
+      setData({
+        market: json.market,
+        predictions: Array.isArray(json.predictions) ? json.predictions : [],
+        weightedProbability: typeof json.weightedProbability === "number" ? json.weightedProbability : null,
+        latestAgentTake: json.latestAgentTake ?? null,
+      });
+    } catch {
+      // silent — non-critical refresh
+    }
+  }, [id]);
+
   /* ---- Derived ---- */
   const market = data?.market;
   const predictions = data?.predictions ?? [];
@@ -908,8 +1160,10 @@ export default function MarketPage() {
   const noPercent = 100 - yesPercent;
   const category = market ? categorizeMarket(market.question) : "other";
   const now = Date.now() / 1000;
-  const daysLeft = market ? Math.max(0, Math.floor((market.resolutionTime - now) / 86400)) : 0;
-  const hoursLeft = market ? Math.max(0, Math.floor((market.resolutionTime - now) / 3600)) : 0;
+  const secsLeft = market ? Math.max(0, market.resolutionTime - now) : 0;
+  const daysLeft = Math.floor(secsLeft / 86400);
+  const hoursLeft = Math.floor(secsLeft / 3600);
+  const minsLeft = Math.ceil(secsLeft / 60);
   const isExpired = market ? market.resolutionTime <= now : false;
   const poolWei = market ? safeBigInt(market.totalPool) : 0n;
   const poolStrk = Number(poolWei) / 1e18;
@@ -930,11 +1184,32 @@ export default function MarketPage() {
 
   const topLevelComments = useMemo(() => commentThread.filter((c) => !c.parentId), [commentThread]);
 
-  const statusLabel = market
-    ? market.status === 0
-      ? isExpired ? "Pending Resolution" : "Live"
-      : ["Active", "Closed", "Resolved"][market.status] ?? "Unknown"
-    : "";
+  // Lifecycle-aware status
+  const lifecyclePhase = (() => {
+    if (!market) return "open";
+    if (market.status === 2) return "resolved";
+    if (isExpired) return "resolving";
+    if (secsLeft <= 120) return "closing";
+    return "open";
+  })();
+
+  const statusLabel = (() => {
+    switch (lifecyclePhase) {
+      case "resolved": return "Resolved";
+      case "resolving": return "Resolving...";
+      case "closing": return "Closing Soon";
+      default: return "Live";
+    }
+  })();
+
+  const statusColor = (() => {
+    switch (lifecyclePhase) {
+      case "resolved": return "bg-sky-500/20 text-sky-300 border-sky-500/30";
+      case "resolving": return "bg-amber-500/20 text-amber-300 border-amber-500/30 animate-pulse";
+      case "closing": return "bg-rose-500/20 text-rose-300 border-rose-500/30";
+      default: return "bg-emerald-500/20 text-emerald-300 border-emerald-500/30";
+    }
+  })();
 
   const handleShare = async () => {
     const url = window.location.href;
@@ -1017,19 +1292,19 @@ export default function MarketPage() {
                 {market.question}
               </h1>
               <div className="flex items-center gap-3 flex-wrap">
-                {/* Status badge */}
-                {market.status === 0 && !isExpired && (
-                  <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-400">
+                {/* Lifecycle badge */}
+                <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${statusColor}`}>
+                  {lifecyclePhase === "open" && (
                     <span className="relative flex h-2 w-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-50" />
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
                     </span>
-                    {statusLabel}
-                  </span>
-                )}
-                {market.status !== 0 || isExpired ? (
-                  <span className="text-[11px] font-semibold text-amber-400">{statusLabel}</span>
-                ) : null}
+                  )}
+                  {lifecyclePhase === "resolving" && (
+                    <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                  )}
+                  {statusLabel}
+                </span>
 
                 <span className="text-white/10">|</span>
 
@@ -1042,7 +1317,7 @@ export default function MarketPage() {
 
                 {/* Time left */}
                 <span className="text-[12px] text-white/40">
-                  {isExpired ? "Expired" : daysLeft > 0 ? `${daysLeft}d left` : `${hoursLeft}h left`}
+                  {isExpired ? "Expired" : daysLeft > 0 ? `${daysLeft}d left` : hoursLeft > 0 ? `${hoursLeft}h left` : minsLeft > 1 ? `${minsLeft}m left` : `${Math.floor(secsLeft)}s left`}
                 </span>
 
                 {/* Share */}
@@ -1097,9 +1372,23 @@ export default function MarketPage() {
               )}
             </div>
 
+            {/* Claim banner — resolved markets with position */}
+            {lifecyclePhase === "resolved" && <ClaimBanner market={market} onClaimed={refreshMarket} />}
+
+            {/* Resolving banner */}
+            {lifecyclePhase === "resolving" && (
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 mb-4 flex items-center gap-3">
+                <svg className="w-5 h-5 text-amber-400 animate-spin shrink-0" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                <div>
+                  <p className="text-sm font-semibold text-amber-300">Resolution in progress</p>
+                  <p className="text-xs text-amber-300/50 mt-0.5">The oracle is gathering evidence and verifying the outcome. This usually takes 30s-5min depending on market type.</p>
+                </div>
+              </div>
+            )}
+
             {/* Mobile trade card */}
             <div className="lg:hidden mt-6 mb-4">
-              <TradeSidebar market={market} predictions={predictions} yesPercent={yesPercent} noPercent={noPercent} />
+              <TradeSidebar market={market} predictions={predictions} yesPercent={yesPercent} noPercent={noPercent} onTradeSuccess={refreshMarket} />
             </div>
 
             {/* ---- TABS ---- */}
@@ -1278,7 +1567,7 @@ export default function MarketPage() {
                     { label: "Fee", value: <span className="font-mono text-white/40 text-xs">{market.feeBps / 100}%</span> },
                     { label: "Resolution", value: (
                       <span className="font-mono text-white/40 text-xs">
-                        {new Date(market.resolutionTime * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        {new Date(market.resolutionTime * 1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                       </span>
                     )},
                     { label: "Category", value: <span className="text-white/40 text-xs capitalize">{category}</span> },
@@ -1343,7 +1632,7 @@ export default function MarketPage() {
           <div className="hidden lg:block w-[320px] shrink-0">
             <div className="sticky top-24 space-y-4">
               {market.status === 0 && !isExpired ? (
-                <TradeSidebar market={market} predictions={predictions} yesPercent={yesPercent} noPercent={noPercent} />
+                <TradeSidebar market={market} predictions={predictions} yesPercent={yesPercent} noPercent={noPercent} onTradeSuccess={refreshMarket} />
               ) : (
                 <div className="rounded-2xl border border-white/[0.08] p-8 text-center" style={{ background: "rgba(17,24,39,0.95)" }}>
                   <div className="w-12 h-12 rounded-full bg-violet-400/10 border border-violet-400/20 flex items-center justify-center mx-auto mb-3">

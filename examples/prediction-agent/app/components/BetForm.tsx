@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useAccount } from "@starknet-react/core";
 import { computePayout } from "@/lib/accuracy";
 import { buildBetCalls } from "@/lib/contracts";
+import { friendlyTxError } from "@/lib/tx-errors";
 
 interface BetFormProps {
   marketId: number;
@@ -79,8 +80,9 @@ export default function BetForm({
       ? computePayout(amountBigInt, newTotalPool, newWinningPool, feeBps)
       : 0n;
 
-  const estMultiple =
+  const estMultipleRaw =
     amountBigInt > 0n ? Number(estPayout) / Number(amountBigInt) : 0;
+  const estMultiple = Number.isFinite(estMultipleRaw) ? estMultipleRaw : 0;
 
   const newImpliedYes =
     newTotalPool > 0n
@@ -115,7 +117,7 @@ export default function BetForm({
         txHash: response.transaction_hash,
       });
     } catch (err: any) {
-      setResult({ status: "error", error: err.message });
+      setResult({ status: "error", error: friendlyTxError(err.message || "Transaction failed") });
     } finally {
       setSending(false);
     }
@@ -288,24 +290,39 @@ export default function BetForm({
           )}
 
           {/* Submit */}
-          {isConnected ? (
+          {!isConnected ? (
+            <button
+              onClick={() => window.dispatchEvent(new Event("hc-wallet-connect-open"))}
+              className="w-full py-3 rounded-lg font-bold text-sm bg-gradient-to-r from-sky-500/80 to-cyan-500/80 hover:from-sky-500 hover:to-cyan-500 text-white transition-all"
+            >
+              Connect Wallet to Trade
+            </button>
+          ) : !account ? (
+            <button
+              className="w-full py-3 rounded-lg font-bold text-sm bg-white/[0.06] text-white/50 border border-white/10 cursor-wait"
+              disabled
+            >
+              <span className="inline-block w-3 h-3 border-2 border-white/20 border-t-white/60 rounded-full animate-spin mr-2 align-middle" />
+              Wallet connecting...
+            </button>
+          ) : (
             <button
               onClick={handleSubmit}
               disabled={sending || amountBigInt <= 0n}
-              className={`w-full py-3 rounded-lg font-heading font-bold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                outcome === 1
-                  ? "bg-neo-green/20 text-neo-green border border-neo-green/30 hover:bg-neo-green/30"
-                  : "bg-neo-red/20 text-neo-red border border-neo-red/30 hover:bg-neo-red/30"
+              className={`w-full py-3 rounded-lg font-heading font-bold text-sm transition-all ${
+                sending || amountBigInt <= 0n
+                  ? "bg-white/[0.06] text-white/25 cursor-not-allowed"
+                  : outcome === 1
+                    ? "bg-neo-green/20 text-neo-green border border-neo-green/30 hover:bg-neo-green/30"
+                    : "bg-neo-red/20 text-neo-red border border-neo-red/30 hover:bg-neo-red/30"
               }`}
             >
               {sending
-                ? "Signing Transaction..."
-                : `Bet ${outcome === 1 ? "YES" : "NO"}${amount ? ` \u2014 ${amount} STRK` : ""}`}
+                ? "Confirming in wallet..."
+                : amountBigInt <= 0n
+                  ? "Enter amount above"
+                  : `Bet ${outcome === 1 ? "YES" : "NO"} \u2014 ${amount} STRK`}
             </button>
-          ) : (
-            <div className="text-center py-3 border border-dashed border-white/10 text-sm text-white/50 rounded-lg">
-              Connect Wallet to Place Bets
-            </div>
           )}
 
           {/* Result */}

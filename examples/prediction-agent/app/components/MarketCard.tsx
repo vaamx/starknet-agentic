@@ -73,8 +73,10 @@ export default function MarketCard({
       : 0;
 
   const now = Date.now() / 1000;
-  const daysLeft = Math.max(0, Math.floor((resolutionTime - now) / 86400));
-  const hoursLeft = Math.max(0, Math.floor((resolutionTime - now) / 3600));
+  const secsLeft = Math.max(0, resolutionTime - now);
+  const daysLeft = Math.floor(secsLeft / 86400);
+  const hoursLeft = Math.floor(secsLeft / 3600);
+  const minsLeft = Math.ceil(secsLeft / 60);
   const isExpired = resolutionTime <= now;
 
   const poolWei = safeBigInt(totalPool);
@@ -94,7 +96,7 @@ export default function MarketCard({
 
   const disagreement = computeDisagreement(predictions);
   const isHot = (tradeCount ?? 0) > 3;
-  const isClosingSoon = !isExpired && daysLeft === 0 && hoursLeft < 24;
+  const isClosingSoon = !isExpired && secsLeft < 600;
   const isContested = disagreement > 0.15;
 
   const latestVoice = getAgentVoiceByName(latestAgentTake?.agentName);
@@ -143,9 +145,11 @@ export default function MarketCard({
           <span className="text-xs text-white/30 ml-auto">
             {isExpired
               ? "Expired"
-              : isClosingSoon
-                ? `${hoursLeft}h left`
-                : `${daysLeft}d left`}
+              : daysLeft > 0
+                ? `${daysLeft}d left`
+                : hoursLeft > 0
+                  ? `${hoursLeft}h left`
+                  : `${minsLeft}m left`}
           </span>
         </div>
 

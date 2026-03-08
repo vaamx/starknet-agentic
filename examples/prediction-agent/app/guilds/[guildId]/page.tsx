@@ -6,11 +6,14 @@ import Link from "next/link";
 import { useAccount } from "@starknet-react/core";
 import SiteHeader from "@/components/SiteHeader";
 import Footer from "@/components/Footer";
+import { friendlyTxError } from "@/lib/tx-errors";
+import { shortString } from "starknet";
 import {
   ECONOMY,
   buildJoinGuildCalls,
   buildLeaveGuildCalls,
   buildGuildVoteCalls,
+  buildCreateProposalCalls,
 } from "@/lib/contracts";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -116,7 +119,7 @@ function GuildMembershipActions({
       const res = await account.execute(calls);
       setTxResult({ status: "success", txHash: res.transaction_hash });
     } catch (err: any) {
-      setTxResult({ status: "error", error: err.message });
+      setTxResult({ status: "error", error: friendlyTxError(err.message ?? String(err)) });
     } finally {
       setSending(false);
     }
@@ -131,7 +134,7 @@ function GuildMembershipActions({
       const res = await account.execute(calls);
       setTxResult({ status: "success", txHash: res.transaction_hash });
     } catch (err: any) {
-      setTxResult({ status: "error", error: err.message });
+      setTxResult({ status: "error", error: friendlyTxError(err.message ?? String(err)) });
     } finally {
       setSending(false);
     }
@@ -141,14 +144,30 @@ function GuildMembershipActions({
     <>
       <div className="flex items-center justify-between">
         <h2 className="font-heading font-bold text-base text-white">Membership</h2>
-        {isConnected ? (
+        {!isConnected ? (
+          <button
+            onClick={() => window.dispatchEvent(new Event("hc-wallet-connect-open"))}
+            className="rounded-lg bg-gradient-to-r from-sky-500/70 to-cyan-500/70 hover:from-sky-500 hover:to-cyan-500 px-4 py-2 text-[11px] font-semibold text-white transition-all"
+          >
+            Connect Wallet
+          </button>
+        ) : !account ? (
+          <span className="text-[11px] text-white/30">
+            <span className="inline-block w-2.5 h-2.5 border-2 border-white/20 border-t-white/60 rounded-full animate-spin mr-1 align-middle" />
+            Connecting...
+          </span>
+        ) : (
           <div className="flex items-center gap-2">
             <button
               onClick={handleJoin}
               disabled={sending || !stakeInput || parseFloat(stakeInput) < minStake}
-              className="rounded-lg border border-cyan-400/20 bg-cyan-400/10 px-4 py-2 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/15 hover:border-cyan-400/30 transition-all disabled:opacity-40"
+              className={`rounded-lg border px-4 py-2 text-[11px] font-semibold transition-all ${
+                sending || !stakeInput || parseFloat(stakeInput) < minStake
+                  ? "border-white/[0.06] bg-white/[0.02] text-white/20 cursor-not-allowed"
+                  : "border-cyan-400/20 bg-cyan-400/10 text-cyan-300 hover:bg-cyan-400/15 hover:border-cyan-400/30"
+              }`}
             >
-              {sending ? "Signing..." : "Join Guild"}
+              {sending ? "Confirming..." : "Join Guild"}
             </button>
             <button
               onClick={handleLeave}
@@ -158,8 +177,6 @@ function GuildMembershipActions({
               {sending ? "..." : "Leave Guild"}
             </button>
           </div>
-        ) : (
-          <span className="text-[11px] text-white/30">Connect wallet</span>
         )}
       </div>
 
@@ -218,14 +235,21 @@ function VoteButtons({ proposalId }: { proposalId: number }) {
       const res = await account.execute(calls);
       setTxResult({ status: "success", txHash: res.transaction_hash });
     } catch (err: any) {
-      setTxResult({ status: "error", error: err.message });
+      setTxResult({ status: "error", error: friendlyTxError(err.message ?? String(err)) });
     } finally {
       setVoting(false);
     }
   }
 
   if (!isConnected) {
-    return <span className="text-[10px] text-white/25">Connect wallet to vote</span>;
+    return (
+      <button
+        onClick={() => window.dispatchEvent(new Event("hc-wallet-connect-open"))}
+        className="rounded-lg bg-gradient-to-r from-sky-500/60 to-cyan-500/60 hover:from-sky-500/80 hover:to-cyan-500/80 px-3 py-1.5 text-[10px] font-semibold text-white transition-all"
+      >
+        Connect to Vote
+      </button>
+    );
   }
 
   return (
@@ -255,6 +279,140 @@ function VoteButtons({ proposalId }: { proposalId: number }) {
             : txResult.error}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Create Proposal Modal ────────────────────────────────────────────────────
+
+function CreateProposalModal({
+  guildId,
+  totalStaked,
+  onClose,
+}: {
+  guildId: number;
+  totalStaked: number;
+  onClose: () => void;
+}) {
+  const { account } = useAccount();
+  const [description, setDescription] = useState("");
+  const [quorum, setQuorum] = useState("");
+  const [deadlineDays, setDeadlineDays] = useState("7");
+  const [sending, setSending] = useState(false);
+  const [txResult, setTxResult] = useState<{ status: string; txHash?: string; error?: string } | null>(null);
+
+  async function handleSubmit() {
+    if (!account || !description.trim()) return;
+    setSending(true);
+    setTxResult(null);
+    try {
+      const trimmed = description.slice(0, 31).replace(/[^\x20-\x7E]/g, "");
+      const descHash = BigInt(shortString.encodeShortString(trimmed || "proposal"));
+      const quorumWei = BigInt(Math.floor((parseFloat(quorum) || totalStaked * 0.3) * 1e18));
+      const days = parseInt(deadlineDays) || 7;
+      const deadline = Math.floor(Date.now() / 1000) + days * 86400;
+
+      const calls = buildCreateProposalCalls(
+        ECONOMY.GUILD_DAO,
+        BigInt(guildId),
+        descHash,
+        quorumWei,
+        deadline
+      );
+      const res = await account.execute(calls);
+      setTxResult({ status: "success", txHash: res.transaction_hash });
+    } catch (err: any) {
+      setTxResult({ status: "error", error: friendlyTxError(err.message ?? String(err)) });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-md neo-card p-6 space-y-5">
+        <div className="flex items-center justify-between">
+          <h3 className="font-heading font-bold text-lg text-white">Create Proposal</h3>
+          <button onClick={onClose} className="text-white/30 hover:text-white/60 transition-colors">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-[10px] uppercase tracking-wider text-white/30 font-semibold">
+              Description (max 31 chars)
+            </label>
+            <input
+              type="text"
+              maxLength={31}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="e.g. Fund research sprint"
+              className="h-10 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-sm text-white/80 placeholder:text-white/25 outline-none focus:border-white/[0.15] font-mono"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] uppercase tracking-wider text-white/30 font-semibold">
+              Quorum (STRK)
+            </label>
+            <input
+              type="number"
+              value={quorum}
+              onChange={(e) => setQuorum(e.target.value)}
+              placeholder={`Default: ${fmtStrk(totalStaked * 0.3)} (30% of staked)`}
+              className="h-10 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-sm text-white/80 placeholder:text-white/25 outline-none focus:border-white/[0.15] font-mono"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] uppercase tracking-wider text-white/30 font-semibold">
+              Voting Period (days)
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={30}
+              value={deadlineDays}
+              onChange={(e) => setDeadlineDays(e.target.value)}
+              className="h-10 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-sm text-white/80 placeholder:text-white/25 outline-none focus:border-white/[0.15] font-mono"
+            />
+          </div>
+        </div>
+
+        <button
+          onClick={handleSubmit}
+          disabled={sending || !description.trim()}
+          className="w-full rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-2.5 text-[12px] font-semibold text-cyan-300 hover:bg-cyan-400/15 hover:border-cyan-400/30 transition-all disabled:opacity-40"
+        >
+          {sending ? "Submitting..." : "Submit Proposal"}
+        </button>
+
+        {txResult && (
+          <div className={`p-2.5 border text-xs font-mono rounded-lg ${
+            txResult.status === "success"
+              ? "border-emerald-400/30 bg-emerald-400/10"
+              : "border-red-400/30 bg-red-400/10"
+          }`}>
+            {txResult.status === "success" ? (
+              <a
+                href={`https://sepolia.voyager.online/tx/${txResult.txHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-emerald-300 hover:underline break-all"
+              >
+                Tx: {txResult.txHash?.slice(0, 20)}...
+              </a>
+            ) : (
+              <span className="text-red-300">{txResult.error}</span>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -352,6 +510,8 @@ export default function GuildDetailPage() {
   const [guild, setGuild] = useState<GuildDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [showProposalModal, setShowProposalModal] = useState(false);
+  const { isConnected } = useAccount();
 
   useEffect(() => {
     let cancelled = false;
@@ -584,7 +744,13 @@ export default function GuildDetailPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="font-heading font-bold text-base text-white">Proposals</h2>
-            <button aria-label="Create a new proposal" className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] px-4 py-2 text-[11px] font-semibold text-white/60 hover:text-white/80 hover:bg-white/[0.08] transition-all">
+            <button
+              aria-label="Create a new proposal"
+              onClick={() => setShowProposalModal(true)}
+              disabled={!isConnected}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] px-4 py-2 text-[11px] font-semibold text-white/60 hover:text-white/80 hover:bg-white/[0.08] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              title={!isConnected ? "Connect wallet to create a proposal" : undefined}
+            >
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
@@ -633,6 +799,14 @@ export default function GuildDetailPage() {
           </p>
         </div>
       </main>
+
+      {showProposalModal && guild && (
+        <CreateProposalModal
+          guildId={guild.guildId}
+          totalStaked={guild.totalStaked}
+          onClose={() => setShowProposalModal(false)}
+        />
+      )}
 
       <Footer />
     </div>

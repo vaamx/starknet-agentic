@@ -6,7 +6,9 @@ import {
   getWeightedProbability,
   resolveMarketQuestion,
   seedKnownQuestions,
+  invalidateMarketsCache,
 } from "@/lib/market-reader";
+import { getOnChainActivityCounts } from "@/lib/event-indexer";
 import { agentLoop } from "@/lib/agent-loop";
 import {
   getPersistedLoopActions,
@@ -108,11 +110,17 @@ export async function GET(
   if (!Number.isFinite(marketId) || marketId < 0) {
     return NextResponse.json({ error: "Invalid market id" }, { status: 400 });
   }
+
+  // Allow clients to force-refresh after a bet or trade
+  if (request.nextUrl.searchParams.get("refresh") === "1") {
+    invalidateMarketsCache();
+  }
+
   try {
 
     const [cachedSnapshots, cachedActions] = await Promise.all([
-      getPersistedMarketSnapshots(500).catch(() => [] as PersistedMarketSnapshot[]),
-      getPersistedLoopActions(500).catch(() => [] as any[]),
+      getPersistedMarketSnapshots(500).catch((e) => { console.warn("[markets/id] snapshots fallback:", e?.message); return [] as PersistedMarketSnapshot[]; }),
+      getPersistedLoopActions(500).catch((e) => { console.warn("[markets/id] actions fallback:", e?.message); return [] as any[]; }),
     ]);
     for (const snapshot of cachedSnapshots) {
       if (snapshot.question) {
@@ -157,10 +165,14 @@ export async function GET(
       return NextResponse.json({ error: "Market not found" }, { status: 404 });
     }
 
-    const [onChainPredictions, weightedProb] = await Promise.all([
+    const [onChainPredictions, weightedProb, tradeCountMap] = await Promise.all([
       withTimeout(getAgentPredictions(marketId), 4_000, []),
       withTimeout(getWeightedProbability(marketId), 4_000, null),
+      market.address && market.address !== "0x0"
+        ? withTimeout(getOnChainActivityCounts([market.address]), 2_000, {})
+        : Promise.resolve({}),
     ]);
+    const tradeCount = (tradeCountMap as Record<string, number>)[market.address] ?? 0;
 
     const [inMemoryActions, persistedActions] = await Promise.all([
       Promise.resolve(agentLoop.getActionLog(200)).catch(() => [] as any[]),
@@ -260,6 +272,8 @@ export async function GET(
         totalPool: market.totalPool.toString(),
         yesPool: market.yesPool.toString(),
         noPool: market.noPool.toString(),
+        tradeCount,
+        winningOutcome: market.winningOutcome ?? undefined,
       },
       predictions,
       weightedProbability: weightedProb,

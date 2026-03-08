@@ -16,6 +16,7 @@ export interface Market {
   feeBps: number;
   collateralToken: string;
   tradeCount?: number;
+  winningOutcome?: number;
 }
 
 export interface LeaderboardEntry {

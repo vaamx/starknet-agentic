@@ -43,8 +43,9 @@ export function computePayout(
   winningPool: bigint,
   feeBps: number
 ): bigint {
-  if (winningPool === 0n) return 0n;
-  return (userBet * totalPool * BigInt(10000 - feeBps)) / (winningPool * 10000n);
+  if (winningPool === 0n || totalPool === 0n) return 0n;
+  const clampedFee = Math.max(0, Math.min(10000, Math.floor(feeBps)));
+  return (userBet * totalPool * BigInt(10000 - clampedFee)) / (winningPool * 10000n);
 }
 
 /** Format Brier score for display. */

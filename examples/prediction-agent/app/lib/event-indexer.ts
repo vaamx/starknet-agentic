@@ -31,6 +31,7 @@ let cachedActivities: OnChainActivity[] = [];
 let cacheTimestamp = 0;
 const CACHE_TTL_MS = 30_000;
 const blockTimestampCache = new Map<number, number>();
+const BLOCK_CACHE_MAX = 500;
 
 /**
  * Fetch on-chain events from all known market addresses.
@@ -135,7 +136,8 @@ async function fetchEvents(
         blockNumber: event.block_number ?? toBlock,
       };
     });
-  } catch {
+  } catch (err: any) {
+    console.warn("[event-indexer] fetchEvents failed:", err?.message ?? err);
     return [];
   }
 }
@@ -190,6 +192,10 @@ async function getBlockTimestamp(blockNumber: number): Promise<number> {
     const block = await provider.getBlock(blockNumber);
     const tsSeconds = Number((block as any).timestamp ?? 0);
     const tsMs = tsSeconds > 0 ? tsSeconds * 1000 : Date.now();
+    if (blockTimestampCache.size >= BLOCK_CACHE_MAX) {
+      const firstKey = blockTimestampCache.keys().next().value;
+      if (firstKey !== undefined) blockTimestampCache.delete(firstKey);
+    }
     blockTimestampCache.set(blockNumber, tsMs);
     return tsMs;
   } catch {

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useAccount } from "@starknet-react/core";
 import { buildCreateMarketCalls } from "@/lib/contracts";
 import { reviewMarketQuestion } from "@/lib/market-quality";
+import { friendlyTxError } from "@/lib/tx-errors";
 
 interface MarketCreatorProps {
   onClose: () => void;
@@ -11,10 +12,11 @@ interface MarketCreatorProps {
 }
 
 const DURATION_PRESETS = [
-  { label: "7d", days: 7 },
-  { label: "14d", days: 14 },
-  { label: "30d", days: 30 },
-  { label: "90d", days: 90 },
+  { label: "5m", minutes: 5 },
+  { label: "15m", minutes: 15 },
+  { label: "30m", minutes: 30 },
+  { label: "1h", minutes: 60 },
+  { label: "4h", minutes: 240 },
 ];
 
 const FEE_PRESETS = [
@@ -29,17 +31,17 @@ export default function MarketCreator({ onClose, onCreated }: MarketCreatorProps
   const [sending, setSending] = useState(false);
 
   const [question, setQuestion] = useState("");
-  const [days, setDays] = useState(30);
+  const [durationMins, setDurationMins] = useState(5);
   const [feeBps, setFeeBps] = useState(200);
   const [result, setResult] = useState<{
     txHash?: string;
     error?: string;
   } | null>(null);
 
-  const validDays = Number.isFinite(days) && days >= 1 && days <= 3650;
+  const validDuration = Number.isFinite(durationMins) && durationMins >= 5 && durationMins <= 14400;
   const validFee = Number.isFinite(feeBps) && feeBps >= 0 && feeBps <= 1000;
-  const resolutionDate = validDays
-    ? new Date(Date.now() + days * 86_400_000)
+  const resolutionDate = validDuration
+    ? new Date(Date.now() + durationMins * 60_000)
     : null;
   const review = reviewMarketQuestion(question);
 
@@ -54,7 +56,7 @@ export default function MarketCreator({ onClose, onCreated }: MarketCreatorProps
       ? "bg-neo-yellow"
       : "bg-neo-red";
 
-  const canDeploy = question.trim().length > 0 && validDays && validFee && isConnected && !sending;
+  const canDeploy = question.trim().length > 0 && validDuration && validFee && isConnected && !sending;
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -76,7 +78,7 @@ export default function MarketCreator({ onClose, onCreated }: MarketCreatorProps
     setResult(null);
     setSending(true);
     try {
-      const calls = buildCreateMarketCalls(question.trim(), days, feeBps, address);
+      const calls = buildCreateMarketCalls(question.trim(), durationMins * 60, feeBps, address);
       const response = await account.execute(calls);
       try {
         await fetch("/api/markets/register-question", {
@@ -93,7 +95,7 @@ export default function MarketCreator({ onClose, onCreated }: MarketCreatorProps
       setResult({ txHash: response.transaction_hash });
       if (onCreated) void onCreated();
     } catch (err: any) {
-      setResult({ error: err.message || "Transaction rejected" });
+      setResult({ error: friendlyTxError(err.message || "Transaction rejected") });
     } finally {
       setSending(false);
     }
@@ -192,11 +194,11 @@ export default function MarketCreator({ onClose, onCreated }: MarketCreatorProps
             <div className="flex gap-2">
               {DURATION_PRESETS.map((preset) => (
                 <button
-                  key={preset.days}
+                  key={preset.minutes}
                   type="button"
-                  onClick={() => setDays(preset.days)}
+                  onClick={() => setDurationMins(preset.minutes)}
                   className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-all ${
-                    days === preset.days
+                    durationMins === preset.minutes
                       ? "border-neo-brand/40 bg-neo-brand/15 text-neo-brand"
                       : "border-white/[0.08] bg-white/[0.03] text-white/50 hover:border-white/15 hover:text-white/70"
                   }`}
@@ -207,7 +209,8 @@ export default function MarketCreator({ onClose, onCreated }: MarketCreatorProps
             </div>
             {resolutionDate && (
               <p className="text-[10px] text-white/30 mt-1.5 font-mono">
-                Resolves {resolutionDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                Resolves {resolutionDate.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}{" "}
+                ({durationMins >= 60 ? `${Math.floor(durationMins / 60)}h ${durationMins % 60 ? `${durationMins % 60}m` : ""}` : `${durationMins}m`} from now)
               </p>
             )}
           </div>
@@ -315,18 +318,37 @@ export default function MarketCreator({ onClose, onCreated }: MarketCreatorProps
           )}
 
           {/* Deploy button */}
-          {isConnected ? (
+          {!isConnected ? (
+            <button
+              onClick={() => window.dispatchEvent(new Event("hc-wallet-connect-open"))}
+              className="w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-sky-500/80 to-cyan-500/80 hover:from-sky-500 hover:to-cyan-500 text-white transition-all"
+            >
+              Connect Wallet to Create Markets
+            </button>
+          ) : !account ? (
+            <button
+              className="w-full py-3 rounded-xl font-bold text-sm bg-white/[0.06] text-white/50 border border-white/10 cursor-wait"
+              disabled
+            >
+              <span className="inline-block w-3 h-3 border-2 border-white/20 border-t-white/60 rounded-full animate-spin mr-2 align-middle" />
+              Wallet connecting...
+            </button>
+          ) : (
             <button
               onClick={handleDeploy}
               disabled={!canDeploy}
-              className="w-full py-3 rounded-xl font-heading font-bold text-sm bg-neo-brand/20 border border-neo-brand/30 text-neo-brand hover:bg-neo-brand/30 hover:border-neo-brand/50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+              className={`w-full py-3 rounded-xl font-heading font-bold text-sm transition-all ${
+                !canDeploy
+                  ? "bg-white/[0.06] text-white/25 cursor-not-allowed"
+                  : "bg-neo-brand/20 border border-neo-brand/30 text-neo-brand hover:bg-neo-brand/30 hover:border-neo-brand/50"
+              }`}
             >
               {sending ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-neo-brand animate-bounce" />
                   <span className="w-1.5 h-1.5 rounded-full bg-neo-brand animate-bounce [animation-delay:0.1s]" />
                   <span className="w-1.5 h-1.5 rounded-full bg-neo-brand animate-bounce [animation-delay:0.2s]" />
-                  Signing...
+                  Confirming in wallet...
                 </span>
               ) : result?.txHash ? (
                 "Deploy Another Market"
@@ -334,10 +356,6 @@ export default function MarketCreator({ onClose, onCreated }: MarketCreatorProps
                 "Deploy Market"
               )}
             </button>
-          ) : (
-            <div className="py-3 rounded-xl border border-dashed border-white/10 text-center text-xs text-white/40">
-              Connect wallet to create markets
-            </div>
           )}
 
           {/* Footer info */}
