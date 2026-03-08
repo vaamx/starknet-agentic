@@ -232,9 +232,11 @@ export default function useMarkets(): UseMarketsReturn {
     await loadData(false);
   }, [loadData]);
 
-  // Fetch fresh data on mount
+  // Fetch fresh data on mount + auto-refresh every 30s
   useEffect(() => {
     loadData(!hasWarmCacheRef.current);
+    const interval = setInterval(() => loadData(false), 30_000);
+    return () => clearInterval(interval);
   }, [loadData]);
 
   return {
