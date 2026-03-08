@@ -214,7 +214,7 @@ function PriceChart({ trail, yesPercent, noPercent, predictions }: { trail: Mark
           </div>
         </div>
         {/* Empty chart state */}
-        <div className="rounded-2xl overflow-hidden" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.025) 0%, rgba(255,255,255,0.005) 100%)", border: "1px solid rgba(255,255,255,0.06)", height: 280 }}>
+        <div className="rounded-2xl overflow-hidden" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.025) 0%, rgba(255,255,255,0.005) 100%)", border: "1px solid rgba(255,255,255,0.06)", height: 380 }}>
           <TamagotchiEmptyState
             message="No prediction data yet — agents will begin forecasting soon"
           />
@@ -235,7 +235,7 @@ function PriceChart({ trail, yesPercent, noPercent, predictions }: { trail: Mark
 
   // Chart dimensions
   const W = 800;
-  const H = 280;
+  const H = 380;
   const PAD = { top: 24, right: 24, bottom: 36, left: 52 };
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
@@ -429,7 +429,7 @@ function PriceChart({ trail, yesPercent, noPercent, predictions }: { trail: Mark
           <svg
             viewBox={`0 0 ${W} ${H}`}
             className="w-full cursor-crosshair"
-            style={{ height: 280, display: "block" }}
+            style={{ height: 380, display: "block" }}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
           >
@@ -1460,7 +1460,7 @@ export default function MarketPage() {
 
       <main className="max-w-[1200px] mx-auto w-full flex-1 px-4 sm:px-6 lg:px-8 py-6 pb-16">
         {/* Two-column layout */}
-        <div className="flex gap-8 items-start">
+        <div className="flex gap-4 lg:gap-8 items-start">
 
           {/* ======== LEFT COLUMN ======== */}
           <div className="flex-1 min-w-0">
@@ -1520,31 +1520,31 @@ export default function MarketPage() {
             </div>
 
             {/* ---- Stats Bar (ProbTrade-style) ---- */}
-            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5 mb-5">
-              <div className="grid grid-cols-3 gap-4">
+            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 sm:p-5 mb-5">
+              <div className="grid grid-cols-3 gap-2 sm:gap-4">
                 <div>
-                  <p className="text-[10px] uppercase tracking-widest text-white/25 font-semibold mb-1">Yes Price</p>
-                  <p className="text-3xl font-bold tabular-nums text-emerald-400 tracking-tight">{yesPercent}&cent;</p>
+                  <p className="text-[9px] sm:text-[10px] uppercase tracking-widest text-white/25 font-semibold mb-1">Yes Price</p>
+                  <p className="text-2xl sm:text-3xl font-bold tabular-nums text-emerald-400 tracking-tight">{yesPercent}&cent;</p>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-widest text-white/25 font-semibold mb-1">No Price</p>
-                  <p className="text-3xl font-bold tabular-nums text-rose-400 tracking-tight">{noPercent}&cent;</p>
+                  <p className="text-[9px] sm:text-[10px] uppercase tracking-widest text-white/25 font-semibold mb-1">No Price</p>
+                  <p className="text-2xl sm:text-3xl font-bold tabular-nums text-rose-400 tracking-tight">{noPercent}&cent;</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[10px] uppercase tracking-widest text-white/25 font-semibold mb-1">Time Left</p>
+                  <p className="text-[9px] sm:text-[10px] uppercase tracking-widest text-white/25 font-semibold mb-1">Time Left</p>
                   {isExpired ? (
-                    <p className="text-2xl font-bold text-amber-400">Ended</p>
+                    <p className="text-xl sm:text-2xl font-bold text-amber-400">Ended</p>
                   ) : daysLeft > 0 ? (
-                    <p className="text-2xl font-bold text-white tracking-tight tabular-nums">
-                      <span className="text-3xl">{String(daysLeft).padStart(2, "0")}</span>
-                      <span className="text-sm text-white/30 ml-1">DAY{daysLeft !== 1 ? "S" : ""}</span>
+                    <p className="text-xl sm:text-2xl font-bold text-white tracking-tight tabular-nums">
+                      <span className="text-2xl sm:text-3xl">{String(daysLeft).padStart(2, "0")}</span>
+                      <span className="text-xs sm:text-sm text-white/30 ml-1">DAY{daysLeft !== 1 ? "S" : ""}</span>
                     </p>
                   ) : (
-                    <p className="text-2xl font-bold text-white tracking-tight tabular-nums">
-                      <span className="text-3xl">{String(Math.floor(hoursLeft)).padStart(2, "0")}</span>
-                      <span className="text-xs text-white/25 mx-0.5">HR</span>
-                      <span className="text-3xl">{String(minsLeft % 60).padStart(2, "0")}</span>
-                      <span className="text-xs text-white/25 ml-0.5">MIN</span>
+                    <p className="text-xl sm:text-2xl font-bold text-white tracking-tight tabular-nums">
+                      <span className="text-2xl sm:text-3xl">{String(Math.floor(hoursLeft)).padStart(2, "0")}</span>
+                      <span className="text-[10px] sm:text-xs text-white/25 mx-0.5">HR</span>
+                      <span className="text-2xl sm:text-3xl">{String(minsLeft % 60).padStart(2, "0")}</span>
+                      <span className="text-[10px] sm:text-xs text-white/25 ml-0.5">MIN</span>
                     </p>
                   )}
                 </div>
@@ -1717,8 +1717,8 @@ export default function MarketPage() {
                 </div>
 
                 {/* Intel */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] overflow-hidden" style={{ minHeight: 200 }}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] overflow-hidden" style={{ minHeight: 180 }}>
                     <div className="px-3 py-2 border-b border-white/[0.05]">
                       <h3 className="text-xs font-semibold text-white/40">Agent Intel</h3>
                     </div>
@@ -1726,7 +1726,7 @@ export default function MarketPage() {
                       <LiveChatFeed category={category} question={market.question} marketId={market.id} />
                     </div>
                   </div>
-                  <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] overflow-hidden" style={{ minHeight: 200 }}>
+                  <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] overflow-hidden" style={{ minHeight: 180 }}>
                     <div className="px-3 py-2 border-b border-white/[0.05]">
                       <h3 className="text-xs font-semibold text-white/40">News Feed</h3>
                     </div>

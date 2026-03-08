@@ -223,43 +223,59 @@ function SectionHeader({
 
 const TOPICS = [
   {
-    id: "politics",
-    label: "Politics",
-    icon: "\u{1F3DB}",
-    color: "#E63946",
-    count: "1,465",
-    examples: ["Fed rate cuts", "2026 elections", "Trade policy"],
-  },
-  {
     id: "sports",
     label: "Sports",
-    icon: "\u{26BD}",
+    icon: "\u{1F3C8}",
     color: "#22C55E",
     count: "3,438",
-    examples: ["Super Bowl LX", "Champions League", "UFC fights"],
+    examples: ["Super Bowl LX", "Champions League", "UFC fights", "NBA Playoffs"],
   },
   {
     id: "crypto",
     label: "Crypto",
     icon: "\u{26A1}",
-    color: "#4C8DFF",
+    color: "#F59E0B",
     count: "1,075",
-    examples: ["BTC price targets", "ETH upgrades", "Starknet TPS"],
+    examples: ["BTC price targets", "ETH upgrades", "STRK milestones"],
+  },
+  {
+    id: "politics",
+    label: "Politics",
+    icon: "\u{1F3DB}",
+    color: "#E63946",
+    count: "1,465",
+    examples: ["2026 elections", "Trade policy", "Supreme Court"],
   },
   {
     id: "tech",
-    label: "Tech",
+    label: "Tech & AI",
     icon: "\u{1F916}",
     color: "#7C5CFF",
-    count: "161",
-    examples: ["AI breakthroughs", "SpaceX launches", "Robotaxi"],
+    count: "842",
+    examples: ["AI breakthroughs", "SpaceX launches", "Chip wars"],
+  },
+  {
+    id: "finance",
+    label: "Finance",
+    icon: "\u{1F4C8}",
+    color: "#00E5CC",
+    count: "623",
+    examples: ["Fed rate cuts", "IPO pricing", "Commodities"],
+  },
+  {
+    id: "culture",
+    label: "Culture",
+    icon: "\u{1F3AC}",
+    color: "#FB923C",
+    count: "312",
+    examples: ["Oscars", "Music awards", "Viral moments"],
   },
   {
     id: "world",
     label: "World",
     icon: "\u{1F30D}",
-    color: "#F5B942",
-    count: "58",
+    color: "#4C8DFF",
+    count: "185",
     examples: ["Geopolitics", "Climate events", "Global economy"],
   },
 ];
@@ -684,8 +700,66 @@ export default function LandingPage() {
             </div>
           </Reveal>
 
+          {/* Featured Sports Hero Card */}
+          <Reveal active={hero.inView} delay={750}>
+            <div className="mt-12 max-w-2xl mx-auto">
+              <a href="/markets" className="block no-underline group">
+                <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-sm p-5 sm:p-6 hover:border-white/[0.15] hover:bg-white/[0.05] transition-all">
+                  {/* Gradient accent */}
+                  <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-emerald-500 via-cyan-400 to-emerald-500" />
+
+                  <div className="flex items-center justify-between gap-4">
+                    {/* Left — matchup info */}
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-12 h-12 rounded-xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-xl">
+                          {"\u{1F3C8}"}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="relative flex h-2 w-2">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-50" />
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+                            </span>
+                            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Live Markets</span>
+                          </div>
+                          <p className="text-sm sm:text-base font-heading font-bold text-white mt-0.5 group-hover:text-white/90">
+                            Super Bowl LX &middot; NFL Props &middot; NBA
+                          </p>
+                          <p className="text-[11px] text-white/30 mt-0.5">
+                            10 sports markets with 5-agent forecasting
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right — CTA */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="hidden sm:flex items-center gap-3 text-right mr-3">
+                        <div>
+                          <span className="text-[10px] text-white/25 uppercase tracking-wider block">AI Consensus</span>
+                          <span className="text-xl font-heading font-black text-emerald-400 tabular-nums">65%</span>
+                        </div>
+                        <div className="w-px h-8 bg-white/[0.06]" />
+                        <div>
+                          <span className="text-[10px] text-white/25 uppercase tracking-wider block">Volume</span>
+                          <span className="text-xl font-heading font-black text-white/60 tabular-nums">2.8K</span>
+                        </div>
+                      </div>
+                      <div className="w-8 h-8 rounded-lg bg-white/[0.06] border border-white/[0.08] flex items-center justify-center group-hover:bg-white/[0.12] transition-colors">
+                        <svg className="w-4 h-4 text-white/40 group-hover:text-white/70 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </a>
+            </div>
+          </Reveal>
+
           {/* Scroll indicator */}
-          <Reveal active={hero.inView} delay={900} className="mt-16">
+          <Reveal active={hero.inView} delay={1000} className="mt-12">
             <div className="flex flex-col items-center gap-2 opacity-40">
               <span className="text-xs font-mono text-white/30 uppercase tracking-widest">Scroll</span>
               <div className="w-px h-8 bg-gradient-to-b from-white/20 to-transparent" />
@@ -750,7 +824,7 @@ export default function LandingPage() {
             active={topics.inView}
           />
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
             {TOPICS.map((topic, i) => (
               <Reveal key={topic.id} active={topics.inView} delay={i * 80}>
                 <div className="neo-card p-5 hover:border-white/[0.12] hover:-translate-y-0.5 transition-all group cursor-default h-full">

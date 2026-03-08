@@ -983,9 +983,25 @@ export default function FeaturedHero({ markets, predictions, weightedProbs, late
 
   const featuredMarkets = useMemo(() => {
     if (markets.length === 0) return [];
-    return [...markets]
-      .sort((a, b) => Number(safeBigInt(b.totalPool) / 10n ** 18n) - Number(safeBigInt(a.totalPool) / 10n ** 18n))
-      .slice(0, Math.min(6, markets.length));
+    const sorted = [...markets]
+      .sort((a, b) => Number(safeBigInt(b.totalPool) / 10n ** 18n) - Number(safeBigInt(a.totalPool) / 10n ** 18n));
+    const top = sorted.slice(0, Math.min(6, sorted.length));
+
+    // Ensure a sports market is always featured (first position)
+    const sportsIdx = top.findIndex(m => categorizeMarket(m.question) === "sports");
+    if (sportsIdx > 0) {
+      // Move sports market to front
+      const [sports] = top.splice(sportsIdx, 1);
+      top.unshift(sports);
+    } else if (sportsIdx === -1) {
+      // No sports in top 6 — find one and swap it in at position 0
+      const sportsMarket = sorted.find(m => categorizeMarket(m.question) === "sports");
+      if (sportsMarket) {
+        top.pop();
+        top.unshift(sportsMarket);
+      }
+    }
+    return top;
   }, [markets]);
 
   const breakingNews = useMemo(() => {
