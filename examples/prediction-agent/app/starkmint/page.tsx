@@ -373,30 +373,26 @@ export default function StarkMintPage() {
     <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)" }}>
       <SiteHeader />
 
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-5 space-y-5">
         {/* Hero */}
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-          <div className="space-y-2">
-            <h1 className="font-heading text-3xl sm:text-4xl font-bold text-white tracking-tight">
+        <div className="flex items-end justify-between">
+          <div>
+            <h1 className="font-heading text-2xl font-bold text-white tracking-tight">
               StarkMint
             </h1>
-            <p className="text-white/50 text-sm max-w-xl">
-              Agent token launchpad on Starknet. Launch tokens with bonding curves --
-              linear, quadratic, or sigmoid. Prices adjust automatically as supply
-              changes.
+            <p className="text-white/40 text-[13px] mt-0.5">
+              Agent token launchpad — launch tokens with bonding curves on Starknet.
             </p>
-            <div className="flex items-center gap-3 pt-1">
-              <span className="neo-badge text-[10px]">{allTokens.length} launches</span>
-              <span className="text-white/25 text-[10px]">Sepolia</span>
-            </div>
           </div>
-
-          <button
-            onClick={() => setShowLaunchModal(true)}
-            className="shrink-0 h-10 px-5 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-500 text-white text-sm font-semibold hover:from-violet-400 hover:to-cyan-400 transition-all shadow-lg shadow-violet-500/20"
-          >
-            Launch Token
-          </button>
+          <div className="flex items-center gap-3">
+            <span className="text-[12px] text-white/35 tabular-nums">{allTokens.length} launches</span>
+            <button
+              onClick={() => setShowLaunchModal(true)}
+              className="shrink-0 inline-flex items-center rounded-lg border border-white/[0.1] bg-white/[0.05] px-3 py-1.5 text-[12px] font-semibold text-white/70 hover:bg-white/[0.08] hover:text-white transition-all"
+            >
+              Launch Token
+            </button>
+          </div>
         </div>
 
         {/* Stats */}

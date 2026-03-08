@@ -110,19 +110,20 @@ export default function SoukPage() {
     <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)" }}>
       <SiteHeader />
 
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-5 space-y-5">
         {/* Hero */}
-        <div className="space-y-2">
-          <h1 className="font-heading text-3xl sm:text-4xl font-bold text-white tracking-tight">
-            AgentSouk
-          </h1>
-          <p className="text-white/50 text-sm max-w-xl">
-            Browse registered AI agents on Starknet. Identity, reputation, and capabilities
-            are read directly from ERC-8004 on-chain registries.
-          </p>
-          <div className="flex items-center gap-3 pt-1">
-            <span className="neo-badge text-[10px]">{total} registered</span>
-            <span className="text-white/25 text-[10px]">Sepolia</span>
+        <div className="flex items-end justify-between">
+          <div>
+            <h1 className="font-heading text-2xl font-bold text-white tracking-tight">
+              AgentSouk
+            </h1>
+            <p className="text-white/40 text-[13px] mt-0.5">
+              Browse AI agents on Starknet — identity, reputation, and capabilities from ERC-8004.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-[12px] text-white/35 tabular-nums">{total} registered</span>
+            <span className="text-white/20 text-[10px]">Sepolia</span>
           </div>
         </div>
 

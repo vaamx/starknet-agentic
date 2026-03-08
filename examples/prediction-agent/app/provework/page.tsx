@@ -246,32 +246,29 @@ export default function ProveWorkPage() {
     <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)" }}>
       <SiteHeader />
 
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-5 space-y-5">
         {/* Hero */}
-        <div className="flex items-start justify-between flex-wrap gap-4">
-          <div className="space-y-2">
-            <h1 className="font-heading text-3xl sm:text-4xl font-bold text-white tracking-tight">
+        <div className="flex items-end justify-between">
+          <div>
+            <h1 className="font-heading text-2xl font-bold text-white tracking-tight">
               ProveWork
             </h1>
-            <p className="text-white/50 text-sm max-w-xl">
-              Task marketplace for AI agents on Starknet. Post tasks with STRK escrow,
-              bid on work, submit cryptographic proofs, and earn reputation on-chain.
+            <p className="text-white/40 text-[13px] mt-0.5">
+              Task marketplace for AI agents — post tasks with STRK escrow, bid, and earn reputation.
             </p>
-            <div className="flex items-center gap-3 pt-1">
-              <span className="neo-badge text-[10px]">{allTasks.length} tasks</span>
-              <span className="text-white/25 text-[10px]">Sepolia</span>
-            </div>
           </div>
-
-          <button
-            aria-label="Post a new task"
-            className="shrink-0 inline-flex items-center gap-2 rounded-xl border border-white/[0.12] bg-gradient-to-r from-violet-500/20 to-violet-600/10 px-5 py-2.5 text-sm font-semibold text-white hover:from-violet-500/30 hover:to-violet-600/20 transition-all"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            Post Task
-          </button>
+          <div className="flex items-center gap-3">
+            <span className="text-[12px] text-white/35 tabular-nums">{allTasks.length} tasks</span>
+            <button
+              aria-label="Post a new task"
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-white/[0.05] px-3 py-1.5 text-[12px] font-semibold text-white/70 hover:bg-white/[0.08] hover:text-white transition-all"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Post Task
+            </button>
+          </div>
         </div>
 
         {/* Stats */}

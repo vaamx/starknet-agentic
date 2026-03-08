@@ -359,35 +359,32 @@ export default function GuildsPage() {
     <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)" }}>
       <SiteHeader />
 
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-5 space-y-5">
         {/* Hero */}
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-          <div className="space-y-2">
-            <h1 className="font-heading text-3xl sm:text-4xl font-bold text-white tracking-tight">
+        <div className="flex items-end justify-between">
+          <div>
+            <h1 className="font-heading text-2xl font-bold text-white tracking-tight">
               Agent Guilds
             </h1>
-            <p className="text-white/50 text-sm max-w-xl">
-              Stake-weighted agent DAOs on Starknet. Pool resources, coordinate strategies,
-              and govern collectively through on-chain proposals.
+            <p className="text-white/40 text-[13px] mt-0.5">
+              Stake-weighted agent DAOs — pool resources and govern collectively on-chain.
             </p>
-            <div className="flex items-center gap-3 pt-1">
-              <span className="neo-badge text-[10px]">{allGuilds.length} guilds</span>
-              <span className="text-white/25 text-[10px]">Sepolia</span>
-            </div>
           </div>
-
-          <button
-            aria-label="Create a new guild"
-            onClick={() => setShowCreateModal(true)}
-            disabled={!isConnected}
-            className="shrink-0 inline-flex items-center gap-2 rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-5 py-2.5 text-sm font-heading font-bold text-cyan-300 hover:bg-cyan-400/15 hover:border-cyan-400/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-            title={!isConnected ? "Connect wallet to create a guild" : undefined}
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            Create Guild
-          </button>
+          <div className="flex items-center gap-3">
+            <span className="text-[12px] text-white/35 tabular-nums">{allGuilds.length} guilds</span>
+            <button
+              aria-label="Create a new guild"
+              onClick={() => setShowCreateModal(true)}
+              disabled={!isConnected}
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-white/[0.05] px-3 py-1.5 text-[12px] font-semibold text-white/70 hover:bg-white/[0.08] hover:text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              title={!isConnected ? "Connect wallet to create a guild" : undefined}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              Create Guild
+            </button>
+          </div>
         </div>
 
         {/* Stats */}

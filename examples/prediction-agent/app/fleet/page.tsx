@@ -579,7 +579,7 @@ export default function FleetPage() {
       </div>
 
       {readiness && (
-        <section className="mb-5 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
+        <section className="mb-5 rounded-lg border border-white/[0.08] bg-white/[0.02] p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-heading text-sm font-bold text-white">
               Execution Readiness
