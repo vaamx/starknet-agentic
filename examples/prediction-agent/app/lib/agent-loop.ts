@@ -20,6 +20,7 @@ import {
   registerQuestion,
   resolveMarketQuestion,
 } from "./market-reader";
+import { registerMarketQuestion } from "./market-db";
 import {
   researchAndForecast,
   type MarketContext,
@@ -2058,6 +2059,7 @@ class AgentLoop {
 
     if (result.marketId !== undefined) {
       registerQuestion(result.marketId, questionRaw);
+      registerMarketQuestion(result.marketId, questionRaw);
     }
     recordMarketCreated();
 
@@ -2386,6 +2388,7 @@ class AgentLoop {
         if (result.status === "success") {
           if (result.marketId !== undefined) {
             registerQuestion(result.marketId, successorQuestion);
+            registerMarketQuestion(result.marketId, successorQuestion);
           }
           emit(
             this.createAction({

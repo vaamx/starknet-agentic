@@ -398,6 +398,43 @@ export function upsertAgentTake(take: DbAgentTake): void {
   });
 }
 
+/**
+ * Persist a market's question text to SQLite.
+ * Uses INSERT OR IGNORE + UPDATE so it works for both new and existing rows.
+ */
+export function registerMarketQuestion(id: number, question: string): void {
+  if (!question || !question.trim()) return;
+  try {
+    const db = getDb();
+    // Ensure row exists
+    db.prepare(
+      `INSERT OR IGNORE INTO markets (id, question, updated_at) VALUES (?, ?, ?)`
+    ).run(id, question.trim(), Date.now());
+    // Update question if row already existed with empty/placeholder text
+    db.prepare(
+      `UPDATE markets SET question = ?, updated_at = ? WHERE id = ? AND (question = '' OR question LIKE 'Market #%')`
+    ).run(question.trim(), Date.now(), id);
+  } catch {
+    // SQLite may be unavailable on Vercel (ephemeral FS)
+  }
+}
+
+/**
+ * Get all non-empty questions from SQLite for hydrating MARKET_QUESTIONS.
+ */
+export function getAllMarketQuestions(): Array<{ id: number; question: string }> {
+  try {
+    const db = getDb();
+    return db
+      .prepare(
+        "SELECT id, question FROM markets WHERE question != '' AND question NOT LIKE 'Market #%'"
+      )
+      .all() as Array<{ id: number; question: string }>;
+  } catch {
+    return [];
+  }
+}
+
 export function getLatestAgentTakeFromDb(
   marketId: number
 ): { agentName: string; probability: number; reasoning: string; timestamp: number } | null {

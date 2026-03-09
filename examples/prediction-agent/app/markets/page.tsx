@@ -144,6 +144,7 @@ export default function Dashboard() {
 
   // UI state
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"open" | "resolved" | "all">("open");
   const [activeCategory, setActiveCategory] = useState<MarketCategory>("all");
   const [activeSubcategory, setActiveSubcategory] = useState<string | null>(null);
   const [betMarketId, setBetMarketId] = useState<number | null>(null);
@@ -204,8 +205,28 @@ export default function Dashboard() {
     [categoryCounts]
   );
 
+  const statusCounts = useMemo(() => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    let open = 0;
+    let resolved = 0;
+    for (const m of markets) {
+      if (m.status === 2 || m.resolutionTime <= nowSec) {
+        resolved++;
+      } else if (m.status === 0) {
+        open++;
+      }
+    }
+    return { open, resolved, all: markets.length };
+  }, [markets]);
+
   const filteredMarkets = useMemo(() => {
+    const nowSec = Math.floor(Date.now() / 1000);
     return markets.filter((market) => {
+      // Status filter
+      if (statusFilter === "open" && (market.status !== 0 || market.resolutionTime <= nowSec))
+        return false;
+      if (statusFilter === "resolved" && market.status !== 2 && market.resolutionTime > nowSec)
+        return false;
       if (
         normalizedQuery &&
         !market.question.toLowerCase().includes(normalizedQuery) &&
@@ -222,7 +243,7 @@ export default function Dashboard() {
       }
       return true;
     });
-  }, [markets, normalizedQuery, activeCategory, activeSubcategory]);
+  }, [markets, normalizedQuery, activeCategory, activeSubcategory, statusFilter]);
 
   const sortedMarkets = useMemo(() => {
     return [...filteredMarkets].sort((a, b) => {
@@ -591,13 +612,38 @@ export default function Dashboard() {
             />
           )}
 
+          {/* Status tabs — Open / Resolved / All */}
+          <div className="flex items-center gap-1.5 mb-4">
+            {(["open", "resolved", "all"] as const).map((tab) => {
+              const count = statusCounts[tab];
+              const isActive = statusFilter === tab;
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setStatusFilter(tab)}
+                  className={`px-3.5 py-1.5 rounded-lg text-[12px] font-semibold transition-all ${
+                    isActive
+                      ? "bg-neo-brand/15 text-neo-brand border border-neo-brand/25"
+                      : "bg-white/[0.03] text-white/40 border border-white/[0.06] hover:bg-white/[0.06] hover:text-white/60"
+                  }`}
+                >
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  <span className={`ml-1.5 text-[10px] font-mono tabular-nums ${isActive ? "text-neo-brand/70" : "text-white/20"}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
           {/* Section heading with view toggle */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <div className="w-1 h-6 rounded-full bg-neo-brand/60" />
               <div>
                 <h2 className="font-heading text-[18px] font-bold text-white tracking-tight">
-                  {activeCategory === "all" ? "All markets" : activeLabel}
+                  {statusFilter === "open" ? "Open markets" : statusFilter === "resolved" ? "Resolved markets" : activeCategory === "all" ? "All markets" : activeLabel}
                 </h2>
                 <p className="text-[11px] text-white/25 mt-0.5 font-mono tabular-nums">
                   {filteredMarkets.length} market{filteredMarkets.length !== 1 ? "s" : ""}
@@ -723,6 +769,41 @@ export default function Dashboard() {
               </div>
             </div>
           )}
+
+          {/* Needs manual review banner */}
+          {(() => {
+            const needsReview = markets.filter((m) => m.resolutionEscalation === "needs_manual_review");
+            if (needsReview.length === 0) return null;
+            return (
+              <div className="rounded-xl border border-amber-500/15 bg-amber-500/[0.04] px-4 py-3 mb-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-4 h-4 text-amber-400/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                  </svg>
+                  <span className="text-[12px] font-heading font-semibold text-amber-400/80">
+                    {needsReview.length} market{needsReview.length !== 1 ? "s" : ""} need{needsReview.length === 1 ? "s" : ""} manual resolution
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {needsReview.slice(0, 5).map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`/api/resolution/${m.id}/resolve`, { method: "POST", credentials: "include" });
+                          if (res.ok) void refreshData();
+                        } catch { /* ignore */ }
+                      }}
+                      className="text-[11px] text-amber-300/70 bg-amber-400/[0.08] border border-amber-400/15 rounded-lg px-2.5 py-1.5 hover:bg-amber-400/15 transition-colors"
+                    >
+                      #{m.id}: {m.question.slice(0, 40)}{m.question.length > 40 ? "..." : ""} — Resolve
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Market grid */}
           <MarketList

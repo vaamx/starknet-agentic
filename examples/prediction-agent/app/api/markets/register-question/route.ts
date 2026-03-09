@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { registerQuestion } from "@/lib/market-reader";
+import { registerMarketQuestion } from "@/lib/market-db";
 import { RpcProvider } from "starknet";
 import { config } from "@/lib/config";
 import { requireWalletSessionScope } from "@/lib/wallet-session";
@@ -42,6 +43,7 @@ export async function POST(req: NextRequest) {
 
     if (marketId !== undefined) {
       registerQuestion(marketId, question.trim());
+      registerMarketQuestion(marketId, question.trim());
     }
 
     return NextResponse.json({

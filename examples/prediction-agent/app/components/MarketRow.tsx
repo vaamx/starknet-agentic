@@ -102,8 +102,11 @@ export default function MarketRow({
 
   const poolWei = safeBigInt(market.totalPool);
   const volume = formatVolume(poolWei);
+  const isResolved = market.status === 2;
   const time = formatTimeLeft(market.resolutionTime);
-  const isExpired = time.label === "Ended";
+  const isExpired = time.label === "Ended" || isResolved;
+  const winOutcome = market.winningOutcome;
+  const winLabel = isResolved ? (winOutcome === 1 ? "YES Won" : winOutcome === 0 ? "NO Won" : "Resolved") : null;
 
   const category = categorizeMarket(market.question);
   const cs = CAT_STYLE[category] ?? CAT_STYLE.other;
@@ -128,6 +131,17 @@ export default function MarketRow({
             >
               {category}
             </span>
+            {isResolved && winLabel && (
+              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                winOutcome === 1
+                  ? "bg-neo-green/[0.06] text-neo-green border-neo-green/20"
+                  : winOutcome === 0
+                    ? "bg-neo-red/[0.06] text-neo-red border-neo-red/20"
+                    : "bg-sky-400/[0.06] text-sky-300 border-sky-300/20"
+              }`}>
+                {winLabel}
+              </span>
+            )}
             {aiProb !== null && predictions.length > 0 && (
               <span className="text-[11px] text-white/30 font-mono">
                 AI&nbsp;{aiProb}%
@@ -186,7 +200,13 @@ export default function MarketRow({
               </div>
             </button>
           ) : (
-            <span className="text-[13px] text-orange-400/70">Ended</span>
+            <span className={`text-[13px] ${
+              isResolved
+                ? winOutcome === 1 ? "text-neo-green/70" : winOutcome === 0 ? "text-neo-red/70" : "text-sky-300/70"
+                : "text-orange-400/70"
+            }`}>
+              {winLabel ?? "Ended"}
+            </span>
           )}
         </div>
 

@@ -139,9 +139,11 @@ function formatVolume(poolWei: bigint): string {
   return "\u2014";
 }
 
-type MarketLifecycle = "seeding" | "active" | "closing" | "ended" | "resolving";
+type MarketLifecycle = "seeding" | "active" | "closing" | "ended" | "resolving" | "resolved";
 
-function formatTimeLeft(resolutionTime: number): { label: string; urgent: boolean; isNew: boolean; lifecycle: MarketLifecycle } {
+function formatTimeLeft(resolutionTime: number, status: number): { label: string; urgent: boolean; isNew: boolean; lifecycle: MarketLifecycle } {
+  // Resolved on-chain (status=2) takes priority
+  if (status === 2) return { label: "Resolved", urgent: false, isNew: false, lifecycle: "resolved" };
   const secsLeft = resolutionTime - Date.now() / 1000;
   if (secsLeft <= 0) return { label: "Ended", urgent: true, isNew: false, lifecycle: "ended" };
   const days = Math.floor(secsLeft / 86400);
@@ -160,6 +162,7 @@ const LIFECYCLE_META: Record<MarketLifecycle, { label: string; tone: string }> =
   closing: { label: "Closing", tone: "border-orange-300/25 bg-orange-400/10 text-orange-200" },
   ended: { label: "Ended", tone: "border-white/15 bg-white/[0.06] text-white/50" },
   resolving: { label: "Resolving", tone: "border-cyan-300/25 bg-cyan-400/10 text-cyan-200" },
+  resolved: { label: "Resolved", tone: "border-sky-300/25 bg-sky-400/10 text-sky-200" },
 };
 
 function timeAgo(ts: number): string {
@@ -334,9 +337,12 @@ export default function MarketGridCard({
   const category = categorizeMarket(market.question);
   const cat = CAT_META[category] || CAT_META.other;
   const poolVol = formatVolume(safeBigInt(market.totalPool));
-  const time = formatTimeLeft(market.resolutionTime);
-  const isExpired = time.label === "Ended";
+  const time = formatTimeLeft(market.resolutionTime, market.status);
+  const isResolved = market.status === 2;
+  const isExpired = time.label === "Ended" || isResolved;
   const isLive = !isExpired && time.urgent;
+  const winOutcome = market.winningOutcome;
+  const winLabel = isResolved ? (winOutcome === 1 ? "YES Won" : winOutcome === 0 ? "NO Won" : "Resolved") : null;
 
   // Live ticking probability
   const [yesPct, setYesPct] = useState(baseYesPct);
@@ -432,7 +438,7 @@ export default function MarketGridCard({
       className="no-underline group animate-card-enter"
       style={{ animationDelay: `${Math.min(index * 0.04, 0.4)}s` }}
     >
-      <div className={`market-card h-full flex flex-col ${isLive ? "market-card-live" : ""}`}>
+      <div className={`market-card h-full flex flex-col ${isLive ? "market-card-live" : ""} ${isResolved ? "opacity-70 hover:opacity-90 transition-opacity" : ""}`}>
         {/* ─── Category accent strip ─── */}
         <div className="h-[2px] w-full" style={{ background: `linear-gradient(90deg, ${cat.color}40, transparent)` }} />
 
@@ -463,7 +469,18 @@ export default function MarketGridCard({
                   LIVE
                 </span>
               )}
-              {time.isNew && (
+              {isResolved && (
+                <span className={`px-2 py-[3px] rounded-md text-[9px] font-bold uppercase border ${
+                  winOutcome === 1
+                    ? "bg-neo-green/[0.12] text-neo-green border-neo-green/20"
+                    : winOutcome === 0
+                      ? "bg-neo-red/[0.12] text-neo-red border-neo-red/20"
+                      : "bg-sky-400/[0.12] text-sky-300 border-sky-300/20"
+                }`}>
+                  {winLabel}
+                </span>
+              )}
+              {time.isNew && !isResolved && (
                 <span className="px-2 py-[3px] rounded-md text-[9px] font-bold uppercase bg-neo-brand/[0.08] text-neo-brand border border-neo-brand/15">
                   NEW
                 </span>
@@ -510,13 +527,21 @@ export default function MarketGridCard({
           </div>
 
           {/* Probability bar */}
-          <div className="prob-track mt-2 mb-0.5">
+          <div className={`prob-track mt-2 mb-0.5 ${isResolved ? "opacity-40 grayscale" : ""}`}>
             <div className="prob-fill-yes h-full" style={{ width: `${yesPct}%` }} />
             <div className="prob-fill-no h-full flex-1" />
           </div>
           <div className="flex items-center justify-between text-[10px] font-mono tabular-nums text-white/20 mb-2">
-            <span>Yes {yesPct}%</span>
-            <span>No {noPct}%</span>
+            {isResolved && winLabel ? (
+              <span className={winOutcome === 1 ? "text-neo-green/60" : winOutcome === 0 ? "text-neo-red/60" : "text-white/30"}>
+                {winLabel}
+              </span>
+            ) : (
+              <>
+                <span>Yes {yesPct}%</span>
+                <span>No {noPct}%</span>
+              </>
+            )}
           </div>
 
           {/* Agentic integration strip */}
@@ -689,10 +714,21 @@ export default function MarketGridCard({
           </div>
         ) : (
           <div className="px-4 pb-3 flex items-center gap-2">
-            <span className="text-[12px] text-orange-400/70 font-heading font-semibold flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-orange-400/60" />
-              Ended
-            </span>
+            {isResolved ? (
+              <span className={`text-[12px] font-heading font-semibold flex items-center gap-1.5 ${
+                winOutcome === 1 ? "text-neo-green/70" : winOutcome === 0 ? "text-neo-red/70" : "text-sky-300/70"
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  winOutcome === 1 ? "bg-neo-green/60" : winOutcome === 0 ? "bg-neo-red/60" : "bg-sky-300/60"
+                }`} />
+                {winLabel ?? "Resolved"}
+              </span>
+            ) : (
+              <span className="text-[12px] text-orange-400/70 font-heading font-semibold flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-400/60" />
+                Ended
+              </span>
+            )}
           </div>
         )}
 
@@ -700,11 +736,31 @@ export default function MarketGridCard({
         <div className="px-4 py-2.5 border-t border-white/[0.04] flex items-center gap-3 relative z-10">
           <AgentAvatars predictions={predictions} />
           {(() => {
-            const lc = LIFECYCLE_META[time.lifecycle];
+            // Show resolution-aware lifecycle badge
+            const needsReview = market.resolutionEscalation === "needs_manual_review";
+            const resolving = isExpired && !isResolved && market.totalResolutionAttempts && market.totalResolutionAttempts > 0;
+            const effectiveLifecycle = needsReview
+              ? "ended" as MarketLifecycle
+              : resolving
+                ? "resolving" as MarketLifecycle
+                : time.lifecycle;
+            const lc = LIFECYCLE_META[effectiveLifecycle];
             return (
-              <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${lc.tone}`}>
-                {lc.label}
-              </span>
+              <>
+                <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${lc.tone}`}>
+                  {lc.label}
+                </span>
+                {needsReview && (
+                  <span className="inline-flex items-center rounded-md border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300">
+                    Needs Review
+                  </span>
+                )}
+                {resolving && !needsReview && (
+                  <span className="inline-flex items-center rounded-md border border-cyan-300/25 bg-cyan-400/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-cyan-200">
+                    Attempt {market.totalResolutionAttempts}
+                  </span>
+                )}
+              </>
             );
           })()}
           {automationState.enabled && (

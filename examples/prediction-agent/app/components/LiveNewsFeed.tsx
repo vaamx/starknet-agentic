@@ -154,6 +154,7 @@ export default function LiveNewsFeed({
 }) {
   const fallbackPool = useMemo(() => getHeadlinePool(question), [question]);
   const [livePool, setLivePool] = useState<NewsItem[]>(fallbackPool);
+  const [feedMode, setFeedMode] = useState<"live" | "fallback">("fallback");
   const pool = useMemo(
     () => (livePool.length > 0 ? livePool : fallbackPool),
     [livePool, fallbackPool]
@@ -205,6 +206,7 @@ export default function LiveNewsFeed({
         }
 
         if (cancelled || mapped.length === 0) return;
+        setFeedMode(payload.mode === "live" ? "live" : "fallback");
         setLivePool(mapped);
       } catch {
         // Keep graceful fallback pool when intel feed is unavailable.
@@ -348,10 +350,14 @@ export default function LiveNewsFeed({
 
       {/* Live indicator */}
       <div className="shrink-0 flex items-center gap-1.5 pb-1">
-        <span className="relative w-1.5 h-1.5 rounded-full bg-neo-green">
-          <span className="absolute inset-0 rounded-full bg-neo-green animate-ping opacity-75" />
+        <span className={`relative w-1.5 h-1.5 rounded-full ${feedMode === "live" ? "bg-neo-green" : "bg-neo-yellow/60"}`}>
+          {feedMode === "live" && (
+            <span className="absolute inset-0 rounded-full bg-neo-green animate-ping opacity-75" />
+          )}
         </span>
-        <span className="text-[10px] font-heading font-medium text-white/25 tracking-wider uppercase">Live News</span>
+        <span className="text-[10px] font-heading font-medium text-white/25 tracking-wider uppercase">
+          {feedMode === "live" ? "Live" : "Cached"} News
+        </span>
       </div>
     </div>
   );

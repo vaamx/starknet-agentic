@@ -1,7 +1,9 @@
 import { agentLoop, type AgentAction } from "./agent-loop";
 import { fetchNewsData } from "./data-sources/news-search";
-import { fetchPolymarketData } from "./data-sources/polymarket";
+import { fetchPolymarketData, fetchPolymarketTrending } from "./data-sources/polymarket";
 import { fetchSocialTrends } from "./data-sources/social-trends";
+import { fetchRssFeeds } from "./data-sources/rss-feeds";
+import { fetchTavilySearch } from "./data-sources/tavily";
 import {
   getPersistedLoopActions,
   listPersistedNetworkContributions,
@@ -476,10 +478,12 @@ export async function getIntelFeed(
     chatById.set(mapped.id, mapped);
   }
 
-  const [socialResult, newsResult, polymarketResult] = await Promise.all([
+  const [socialResult, newsResult, polymarketResult, rssResult, tavilyResult] = await Promise.all([
     fetchSocialTrends(params.question).catch(() => null),
     fetchNewsData(params.question).catch(() => null),
     fetchPolymarketData(params.question).catch(() => null),
+    fetchRssFeeds(params.question).catch(() => null),
+    fetchTavilySearch(params.question).catch(() => null),
   ]);
 
   if (socialResult && socialResult.data.length > 0) {
@@ -516,6 +520,9 @@ export async function getIntelFeed(
     }
   }
 
+  // Lower relevance threshold when viewing a specific market — market context provides relevance
+  const minRelevance = params.marketId !== undefined ? 0.0 : 0.1;
+
   const newsItems: IntelNewsItem[] = [];
   const pushNews = (
     source: string,
@@ -531,7 +538,7 @@ export async function getIntelFeed(
       questionTokens,
       `${parsed.source} ${parsed.headline}`
     );
-    if (relevance < 0.1) return;
+    if (relevance < minRelevance) return;
     newsItems.push({
       id: `news:${newsItems.length + 1}:${normalizeText(parsed.source).slice(0, 16)}`,
       source: parsed.source,
@@ -574,6 +581,40 @@ export async function getIntelFeed(
         polymarketResult.timestamp,
         point.url
       );
+    }
+  }
+
+  // Polymarket trending as fallback when primary query returns few results
+  if ((!polymarketResult || polymarketResult.data.length < 2) && params.marketId === undefined) {
+    try {
+      const trending = await fetchPolymarketTrending(6);
+      for (const point of trending.data.slice(0, 4)) {
+        const label = String(point.label ?? "");
+        const value = typeof point.value === "string" ? point.value : String(point.value ?? "");
+        pushNews("Polymarket Trending", "polymarket", label, value, trending.timestamp, point.url);
+      }
+    } catch { /* trending fetch failed — skip */ }
+  }
+
+  if (rssResult) {
+    for (const point of rssResult.data.slice(0, 6)) {
+      const label = String(point.label ?? "");
+      const value =
+        typeof point.value === "string"
+          ? point.value
+          : String(point.value ?? "");
+      pushNews("RSS", "rss", label, value, rssResult.timestamp, point.url);
+    }
+  }
+
+  if (tavilyResult) {
+    for (const point of tavilyResult.data.slice(0, 6)) {
+      const label = String(point.label ?? "");
+      const value =
+        typeof point.value === "string"
+          ? point.value
+          : String(point.value ?? "");
+      pushNews("Tavily", "tavily", label, value, tavilyResult.timestamp, point.url);
     }
   }
 

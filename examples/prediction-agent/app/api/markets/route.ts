@@ -16,10 +16,11 @@ import {
   getPersistedLoopActions,
   setPersistedMarketSnapshots,
 } from "@/lib/state-store";
-import { upsertMarkets, getAllMarkets } from "@/lib/market-db";
+import { upsertMarkets, getAllMarkets, registerMarketQuestion } from "@/lib/market-db";
 import { requireRole } from "@/lib/require-auth";
 import { recordAudit, recordTradeExecution } from "@/lib/ops-store";
 import { reviewMarketQuestion } from "@/lib/market-quality";
+import { getResolutionStatus } from "@/lib/resolution-store";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -385,8 +386,27 @@ export async function GET(request: NextRequest) {
     // Write-through to SQLite
     try { upsertMarkets(persistedSnapshots); } catch { /* best-effort */ }
 
+    // Enrich expired/resolved markets with resolution status
+    const nowSec = Math.floor(Date.now() / 1000);
+    const defaultOrgId = "default";
+    const marketsWithResolution = enriched.map((m) => {
+      if (m.status === 2 || m.resolutionTime <= nowSec) {
+        try {
+          const resStatus = getResolutionStatus(defaultOrgId, m.id);
+          if (resStatus) {
+            return {
+              ...m,
+              resolutionEscalation: resStatus.escalation,
+              totalResolutionAttempts: resStatus.totalAttempts,
+            };
+          }
+        } catch { /* resolution store unavailable */ }
+      }
+      return m;
+    });
+
     return NextResponse.json({
-      markets: enriched,
+      markets: marketsWithResolution,
       factoryConfigured,
       factoryAddress,
       stale: false,
@@ -559,6 +579,7 @@ export async function POST(request: NextRequest) {
 
     if (createdMarket) {
       registerQuestion(createdMarket.id, normalizedQuestion);
+      registerMarketQuestion(createdMarket.id, normalizedQuestion);
       await recordAudit({
         organizationId: context.membership.organizationId,
         userId: context.user.id,

@@ -17,6 +17,8 @@ export interface Market {
   collateralToken: string;
   tradeCount?: number;
   winningOutcome?: number;
+  resolutionEscalation?: "auto" | "needs_manual_review" | "manually_resolved";
+  totalResolutionAttempts?: number;
 }
 
 export interface LeaderboardEntry {

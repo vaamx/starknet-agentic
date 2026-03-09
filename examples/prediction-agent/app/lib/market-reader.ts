@@ -1,6 +1,7 @@
 import { RpcProvider, Contract, shortString } from "starknet";
 import { config } from "./config";
 import { fromScaled, averageBrier } from "./accuracy";
+import { getAllMarketQuestions } from "./market-db";
 
 // Create a fresh provider per invocation to avoid stale/corrupted state on Vercel serverless
 function getProvider(): RpcProvider {
@@ -678,6 +679,24 @@ const SEED_QUESTIONS: Record<number, string> = {
   13: "Will BTC be above $90k in February 2026?",
 };
 
+/**
+ * Hydrate MARKET_QUESTIONS from SQLite.
+ * Fills in questions for markets 14+ that were created at runtime
+ * and lost on Vercel cold starts.
+ */
+function hydrateQuestionsFromDb(): void {
+  try {
+    const dbQuestions = getAllMarketQuestions();
+    for (const row of dbQuestions) {
+      if (!MARKET_QUESTIONS[row.id] && row.question) {
+        MARKET_QUESTIONS[row.id] = row.question;
+      }
+    }
+  } catch {
+    // SQLite unavailable (e.g. Vercel edge) — fall through gracefully
+  }
+}
+
 let seeded = false;
 
 /**
@@ -695,6 +714,11 @@ export function seedKnownQuestions(): void {
       MARKET_QUESTIONS[numId] = question;
     }
   }
+
+  // Hydrate from SQLite — fills in questions for markets 14+ that were
+  // created at runtime and lost on Vercel cold starts.
+  // Uses dynamic import to avoid breaking edge environments where SQLite is unavailable.
+  hydrateQuestionsFromDb();
 }
 
 /**
