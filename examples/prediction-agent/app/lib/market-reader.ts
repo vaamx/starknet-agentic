@@ -2,7 +2,10 @@ import { RpcProvider, Contract, shortString } from "starknet";
 import { config } from "./config";
 import { fromScaled, averageBrier } from "./accuracy";
 
-const provider = new RpcProvider({ nodeUrl: config.STARKNET_RPC_URL });
+// Create a fresh provider per invocation to avoid stale/corrupted state on Vercel serverless
+function getProvider(): RpcProvider {
+  return new RpcProvider({ nodeUrl: config.STARKNET_RPC_URL });
+}
 
 // Simplified ABIs for read-only calls
 const MARKET_ABI = [
@@ -351,7 +354,7 @@ export async function getMarkets(): Promise<MarketState[]> {
 
   try {
     // Use raw callContract to avoid starknet.js Contract class JSON parsing issues on Vercel
-    const countRaw = await provider.callContract({
+    const countRaw = await getProvider().callContract({
       contractAddress: config.MARKET_FACTORY_ADDRESS,
       entrypoint: "get_market_count",
       calldata: [],
@@ -365,7 +368,7 @@ export async function getMarkets(): Promise<MarketState[]> {
     // Fetch addresses with concurrency limit
     const indices = Array.from({ length: count }, (_, i) => i);
     const addresses: string[] = await withConcurrencyLimit(indices, 20, async (i) => {
-      const raw = await provider.callContract({
+      const raw = await getProvider().callContract({
         contractAddress: config.MARKET_FACTORY_ADDRESS,
         entrypoint: "get_market",
         calldata: [String(i), "0"], // u256 = (low, high)
@@ -399,7 +402,7 @@ export async function getMarketById(id: number): Promise<MarketState | null> {
   }
 
   try {
-    const raw = await provider.callContract({
+    const raw = await getProvider().callContract({
       contractAddress: config.MARKET_FACTORY_ADDRESS,
       entrypoint: "get_market",
       calldata: [String(id), "0"], // u256 = (low, high)
@@ -413,9 +416,10 @@ export async function getMarketById(id: number): Promise<MarketState | null> {
 
 /** Get a single market's state. */
 export async function getMarketState(id: number, address: string): Promise<MarketState> {
-  // Use raw callContract to avoid starknet.js Contract class JSON parsing issues on Vercel
+  // Use raw callContract with fresh provider to avoid JSON parsing issues on Vercel
+  const p = new RpcProvider({ nodeUrl: config.STARKNET_RPC_URL });
   const call = (entrypoint: string, calldata: string[] = []) =>
-    provider.callContract({ contractAddress: address, entrypoint, calldata });
+    p.callContract({ contractAddress: address, entrypoint, calldata });
 
   const [statusRaw, poolRaw, probsRaw, infoRaw] = await Promise.all([
     call("get_status"),
@@ -485,26 +489,36 @@ export async function getMarketState(id: number, address: string): Promise<Marke
   };
 }
 
+// Fallback RPC URLs for when primary (Lava) is rate-limited after heavy load
+const FALLBACK_RPC_URLS = [
+  config.STARKNET_RPC_URL,
+  "https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/GUBwFqKhSgn4mwVbN6Sbn",
+  "https://free-rpc.nethermind.io/sepolia-juno/v0_7",
+];
+
 /** Get a user's bet amounts for a market. */
 export async function getUserPosition(
   marketAddress: string,
   userAddress: string
 ): Promise<{ yesBet: bigint; noBet: bigint }> {
-  // Use raw callContract to avoid starknet.js Contract class JSON parsing issues
   const callBet = async (outcome: number): Promise<bigint> => {
-    try {
-      const result = await provider.callContract({
-        contractAddress: marketAddress,
-        entrypoint: "get_bet",
-        calldata: [userAddress, String(outcome)],
-      });
-      // Result is [low, high] for u256
-      const low = BigInt(result[0] ?? "0");
-      const high = BigInt(result[1] ?? "0");
-      return low + (high << 128n);
-    } catch {
-      return 0n;
+    // Try each RPC URL until one works (Lava can return malformed JSON after heavy load)
+    for (const rpcUrl of FALLBACK_RPC_URLS) {
+      try {
+        const p = new RpcProvider({ nodeUrl: rpcUrl });
+        const result = await p.callContract({
+          contractAddress: marketAddress,
+          entrypoint: "get_bet",
+          calldata: [userAddress, String(outcome)],
+        });
+        const low = BigInt(result[0] ?? "0");
+        const high = BigInt(result[1] ?? "0");
+        return low + (high << 128n);
+      } catch {
+        continue;
+      }
     }
+    return 0n;
   };
   const [yesBet, noBet] = await Promise.all([callBet(1), callBet(0)]);
   return { yesBet, noBet };
@@ -514,7 +528,7 @@ export async function getUserPosition(
 export async function getAgentPredictions(marketId: number): Promise<AgentPrediction[]> {
   if (config.ACCURACY_TRACKER_ADDRESS === "0x0") return [];
 
-  const tracker = new Contract({ abi: ACCURACY_ABI as any, address: config.ACCURACY_TRACKER_ADDRESS, providerOrAccount: provider });
+  const tracker = new Contract({ abi: ACCURACY_ABI as any, address: config.ACCURACY_TRACKER_ADDRESS, providerOrAccount: getProvider() });
   const count = toSafeNumber(await tracker.get_market_predictor_count(marketId));
 
   const predictions: AgentPrediction[] = [];
@@ -548,7 +562,7 @@ export async function getAgentBrierStats(
     const tracker = new Contract({
       abi: ACCURACY_ABI as any,
       address: config.ACCURACY_TRACKER_ADDRESS,
-      providerOrAccount: provider,
+      providerOrAccount: getProvider(),
     });
     const { cumulative, predictionCount } = parseBrierScoreTuple(
       await tracker.get_brier_score(agentAddress)
@@ -568,7 +582,7 @@ export async function getAgentBrierStats(
 export async function getWeightedProbability(marketId: number): Promise<number | null> {
   if (config.ACCURACY_TRACKER_ADDRESS === "0x0") return null;
 
-  const tracker = new Contract({ abi: ACCURACY_ABI as any, address: config.ACCURACY_TRACKER_ADDRESS, providerOrAccount: provider });
+  const tracker = new Contract({ abi: ACCURACY_ABI as any, address: config.ACCURACY_TRACKER_ADDRESS, providerOrAccount: getProvider() });
   const result = await tracker.get_weighted_probability(marketId);
   return fromScaled(parseBigNumberish(result));
 }
@@ -580,8 +594,8 @@ export async function getOnChainLeaderboard(): Promise<LeaderboardEntry[]> {
   }
 
   try {
-    const factory = new Contract({ abi: FACTORY_ABI as any, address: config.MARKET_FACTORY_ADDRESS, providerOrAccount: provider });
-    const tracker = new Contract({ abi: ACCURACY_ABI as any, address: config.ACCURACY_TRACKER_ADDRESS, providerOrAccount: provider });
+    const factory = new Contract({ abi: FACTORY_ABI as any, address: config.MARKET_FACTORY_ADDRESS, providerOrAccount: getProvider() });
+    const tracker = new Contract({ abi: ACCURACY_ABI as any, address: config.ACCURACY_TRACKER_ADDRESS, providerOrAccount: getProvider() });
 
     const countResult = await factory.get_market_count();
     const marketCount = toSafeNumber(countResult);
