@@ -350,31 +350,40 @@ export async function getMarkets(): Promise<MarketState[]> {
   }
 
   try {
-    const factory = new Contract({ abi: FACTORY_ABI as any, address: config.MARKET_FACTORY_ADDRESS, providerOrAccount: provider });
-    const countResult = await factory.get_market_count();
-    const count = toSafeNumber(countResult);
+    // Use raw callContract to avoid starknet.js Contract class JSON parsing issues on Vercel
+    const countRaw = await provider.callContract({
+      contractAddress: config.MARKET_FACTORY_ADDRESS,
+      entrypoint: "get_market_count",
+      calldata: [],
+    });
+    const count = Number(BigInt(countRaw[0] ?? "0"));
     if (!Number.isFinite(count) || count <= 0) {
       marketsCache = { data: [], fetchedAt: Date.now() };
       return [];
     }
 
-    // Fetch addresses with concurrency limit (8 at a time)
+    // Fetch addresses with concurrency limit
     const indices = Array.from({ length: count }, (_, i) => i);
-    const addresses: string[] = await withConcurrencyLimit(indices, 8, async (i) =>
-      factory.get_market(i).then((addr: any) => toAddressHex(addr))
-    );
+    const addresses: string[] = await withConcurrencyLimit(indices, 20, async (i) => {
+      const raw = await provider.callContract({
+        contractAddress: config.MARKET_FACTORY_ADDRESS,
+        entrypoint: "get_market",
+        calldata: [String(i), "0"], // u256 = (low, high)
+      });
+      return toAddressHex(raw[0] ?? "0x0");
+    });
 
-    // Fetch market states with concurrency limit (8 at a time)
+    // Fetch market states with concurrency limit
     const pairs = addresses.map((addr, i) => ({ addr, i }));
-    const states: (MarketState | null)[] = await withConcurrencyLimit(pairs, 8, async ({ addr, i }) =>
-      addr ? getMarketState(i, addr) : null
+    const states: (MarketState | null)[] = await withConcurrencyLimit(pairs, 20, async ({ addr, i }) =>
+      addr && addr !== "0x0" ? getMarketState(i, addr) : null
     );
     const result = states.filter((s): s is MarketState => s !== null);
 
     marketsCache = { data: result, fetchedAt: Date.now() };
     return result;
   } catch (err) {
-    console.error("Failed to fetch on-chain markets:", err);
+    console.error("[getMarkets] Failed to fetch on-chain markets:", err);
     return [];
   }
 }
@@ -390,9 +399,12 @@ export async function getMarketById(id: number): Promise<MarketState | null> {
   }
 
   try {
-    const factory = new Contract({ abi: FACTORY_ABI as any, address: config.MARKET_FACTORY_ADDRESS, providerOrAccount: provider });
-    const addr = await factory.get_market(id);
-    const addrHex = toAddressHex(addr);
+    const raw = await provider.callContract({
+      contractAddress: config.MARKET_FACTORY_ADDRESS,
+      entrypoint: "get_market",
+      calldata: [String(id), "0"], // u256 = (low, high)
+    });
+    const addrHex = toAddressHex(raw[0] ?? "0x0");
     return await getMarketState(id, addrHex);
   } catch {
     return null;
@@ -401,40 +413,68 @@ export async function getMarketById(id: number): Promise<MarketState | null> {
 
 /** Get a single market's state. */
 export async function getMarketState(id: number, address: string): Promise<MarketState> {
-  const market = new Contract({ abi: MARKET_ABI as any, address, providerOrAccount: provider });
+  // Use raw callContract to avoid starknet.js Contract class JSON parsing issues on Vercel
+  const call = (entrypoint: string, calldata: string[] = []) =>
+    provider.callContract({ contractAddress: address, entrypoint, calldata });
 
-  const [status, totalPool, probs, info] = await Promise.all([
-    market.get_status(),
-    market.get_total_pool(),
-    market.get_implied_probs(),
-    market.get_market_info(),
+  const [statusRaw, poolRaw, probsRaw, infoRaw] = await Promise.all([
+    call("get_status"),
+    call("get_total_pool"),
+    call("get_implied_probs"),
+    call("get_market_info"),
   ]);
-  const statusNum = Number(status);
+
+  const statusNum = Number(BigInt(statusRaw[0] ?? "0"));
   let winningOutcome: number | undefined;
   if (statusNum === 2) {
     try {
-      winningOutcome = Number(await market.get_winning_outcome());
+      const wo = await call("get_winning_outcome");
+      winningOutcome = Number(BigInt(wo[0] ?? "0"));
     } catch {
       winningOutcome = undefined;
     }
   }
 
-  const HALF = "500000000000000000";
+  const HALF = BigInt("500000000000000000");
   const ONE = BigInt("1000000000000000000");
-  const infoArr = Array.isArray(info) ? info : [];
-  const probsArr = Array.isArray(probs) ? probs : [];
-  const rawProbYes = parseBigNumberish(probsArr[1]?.[1] ?? HALF);
-  const rawProbNo = parseBigNumberish(probsArr[0]?.[1] ?? HALF);
-  const pool = parseBigNumberish(totalPool);
+
+  // get_total_pool returns u256 (low, high)
+  const poolLow = BigInt(poolRaw[0] ?? "0");
+  const poolHigh = BigInt(poolRaw[1] ?? "0");
+  const pool = poolLow + (poolHigh << 128n);
+
+  // get_implied_probs returns Array<(u8, u256)> — serialized as flat felts:
+  // [array_len, outcome0, prob0_low, prob0_high, outcome1, prob1_low, prob1_high, ...]
+  const probsFelts = probsRaw;
+  const arrayLen = Number(BigInt(probsFelts[0] ?? "0"));
+  let rawProbYes = HALF;
+  let rawProbNo = HALF;
+  if (arrayLen >= 2) {
+    // Each tuple: (outcome_u8, prob_u256_low, prob_u256_high)
+    const outcome0 = Number(BigInt(probsFelts[1] ?? "0"));
+    const prob0 = BigInt(probsFelts[2] ?? "0") + (BigInt(probsFelts[3] ?? "0") << 128n);
+    const outcome1 = Number(BigInt(probsFelts[4] ?? "0"));
+    const prob1 = BigInt(probsFelts[5] ?? "0") + (BigInt(probsFelts[6] ?? "0") << 128n);
+    // outcome 0 = No, outcome 1 = Yes
+    if (outcome0 === 0) { rawProbNo = prob0; rawProbYes = prob1; }
+    else { rawProbYes = prob0; rawProbNo = prob1; }
+  }
+
+  // get_market_info returns (felt252, u64, ContractAddress, ContractAddress, u16)
+  const questionHash = toAddressHex(infoRaw[0] ?? "0x0");
+  const resolutionTime = Number(BigInt(infoRaw[1] ?? "0"));
+  const oracle = toAddressHex(infoRaw[2] ?? "0x0");
+  const collateralToken = toAddressHex(infoRaw[3] ?? "0x0");
+  const feeBps = Number(BigInt(infoRaw[4] ?? "0"));
 
   return {
     id,
     address,
-    questionHash: toAddressHex(infoArr[0] ?? 0),
-    resolutionTime: toSafeNumber(infoArr[1] ?? 0),
-    oracle: toAddressHex(infoArr[2] ?? 0),
-    collateralToken: toAddressHex(infoArr[3] ?? 0),
-    feeBps: toSafeNumber(infoArr[4] ?? 0),
+    questionHash,
+    resolutionTime,
+    oracle,
+    collateralToken,
+    feeBps,
     status: statusNum,
     totalPool: pool,
     yesPool: pool * rawProbYes / ONE,
@@ -450,11 +490,23 @@ export async function getUserPosition(
   marketAddress: string,
   userAddress: string
 ): Promise<{ yesBet: bigint; noBet: bigint }> {
-  const market = new Contract({ abi: MARKET_ABI as any, address: marketAddress, providerOrAccount: provider });
-  const [yesBet, noBet] = await Promise.all([
-    market.get_bet(userAddress, 1).then(parseBigNumberish).catch(() => 0n),
-    market.get_bet(userAddress, 0).then(parseBigNumberish).catch(() => 0n),
-  ]);
+  // Use raw callContract to avoid starknet.js Contract class JSON parsing issues
+  const callBet = async (outcome: number): Promise<bigint> => {
+    try {
+      const result = await provider.callContract({
+        contractAddress: marketAddress,
+        entrypoint: "get_bet",
+        calldata: [userAddress, String(outcome)],
+      });
+      // Result is [low, high] for u256
+      const low = BigInt(result[0] ?? "0");
+      const high = BigInt(result[1] ?? "0");
+      return low + (high << 128n);
+    } catch {
+      return 0n;
+    }
+  };
+  const [yesBet, noBet] = await Promise.all([callBet(1), callBet(0)]);
   return { yesBet, noBet };
 }
 

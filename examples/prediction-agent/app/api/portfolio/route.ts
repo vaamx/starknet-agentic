@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMarkets, resolveMarketQuestion, seedKnownQuestions } from "@/lib/market-reader";
-import { getUserPosition } from "@/lib/market-reader";
+import { getMarkets, getUserPosition, resolveMarketQuestion, seedKnownQuestions } from "@/lib/market-reader";
 
 export const runtime = "nodejs";
+export const maxDuration = 30;
 
 seedKnownQuestions();
 

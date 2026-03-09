@@ -22,6 +22,7 @@ import { recordAudit, recordTradeExecution } from "@/lib/ops-store";
 import { reviewMarketQuestion } from "@/lib/market-quality";
 
 export const runtime = "nodejs";
+export const maxDuration = 30;
 
 // Seed known question texts before any API calls
 seedKnownQuestions();
@@ -116,11 +117,12 @@ function normalizeQuestionKey(value: string): string {
     .trim();
 }
 
-function isMalformedQuestion(value: string): boolean {
+function isMalformedQuestion(value: string, hasOnChainActivity = false): boolean {
   const normalized = value.trim();
   if (!normalized) return true;
-  if (normalized.length < 15) return true;
-  if (normalized.startsWith("Market #")) return true;
+  if (normalized.length < 15) return !hasOnChainActivity;
+  // "Market #X" placeholders are kept if the market has on-chain activity (pool/trades)
+  if (normalized.startsWith("Market #")) return !hasOnChainActivity;
   if (/\bwin t\b/i.test(normalized)) return true;
   if (LEGACY_TIME_HASH_SUFFIX_REGEX.test(normalized)) return true;
   if (TRAILING_FRAGMENT_SUFFIX_REGEX.test(normalized)) return true;
@@ -135,7 +137,7 @@ function isMalformedQuestion(value: string): boolean {
   return value
     .replace(/\0/g, "")
     .trim()
-    .length < 15;
+    .length < 15 && !hasOnChainActivity;
 }
 
 function parsePool(value: string): bigint {
@@ -219,8 +221,9 @@ function filterEmptyMarkets<
     const isOpen = m.status === 0 && m.resolutionTime > nowSec;
     const keepRecent = keepRecentMarketIds.has(m.id);
 
-    // Drop malformed/junk labels even if they are "recent".
-    if (isMalformedQuestion(m.question)) return false;
+    // Drop malformed/junk labels — but keep markets with on-chain activity
+    const hasOnChainActivity = hasPool || hasTrades;
+    if (isMalformedQuestion(m.question, hasOnChainActivity)) return false;
 
     // Filter legacy truncated labels that end mid-phrase and have no activity.
     const truncatedLegacy =
@@ -290,7 +293,7 @@ export async function GET(request: NextRequest) {
   );
 
   try {
-    const markets = await withTimeout(getMarkets(), 7_000, []);
+    const markets = await withTimeout(getMarkets(), 25_000, []);
     if (factoryConfigured && cachedSnapshots.length > 0 && markets.length === 0) {
       throw new Error("On-chain market fetch returned empty set");
     }
@@ -339,12 +342,16 @@ export async function GET(request: NextRequest) {
         }));
     } catch { /* SQLite unavailable */ }
     const merged = [...allEnriched, ...dbSeeded];
+    console.log(`[markets] allEnriched=${allEnriched.length} dbSeeded=${dbSeeded.length} merged=${merged.length} hideEmpty=${hideEmpty}`);
 
     const filtered = hideEmpty
       ? filterEmptyMarkets(merged, { keepRecentMarketIds })
       : merged;
+    console.log(`[markets] afterFilter=${filtered.length} statusFilter=${statusFilter} limit=${limit}`);
     const deduped = dedupeQuestionClones(filtered);
+    console.log(`[markets] afterDedup=${deduped.length}`);
     const enriched = applyMarketWindow(deduped, statusFilter, limit);
+    console.log(`[markets] afterWindow=${enriched.length}`);
 
     const fullSnapshot = markets.map((m) => ({
       ...m,

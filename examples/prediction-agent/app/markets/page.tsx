@@ -2,6 +2,7 @@
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useAccount } from "@starknet-react/core";
 import SimpleHeader from "../components/SimpleHeader";
 import CategoryNav from "../components/CategoryNav";
 import CategorySidebar, { SUBCATEGORIES } from "../components/CategorySidebar";
@@ -138,6 +139,8 @@ export default function Dashboard() {
     survivalTier,
     agentWalletAddress,
   } = useMarkets();
+
+  const { isConnected: walletConnected } = useAccount();
 
   // UI state
   const [searchQuery, setSearchQuery] = useState("");
@@ -375,17 +378,17 @@ export default function Dashboard() {
   }, [refreshAuthSession]);
 
   const handleOpenCreator = useCallback(() => {
-    if (!sessionContext) {
+    if (!sessionContext && !walletConnected) {
       setPendingCreatorAfterAuth(true);
       setPendingBetAfterAuth(null);
       openAuthModal("signup");
       return;
     }
     setShowCreator(true);
-  }, [openAuthModal, sessionContext]);
+  }, [openAuthModal, sessionContext, walletConnected]);
 
   const handleBet = useCallback((marketId: number, outcome?: 0 | 1) => {
-    if (!sessionContext) {
+    if (!sessionContext && !walletConnected) {
       setPendingBetAfterAuth({ marketId, outcome });
       setPendingCreatorAfterAuth(false);
       openAuthModal("signin");
@@ -393,14 +396,14 @@ export default function Dashboard() {
     }
     setBetMarketId(marketId);
     setBetPreselectedOutcome(outcome);
-  }, [openAuthModal, sessionContext]);
+  }, [openAuthModal, sessionContext, walletConnected]);
 
   const handleAnalyze = useCallback((marketId: number) => {
     setAnalyzeMarketId(marketId);
   }, []);
 
   const handleRunAgentSweep = useCallback(async () => {
-    if (!sessionContext) {
+    if (!sessionContext && !walletConnected) {
       setPendingCreatorAfterAuth(false);
       setPendingBetAfterAuth(null);
       openAuthModal("signin");
@@ -465,6 +468,7 @@ export default function Dashboard() {
     refreshData,
     sessionContext,
     survivalTier,
+    walletConnected,
     walletSession.authenticated,
     walletSession.configured,
     walletSession.scopes,
@@ -734,7 +738,7 @@ export default function Dashboard() {
             onRunAgentSweep={handleRunAgentSweep}
             agentSweepBusy={agentSweepBusy}
             agentSweepMessage={agentSweepMessage}
-            isAuthenticated={Boolean(sessionContext)}
+            isAuthenticated={Boolean(sessionContext) || walletConnected}
             walletSession={walletSession}
             fundingReady={survivalTier !== "dead"}
             viewMode={viewMode}
