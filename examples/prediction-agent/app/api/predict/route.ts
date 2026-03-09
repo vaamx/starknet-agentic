@@ -56,7 +56,27 @@ export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
+      // Safety timeout — kill stream after 50s (before Vercel's 60s limit)
+      const streamTimeout = setTimeout(() => {
+        try {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "error", message: "Forecast timed out — check LLM provider configuration (AGENT_LLM_PROVIDER, XAI_API_KEY)" })}\n\n`
+            )
+          );
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        } catch { /* stream may already be closed */ }
+      }, 50_000);
+
       try {
+        // Send initial progress so client knows stream is alive
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ type: "text", content: `[Connecting to ${config.llmForecastProvider} LLM provider...]\n\n` })}\n\n`
+          )
+        );
+
         // Fetch market data inside the stream to avoid pre-stream timeout
         const market = await getMarketById(marketId);
 
@@ -203,8 +223,10 @@ export async function POST(request: NextRequest) {
         );
 
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        clearTimeout(streamTimeout);
         controller.close();
       } catch (err: any) {
+        clearTimeout(streamTimeout);
         if (isStreamClosedError(err)) {
           return;
         }

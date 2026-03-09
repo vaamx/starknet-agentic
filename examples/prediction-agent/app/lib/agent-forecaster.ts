@@ -130,6 +130,65 @@ export async function* forecastMarket(
       yield chunk;
     }
     return { reasoning: fullText, probability: ensembleResult.probability };
+  } else if (forecastProvider === "xai" && process.env.XAI_API_KEY) {
+    // xAI streaming path — use OpenAI-compatible streaming API for real-time output
+    const xaiBaseUrl = config.xaiBaseUrl || "https://api.x.ai/v1";
+    const messages: Array<{ role: string; content: string }> = [];
+    if (context.systemPrompt ?? SYSTEM_PROMPT) {
+      messages.push({ role: "system", content: context.systemPrompt ?? SYSTEM_PROMPT });
+    }
+    messages.push({ role: "user", content: userMessage });
+
+    const body: Record<string, unknown> = {
+      model,
+      messages,
+      stream: true,
+      temperature: 0.2,
+      max_tokens: 1024,
+    };
+
+    const res = await fetch(`${xaiBaseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.XAI_API_KEY}`,
+      },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      throw new Error(`xAI streaming request failed (HTTP ${res.status}): ${errBody.slice(0, 200)}`);
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("xAI response has no body");
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") break;
+        try {
+          const parsed = JSON.parse(data);
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) {
+            fullText += content;
+            yield content;
+          }
+        } catch { /* skip malformed */ }
+      }
+    }
   } else {
     fullText = await completeText({
       task: "forecast",

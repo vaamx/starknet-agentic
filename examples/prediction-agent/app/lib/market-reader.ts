@@ -2,6 +2,10 @@ import { RpcProvider, Contract, shortString } from "starknet";
 import { config } from "./config";
 import { fromScaled, averageBrier } from "./accuracy";
 import { getAllMarketQuestions } from "./market-db";
+import {
+  loadAllQuestions as loadQuestionsFromUpstash,
+  persistQuestion as persistQuestionToUpstash,
+} from "./market-questions-store";
 
 // Create a fresh provider per invocation to avoid stale/corrupted state on Vercel serverless
 function getProvider(): RpcProvider {
@@ -717,8 +721,32 @@ export function seedKnownQuestions(): void {
 
   // Hydrate from SQLite — fills in questions for markets 14+ that were
   // created at runtime and lost on Vercel cold starts.
-  // Uses dynamic import to avoid breaking edge environments where SQLite is unavailable.
   hydrateQuestionsFromDb();
+
+  // Async hydration from Upstash — resolves after seed but fills in-memory map
+  // for subsequent resolveMarketQuestion() calls within the same request.
+  hydrateQuestionsFromUpstash().catch(() => {});
+}
+
+let upstashHydrated = false;
+
+async function hydrateQuestionsFromUpstash(): Promise<void> {
+  if (upstashHydrated) return;
+  upstashHydrated = true;
+  try {
+    const questions = await loadQuestionsFromUpstash();
+    for (const [idStr, question] of Object.entries(questions)) {
+      const id = Number(idStr);
+      if (!MARKET_QUESTIONS[id] || /^Market #\d+$/.test(MARKET_QUESTIONS[id])) {
+        MARKET_QUESTIONS[id] = question;
+      }
+    }
+    if (Object.keys(questions).length > 0) {
+      console.log(`[market-reader] Hydrated ${Object.keys(questions).length} questions from Upstash`);
+    }
+  } catch {
+    // Upstash unavailable — no-op
+  }
 }
 
 /**
@@ -729,8 +757,10 @@ export function seedKnownQuestions(): void {
 /** Register a custom question text for a new market ID. */
 export function registerQuestion(marketId: number, question: string) {
   const normalized = sanitizeDisplayQuestion(question);
-  if (normalized) {
+  if (normalized && !/^Market #\d+$/.test(normalized)) {
     MARKET_QUESTIONS[marketId] = normalized;
+    // Fire-and-forget persist to Upstash for cold-start resilience
+    persistQuestionToUpstash(marketId, normalized).catch(() => {});
   }
 }
 
@@ -777,7 +807,7 @@ export function resolveMarketQuestion(
   seedKnownQuestions();
 
   const mapped = normalizeQuestion(MARKET_QUESTIONS[marketId] ?? "");
-  if (mapped) return mapped;
+  if (mapped && !/^Market #\d+$/.test(mapped)) return mapped;
 
   if (questionHash) {
     const decoded = decodeQuestionHash(questionHash);
@@ -789,6 +819,32 @@ export function resolveMarketQuestion(
   }
 
   return `Market #${marketId}`;
+}
+
+/**
+ * Async version that also checks Upstash before falling back to placeholder.
+ * Use this in API routes where you can await.
+ */
+export async function resolveMarketQuestionAsync(
+  marketId: number,
+  questionHash?: string | null
+): Promise<string> {
+  const sync = resolveMarketQuestion(marketId, questionHash);
+  if (!/^Market #\d+$/.test(sync)) return sync;
+
+  // Last resort: check Upstash directly
+  try {
+    const { getQuestion } = await import("./market-questions-store");
+    const fromUpstash = await getQuestion(marketId);
+    if (fromUpstash) {
+      MARKET_QUESTIONS[marketId] = fromUpstash;
+      return fromUpstash;
+    }
+  } catch {
+    // Upstash unavailable
+  }
+
+  return sync;
 }
 
 /** Check if a market question is Super Bowl related. */

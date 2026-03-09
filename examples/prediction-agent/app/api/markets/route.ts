@@ -6,6 +6,7 @@ import {
   MARKET_QUESTIONS,
   registerQuestion,
   resolveMarketQuestion,
+  resolveMarketQuestionAsync,
   seedKnownQuestions,
 } from "@/lib/market-reader";
 import { createMarket, type ExecutionSurface } from "@/lib/starknet-executor";
@@ -17,6 +18,7 @@ import {
   setPersistedMarketSnapshots,
 } from "@/lib/state-store";
 import { upsertMarkets, getAllMarkets, registerMarketQuestion } from "@/lib/market-db";
+import { persistQuestionsBatch } from "@/lib/market-questions-store";
 import { requireRole } from "@/lib/require-auth";
 import { recordAudit, recordTradeExecution } from "@/lib/ops-store";
 import { reviewMarketQuestion } from "@/lib/market-quality";
@@ -267,7 +269,7 @@ export async function GET(request: NextRequest) {
     getPersistedLoopActions(500),
   ]);
   for (const snapshot of cachedSnapshots) {
-    if (snapshot.question) {
+    if (snapshot.question && !/^Market #\d+$/.test(snapshot.question)) {
       registerQuestion(snapshot.id, snapshot.question);
     }
   }
@@ -307,7 +309,8 @@ export async function GET(request: NextRequest) {
         ? await withTimeout(getOnChainActivityCounts(addresses), 1_500, {})
         : {};
 
-    const allEnriched = markets.map((m) => ({
+    // Resolve questions — use async resolver for markets that get placeholders
+    const allEnrichedRaw = markets.map((m) => ({
       ...m,
       question: resolveMarketQuestion(m.id, m.questionHash),
       totalPool: m.totalPool.toString(),
@@ -315,6 +318,24 @@ export async function GET(request: NextRequest) {
       noPool: m.noPool.toString(),
       tradeCount: tradeCounts[m.address] ?? 0,
     }));
+
+    // For any markets still showing "Market #X", try async Upstash lookup
+    const placeholderMarkets = allEnrichedRaw.filter((m) =>
+      /^Market #\d+$/.test(m.question)
+    );
+    if (placeholderMarkets.length > 0) {
+      const resolved = await Promise.all(
+        placeholderMarkets.map(async (m) => {
+          const q = await resolveMarketQuestionAsync(m.id, m.questionHash);
+          return { id: m.id, question: q };
+        })
+      );
+      for (const { id, question } of resolved) {
+        const market = allEnrichedRaw.find((m) => m.id === id);
+        if (market) market.question = question;
+      }
+    }
+    const allEnriched = allEnrichedRaw;
 
     // Merge seeded DB markets (e.g. sports games) that aren't on-chain yet
     const onChainIds = new Set(allEnriched.map((m) => m.id));
@@ -385,6 +406,14 @@ export async function GET(request: NextRequest) {
 
     // Write-through to SQLite
     try { upsertMarkets(persistedSnapshots); } catch { /* best-effort */ }
+
+    // Persist real questions to Upstash for cold-start resilience
+    const realQuestions = allEnriched
+      .filter((m) => m.question && !/^Market #\d+$/.test(m.question))
+      .map((m) => ({ id: m.id, question: m.question }));
+    if (realQuestions.length > 0) {
+      persistQuestionsBatch(realQuestions).catch(() => {});
+    }
 
     // Enrich expired/resolved markets with resolution status
     const nowSec = Math.floor(Date.now() / 1000);
