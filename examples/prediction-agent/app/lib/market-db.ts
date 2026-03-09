@@ -227,7 +227,11 @@ export function upsertMarkets(snapshots: PersistedMarketSnapshot[]): void {
     ON CONFLICT(id) DO UPDATE SET
       address = excluded.address,
       question_hash = excluded.question_hash,
-      question = excluded.question,
+      question = CASE
+        WHEN excluded.question LIKE 'Market #%' OR excluded.question = ''
+        THEN COALESCE(NULLIF(markets.question, ''), excluded.question)
+        ELSE excluded.question
+      END,
       resolution_time = excluded.resolution_time,
       oracle = excluded.oracle,
       collateral_token = excluded.collateral_token,

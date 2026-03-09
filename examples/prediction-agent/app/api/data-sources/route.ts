@@ -66,19 +66,18 @@ function getDefaultSources(question: string): DataSourceName[] {
 }
 
 export async function GET(request: NextRequest) {
+  // Auth is optional — unauthenticated users get a looser IP-based rate limit
   const context = requireRole(request, "viewer");
-  if (!context) {
-    return Response.json({ error: "Forbidden" }, { status: 403 });
-  }
 
-  const rateLimit = checkRateLimit(
-    `research:${context.membership.organizationId}:${context.user.id}`,
-    {
-      windowMs: 60_000,
-      max: 30,
-      blockMs: 60_000,
-    }
-  );
+  const rateLimitKey = context
+    ? `research:${context.membership.organizationId}:${context.user.id}`
+    : `research:anon:${request.headers.get("x-forwarded-for") ?? "unknown"}`;
+
+  const rateLimit = checkRateLimit(rateLimitKey, {
+    windowMs: 60_000,
+    max: context ? 30 : 10,
+    blockMs: 60_000,
+  });
   if (!rateLimit.allowed) {
     return Response.json(
       { error: "Rate limit exceeded for research requests" },
@@ -104,9 +103,10 @@ export async function GET(request: NextRequest) {
   const sources =
     parsedSources.length > 0 ? parsedSources : getDefaultSources(question);
 
+  const orgId = context?.membership?.organizationId ?? "default";
   const [results, reliabilityProfile] = await Promise.all([
     quickResearch(question.trim(), sources),
-    getSourceReliabilityProfile(context.membership.organizationId).catch(
+    getSourceReliabilityProfile(orgId).catch(
       (): Record<string, SourceReliabilityBacktestRow> => ({})
     ),
   ]);

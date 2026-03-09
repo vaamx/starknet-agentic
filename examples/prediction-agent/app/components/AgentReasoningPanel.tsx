@@ -455,7 +455,14 @@ export default function AgentReasoningPanel({
   const fetchResearchData = useCallback(async () => {
     if (!question) return;
     try {
-      const res = await fetch(`/api/data-sources?question=${encodeURIComponent(question)}`);
+      const res = await fetch(
+        `/api/data-sources?question=${encodeURIComponent(question)}`,
+        { credentials: "include" }
+      );
+      if (!res.ok) {
+        setResearchData([]);
+        return;
+      }
       const data = await res.json();
       setResearchData(data.results ?? []);
     } catch {

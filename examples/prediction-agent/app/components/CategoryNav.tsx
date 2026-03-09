@@ -84,7 +84,7 @@ export default function CategoryNav({
   }, []);
 
   return (
-    <div className="sticky top-24 z-40 border-b border-white/[0.06] bg-[#111827]/90 backdrop-blur-xl">
+    <div className="sticky top-14 z-40 border-b border-white/[0.06] bg-[#111827]/90 backdrop-blur-xl">
       <div className="relative mx-auto max-w-[1400px] px-3 sm:px-4 lg:px-5">
         {/* Scroll shadow left */}
         {canScrollLeft && (
