@@ -294,6 +294,31 @@ importers:
         specifier: ^4.0.18
         version: 4.0.18(@types/node@25.3.2)(tsx@4.21.0)
 
+  packages/hicecaster-cli:
+    dependencies:
+      picocolors:
+        specifier: ^1.1.1
+        version: 1.1.1
+      prompts:
+        specifier: ^2.4.2
+        version: 2.4.2
+      starknet:
+        specifier: ^9.2.1
+        version: 9.2.1(typescript@5.9.2)
+    devDependencies:
+      '@types/node':
+        specifier: ^25.3.2
+        version: 25.3.2
+      '@types/prompts':
+        specifier: ^2.4.9
+        version: 2.4.9
+      tsup:
+        specifier: ^8.5.0
+        version: 8.5.0(tsx@4.21.0)(typescript@5.9.2)
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.2
+
   packages/prediction-arb-scanner:
     dependencies:
       zod:
@@ -2612,7 +2637,7 @@ packages:
       '@starknet-io/types-js': 0.7.10
       '@wallet-standard/base': 1.1.0
       '@wallet-standard/features': 1.1.0
-      ox: 0.4.4(typescript@5.9.2)(zod@4.3.6)
+      ox: 0.4.4(typescript@5.9.2)(zod@3.23.0)
     transitivePeerDependencies:
       - typescript
       - zod
@@ -2819,7 +2844,7 @@ packages:
   /@types/prompts@2.4.9:
     resolution: {integrity: sha512-qTxFi6Buiu8+50/+3DGIWLHM6QuWsEKugJnnP6iv2Mc4ncxE4A/OJkjuVOA+5X0X1S/nq5VJRa8Lu+nwcvbrKA==}
     dependencies:
-      '@types/node': 25.3.2
+      '@types/node': 25.3.3
       kleur: 3.0.3
     dev: true
 
