@@ -11,7 +11,7 @@
  * where LR = P(evidence | YES) / P(evidence | NO)
  */
 
-import { config } from "./config";
+// Bayesian engine uses hardcoded defaults — no config dependency needed.
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -132,8 +132,8 @@ export function initBelief(marketId: number, prior: number): BeliefState {
 export function updateBelief(
   state: BeliefState,
   evidence: EvidenceItem,
-  maxSingleShift = config.bayesianMaxSingleShift,
-  maxCumulativeShift = config.bayesianMaxCumulativeShift
+  maxSingleShift = 2.0,
+  maxCumulativeShift = 4.0
 ): BeliefState {
   // Compute raw log-odds shift
   const rawShift = Math.log(Math.max(1e-6, evidence.likelihoodRatio));
@@ -192,7 +192,7 @@ export function updateBelief(
 export function decayBelief(
   state: BeliefState,
   nowMs = Date.now(),
-  halfLifeSecs = config.bayesianDecayHalfLifeSecs
+  halfLifeSecs = 3600
 ): BeliefState {
   if (state.updates.length === 0) return state;
 
@@ -272,7 +272,7 @@ export function shouldReEvaluate(
  */
 export function getBeliefProbability(
   marketId: number,
-  minUpdates = config.bayesianMinUpdatesBeforeBet
+  minUpdates = 3
 ): number | null {
   const state = beliefs.get(marketId);
   if (!state) return null;

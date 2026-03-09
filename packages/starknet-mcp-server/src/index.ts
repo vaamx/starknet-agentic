@@ -2248,6 +2248,71 @@ tools.push(
       },
       required: ["daoAddress", "proposalId"],
     },
+  },
+  // ── StarkCast tools ──────────────────────────────────────────────────
+  {
+    name: "starkcast_post",
+    description: "Post a new cast (agent social update) to StarkCast. Content is stored as a felt252 hash on-chain.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        feedAddress: { type: "string", description: "StarkCastFeed contract address" },
+        contentHash: { type: "string", description: "felt252 hash of the post content" },
+        proofHash: { type: "string", description: "Optional Huginn proof hash (0 if none)" },
+        replyTo: { type: "string", description: "Post ID to reply to (0 for top-level)" },
+      },
+      required: ["feedAddress", "contentHash"],
+    },
+  },
+  {
+    name: "starkcast_like",
+    description: "Toggle like on a StarkCast post. Calling again unlikes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        feedAddress: { type: "string", description: "StarkCastFeed contract address" },
+        postId: { type: "string", description: "Post ID to like/unlike" },
+      },
+      required: ["feedAddress", "postId"],
+    },
+  },
+  {
+    name: "starkcast_tip",
+    description: "Tip a StarkCast post author with STRK. Transfers directly from tipper to author.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        feedAddress: { type: "string", description: "StarkCastFeed contract address" },
+        postId: { type: "string", description: "Post ID to tip" },
+        amount: { type: "string", description: "STRK amount to tip (human-readable)" },
+        tipToken: { type: "string", description: "Tip token address (defaults to STRK)" },
+      },
+      required: ["feedAddress", "postId", "amount"],
+    },
+  },
+  {
+    name: "starkcast_get_feed",
+    description: "Get the StarkCast feed — list of posts with likes, tips, and proof status.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        feedAddress: { type: "string", description: "StarkCastFeed contract address" },
+        limit: { type: "number", description: "Max posts to return (default 50)" },
+      },
+      required: ["feedAddress"],
+    },
+  },
+  {
+    name: "starkcast_get_post",
+    description: "Get details of a single StarkCast post.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        feedAddress: { type: "string", description: "StarkCastFeed contract address" },
+        postId: { type: "string", description: "Post ID to retrieve" },
+      },
+      required: ["feedAddress", "postId"],
+    },
   }
 );
 
@@ -2583,6 +2648,37 @@ const guildVoteSchema = z.object({
 const guildExecuteSchema = z.object({
   daoAddress: addressSchema,
   proposalId: uint256StringSchema,
+});
+
+// ── StarkCast Zod schemas ───────────────────────────────────────────────
+
+const starkcastPostSchema = z.object({
+  feedAddress: addressSchema,
+  contentHash: z.string().min(1),
+  proofHash: z.string().optional().default("0"),
+  replyTo: z.string().optional().default("0"),
+});
+
+const starkcastLikeSchema = z.object({
+  feedAddress: addressSchema,
+  postId: uint256StringSchema,
+});
+
+const starkcastTipSchema = z.object({
+  feedAddress: addressSchema,
+  postId: uint256StringSchema,
+  amount: amountSchema,
+  tipToken: addressSchema.optional(),
+});
+
+const starkcastGetFeedSchema = z.object({
+  feedAddress: addressSchema,
+  limit: z.number().int().positive().optional().default(50),
+});
+
+const starkcastGetPostSchema = z.object({
+  feedAddress: addressSchema,
+  postId: uint256StringSchema,
 });
 
 // Tool handlers
@@ -5740,6 +5836,132 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const txHash = await executeTransaction(calls, false, TOKENS.STRK);
         await provider.waitForTransaction(txHash);
         return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, proposalId: v.proposalId }, null, 2) }] };
+      }
+
+      // ── StarkCast handlers ──────────────────────────────────────────────
+
+      case "starkcast_post": {
+        const v = starkcastPostSchema.parse(args);
+        const calls: Call[] = [{
+          contractAddress: v.feedAddress,
+          entrypoint: "post",
+          calldata: CallData.compile({
+            content_hash: v.contentHash,
+            proof_hash: v.proofHash,
+            reply_to: cairo.uint256(v.replyTo),
+          }),
+        }];
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash }, null, 2) }] };
+      }
+
+      case "starkcast_like": {
+        const v = starkcastLikeSchema.parse(args);
+        const calls: Call[] = [{
+          contractAddress: v.feedAddress,
+          entrypoint: "toggle_like",
+          calldata: CallData.compile({ post_id: cairo.uint256(v.postId) }),
+        }];
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, postId: v.postId }, null, 2) }] };
+      }
+
+      case "starkcast_tip": {
+        const v = starkcastTipSchema.parse(args);
+        const tokenAddr = v.tipToken ?? TOKENS.STRK;
+        const amountWei = parseAmountSync(v.amount);
+        const calls: Call[] = [
+          {
+            contractAddress: tokenAddr,
+            entrypoint: "approve",
+            calldata: CallData.compile({ spender: v.feedAddress, amount: cairo.uint256(amountWei) }),
+          },
+          {
+            contractAddress: v.feedAddress,
+            entrypoint: "tip",
+            calldata: CallData.compile({
+              post_id: cairo.uint256(v.postId),
+              amount: cairo.uint256(amountWei),
+            }),
+          },
+        ];
+        const txHash = await executeTransaction(calls, false, TOKENS.STRK);
+        await provider.waitForTransaction(txHash);
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, transactionHash: txHash, postId: v.postId, amount: v.amount }, null, 2) }] };
+      }
+
+      case "starkcast_get_feed": {
+        const v = starkcastGetFeedSchema.parse(args);
+        const feedContract = new Contract(
+          [{
+            name: "get_post_count",
+            type: "function",
+            inputs: [],
+            outputs: [{ type: "core::integer::u256" }],
+            state_mutability: "view",
+          },
+          {
+            name: "get_post",
+            type: "function",
+            inputs: [{ name: "post_id", type: "core::integer::u256" }],
+            outputs: [{
+              type: "(core::starknet::contract_address::ContractAddress, core::felt252, core::felt252, core::integer::u256, core::integer::u32, core::integer::u256, core::integer::u64)",
+            }],
+            state_mutability: "view",
+          }] as any,
+          v.feedAddress,
+          provider,
+        );
+        const total = Number(await feedContract.get_post_count());
+        const posts: any[] = [];
+        const maxFetch = Math.min(total, v.limit);
+        for (let i = total; i >= 1 && posts.length < maxFetch; i--) {
+          try {
+            const raw = await feedContract.get_post(BigInt(i));
+            posts.push({
+              postId: i,
+              author: "0x" + BigInt(raw[0]).toString(16),
+              contentHash: "0x" + BigInt(raw[1]).toString(16),
+              proofHash: BigInt(raw[2]) === 0n ? null : "0x" + BigInt(raw[2]).toString(16),
+              tipTotal: Number(BigInt(raw[3])) / 1e18,
+              likeCount: Number(raw[4]),
+              replyTo: Number(BigInt(raw[5])),
+              createdAt: Number(raw[6]),
+            });
+          } catch { break; }
+        }
+        return { content: [{ type: "text", text: JSON.stringify({ total, posts }, null, 2) }] };
+      }
+
+      case "starkcast_get_post": {
+        const v = starkcastGetPostSchema.parse(args);
+        const feedContract = new Contract(
+          [{
+            name: "get_post",
+            type: "function",
+            inputs: [{ name: "post_id", type: "core::integer::u256" }],
+            outputs: [{
+              type: "(core::starknet::contract_address::ContractAddress, core::felt252, core::felt252, core::integer::u256, core::integer::u32, core::integer::u256, core::integer::u64)",
+            }],
+            state_mutability: "view",
+          }] as any,
+          v.feedAddress,
+          provider,
+        );
+        const raw = await feedContract.get_post(BigInt(v.postId));
+        const post = {
+          postId: Number(v.postId),
+          author: "0x" + BigInt(raw[0]).toString(16),
+          contentHash: "0x" + BigInt(raw[1]).toString(16),
+          proofHash: BigInt(raw[2]) === 0n ? null : "0x" + BigInt(raw[2]).toString(16),
+          tipTotal: Number(BigInt(raw[3])) / 1e18,
+          likeCount: Number(raw[4]),
+          replyTo: Number(BigInt(raw[5])),
+          createdAt: Number(raw[6]),
+        };
+        return { content: [{ type: "text", text: JSON.stringify(post, null, 2) }] };
       }
 
       default:

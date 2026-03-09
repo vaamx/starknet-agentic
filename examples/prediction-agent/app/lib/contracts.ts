@@ -124,6 +124,8 @@ export const ECONOMY = {
     process.env.NEXT_PUBLIC_GUILD_REGISTRY_ADDRESS ?? "0x0",
   GUILD_DAO:
     process.env.NEXT_PUBLIC_GUILD_DAO_ADDRESS ?? "0x0",
+  STARKCAST_FEED:
+    process.env.NEXT_PUBLIC_STARKCAST_FEED_ADDRESS ?? "0x0",
 } as const;
 
 // ── ProveWork call builders ───────────────────────────────────────────
@@ -384,6 +386,71 @@ export function buildGuildVoteCalls(
       calldata: CallData.compile({
         proposal_id: { low: proposalId, high: 0n },
         support: support ? 1 : 0,
+      }),
+    },
+  ];
+}
+
+// ── StarkCast call builders ──────────────────────────────────────────
+
+/** Post a new cast. contentHash is a felt252 hash of the text.
+ *  proofHash links to a Huginn proof (0 if none). replyTo is 0 for top-level. */
+export function buildStarkCastPostCalls(
+  feedAddress: string,
+  contentHash: bigint,
+  proofHash: bigint = 0n,
+  replyTo: bigint = 0n
+): Call[] {
+  return [
+    {
+      contractAddress: feedAddress,
+      entrypoint: "post",
+      calldata: CallData.compile({
+        content_hash: contentHash,
+        proof_hash: proofHash,
+        reply_to: { low: replyTo, high: 0n },
+      }),
+    },
+  ];
+}
+
+/** Toggle like on a post. */
+export function buildStarkCastLikeCalls(
+  feedAddress: string,
+  postId: bigint
+): Call[] {
+  return [
+    {
+      contractAddress: feedAddress,
+      entrypoint: "toggle_like",
+      calldata: CallData.compile({
+        post_id: { low: postId, high: 0n },
+      }),
+    },
+  ];
+}
+
+/** Approve STRK + tip a post author. */
+export function buildStarkCastTipCalls(
+  feedAddress: string,
+  postId: bigint,
+  amount: bigint
+): Call[] {
+  return [
+    {
+      contractAddress: CONTRACTS.COLLATERAL_TOKEN,
+      entrypoint: "approve",
+      calldata: CallData.compile({
+        spender: feedAddress,
+        amount: { low: amount, high: 0n },
+      }),
+    },
+    {
+      contractAddress: feedAddress,
+      entrypoint: "tip",
+      calldata: CallData.compile({
+        post_id: { low: postId, high: 0n },
+        amount: { low: amount, high: 0n },
       }),
     },
   ];

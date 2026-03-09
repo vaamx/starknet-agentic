@@ -21,6 +21,8 @@ const DEPLOYED = {
   GUILD_DAO:
     process.env.GUILD_DAO_ADDRESS ??
     "0x6fd9b3a781bed426d7d0601e1fb2a62dcbc7342b3d5a5b92258953256b87992",
+  STARKCAST_FEED:
+    process.env.STARKCAST_FEED_ADDRESS ?? "0x0",
   STRK_TOKEN:
     "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
 } as const;
@@ -708,5 +710,138 @@ export async function getProposalCount(): Promise<number> {
     });
     const count = await dao.get_proposal_count();
     return Number(count);
+  });
+}
+
+// ── StarkCast Feed Reader ────────────────────────────────────────────────
+
+const STARKCAST_FEED_ABI = [
+  {
+    name: "get_post_count",
+    type: "function",
+    inputs: [],
+    outputs: [{ type: "core::integer::u256" }],
+    state_mutability: "view",
+  },
+  {
+    name: "get_post",
+    type: "function",
+    inputs: [{ name: "post_id", type: "core::integer::u256" }],
+    outputs: [
+      {
+        type: "(core::starknet::contract_address::ContractAddress, core::felt252, core::felt252, core::integer::u256, core::integer::u32, core::integer::u256, core::integer::u64)",
+      },
+    ],
+    state_mutability: "view",
+  },
+  {
+    name: "get_author_tips",
+    type: "function",
+    inputs: [{ name: "author", type: "core::starknet::contract_address::ContractAddress" }],
+    outputs: [{ type: "core::integer::u256" }],
+    state_mutability: "view",
+  },
+  {
+    name: "has_liked",
+    type: "function",
+    inputs: [
+      { name: "post_id", type: "core::integer::u256" },
+      { name: "user", type: "core::starknet::contract_address::ContractAddress" },
+    ],
+    outputs: [{ type: "core::bool" }],
+    state_mutability: "view",
+  },
+] as const;
+
+export interface OnChainCast {
+  postId: number;
+  author: string;
+  contentHash: string;
+  proofHash: string | null;
+  tipTotal: number;
+  likeCount: number;
+  replyTo: number;
+  createdAt: number;
+}
+
+export async function getCastCount(): Promise<number> {
+  if (DEPLOYED.STARKCAST_FEED === "0x0") return 0;
+  return cached("cast_count", async () => {
+    const contract = new Contract({
+      abi: STARKCAST_FEED_ABI as any,
+      address: DEPLOYED.STARKCAST_FEED,
+      providerOrAccount: provider,
+    });
+    const count = await contract.get_post_count();
+    return Number(count);
+  });
+}
+
+async function readRawCast(postId: number): Promise<OnChainCast | null> {
+  try {
+    const contract = new Contract({
+      abi: STARKCAST_FEED_ABI as any,
+      address: DEPLOYED.STARKCAST_FEED,
+      providerOrAccount: provider,
+    });
+
+    // get_post returns: (author, content_hash, proof_hash, tip_total, like_count, reply_to, created_at)
+    const raw = await contract.get_post(BigInt(postId));
+    const author = toHex(raw[0]);
+    const contentHash = toHex(raw[1]);
+    const proofHashHex = toHex(raw[2]);
+    const tipTotal = toStrk(raw[3]);
+    const likeCount = Number(raw[4]);
+    const replyTo = Number(toBigInt(raw[5]));
+    const createdAt = Number(raw[6]);
+
+    return {
+      postId,
+      author,
+      contentHash,
+      proofHash: proofHashHex === "0x00" ? null : proofHashHex,
+      tipTotal,
+      likeCount,
+      replyTo,
+      createdAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function listCasts(
+  offset = 0,
+  limit = 50,
+  sort = "newest"
+): Promise<{ casts: OnChainCast[]; total: number }> {
+  if (DEPLOYED.STARKCAST_FEED === "0x0") return { casts: [], total: 0 };
+  return cached(`casts:${offset}:${limit}:${sort}`, async () => {
+    const total = await getCastCount();
+    if (total === 0) return { casts: [], total: 0 };
+
+    // Post IDs start at 1
+    const ids = Array.from({ length: total }, (_, i) => i + 1);
+    const casts = (await Promise.all(ids.map(readRawCast))).filter(
+      (c): c is OnChainCast => c !== null
+    );
+
+    casts.sort((a, b) => {
+      if (sort === "tips") return b.tipTotal - a.tipTotal;
+      if (sort === "likes") return b.likeCount - a.likeCount;
+      return b.createdAt - a.createdAt; // newest
+    });
+
+    return {
+      casts: casts.slice(offset, offset + limit),
+      total: casts.length,
+    };
+  });
+}
+
+export async function getCastDetail(postId: number): Promise<OnChainCast | null> {
+  if (DEPLOYED.STARKCAST_FEED === "0x0") return null;
+  return cached(`cast_detail:${postId}`, async () => {
+    return readRawCast(postId);
   });
 }

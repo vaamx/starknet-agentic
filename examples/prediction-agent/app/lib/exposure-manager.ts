@@ -10,7 +10,16 @@
  */
 
 import type { MarketState } from "./market-reader";
-import { config } from "./config";
+
+// ── Exposure defaults (standalone — no config dependency) ──────────────
+const exposureConfig = {
+  exposureEnabled: true,
+  exposureCorrelationThreshold: 0.7,
+  exposureMaxTotalFraction: 0.5,
+  exposureMaxGroupFraction: 0.25,
+  exposureMaxPositionsPerGroup: 5,
+  exposureScaleNearLimit: true,
+};
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -179,7 +188,7 @@ export function computeCorrelation(a: Position, b: Position): number {
  */
 export function groupPositions(
   positions: Position[],
-  correlationThreshold = config.exposureCorrelationThreshold
+  correlationThreshold = exposureConfig.exposureCorrelationThreshold
 ): ExposureGroup[] {
   const assetGroups = new Map<string, Position[]>();
 
@@ -289,7 +298,7 @@ export function evaluateProposedBet(
   currentPositions: Position[],
   bankrollWei: bigint
 ): ExposureDecision {
-  if (!config.exposureEnabled || proposedBetWei <= 0n) {
+  if (!exposureConfig.exposureEnabled || proposedBetWei <= 0n) {
     return {
       allow: true,
       adjustedBetWei: proposedBetWei,
@@ -323,10 +332,10 @@ export function evaluateProposedBet(
   const metrics = computePortfolioMetrics(groups, bankrollWei);
 
   // ── Gate 1: Total portfolio exposure limit ──
-  if (metrics.exposureFraction > config.exposureMaxTotalFraction) {
+  if (metrics.exposureFraction > exposureConfig.exposureMaxTotalFraction) {
     // Scale down to fit within limit
     const currentExposure = Number(metrics.totalExposureWei - proposedBetWei);
-    const maxTotal = Number(bankrollWei) * config.exposureMaxTotalFraction;
+    const maxTotal = Number(bankrollWei) * exposureConfig.exposureMaxTotalFraction;
     const headroom = Math.max(0, maxTotal - currentExposure);
 
     if (headroom <= 0) {
@@ -334,7 +343,7 @@ export function evaluateProposedBet(
         allow: false,
         adjustedBetWei: 0n,
         proposedBetWei,
-        reason: `Portfolio at ${(metrics.exposureFraction * 100).toFixed(1)}% exposure (max ${(config.exposureMaxTotalFraction * 100).toFixed(0)}%)`,
+        reason: `Portfolio at ${(metrics.exposureFraction * 100).toFixed(1)}% exposure (max ${(exposureConfig.exposureMaxTotalFraction * 100).toFixed(0)}%)`,
         metrics,
       };
     }
@@ -358,12 +367,12 @@ export function evaluateProposedBet(
       const groupFraction =
         Number(assetGroup.totalExposureWei) / (Number(bankrollWei) || 1);
 
-      if (groupFraction > config.exposureMaxGroupFraction) {
+      if (groupFraction > exposureConfig.exposureMaxGroupFraction) {
         const currentGroupExposure = Number(
           assetGroup.totalExposureWei - proposedBetWei
         );
         const maxGroupTotal =
-          Number(bankrollWei) * config.exposureMaxGroupFraction;
+          Number(bankrollWei) * exposureConfig.exposureMaxGroupFraction;
         const headroom = Math.max(0, maxGroupTotal - currentGroupExposure);
 
         if (headroom <= 0) {
@@ -371,7 +380,7 @@ export function evaluateProposedBet(
             allow: false,
             adjustedBetWei: 0n,
             proposedBetWei,
-            reason: `${underlying.asset} group at ${(groupFraction * 100).toFixed(1)}% exposure (max ${(config.exposureMaxGroupFraction * 100).toFixed(0)}%)`,
+            reason: `${underlying.asset} group at ${(groupFraction * 100).toFixed(1)}% exposure (max ${(exposureConfig.exposureMaxGroupFraction * 100).toFixed(0)}%)`,
             metrics,
           };
         }
@@ -389,12 +398,12 @@ export function evaluateProposedBet(
       }
 
       // ── Gate 3: Max positions per group ──
-      if (assetGroup.positions.length > config.exposureMaxPositionsPerGroup) {
+      if (assetGroup.positions.length > exposureConfig.exposureMaxPositionsPerGroup) {
         return {
           allow: false,
           adjustedBetWei: 0n,
           proposedBetWei,
-          reason: `${underlying.asset} group has ${assetGroup.positions.length} positions (max ${config.exposureMaxPositionsPerGroup})`,
+          reason: `${underlying.asset} group has ${assetGroup.positions.length} positions (max ${exposureConfig.exposureMaxPositionsPerGroup})`,
           metrics,
         };
       }
@@ -402,10 +411,10 @@ export function evaluateProposedBet(
   }
 
   // ── Gate 4: Scale near limit (gentle reduction as exposure approaches cap) ──
-  if (config.exposureScaleNearLimit) {
+  if (exposureConfig.exposureScaleNearLimit) {
     const usedFraction =
       metrics.exposureFraction > 0
-        ? metrics.exposureFraction / config.exposureMaxTotalFraction
+        ? metrics.exposureFraction / exposureConfig.exposureMaxTotalFraction
         : 0;
     // Start scaling at 80% of limit
     if (usedFraction > 0.8) {
@@ -418,7 +427,7 @@ export function evaluateProposedBet(
           allow: true,
           adjustedBetWei: scaled,
           proposedBetWei,
-          reason: `Scaled to ${(scaleFactor * 100).toFixed(0)}% (portfolio at ${(metrics.exposureFraction * 100).toFixed(1)}% of ${(config.exposureMaxTotalFraction * 100).toFixed(0)}% limit)`,
+          reason: `Scaled to ${(scaleFactor * 100).toFixed(0)}% (portfolio at ${(metrics.exposureFraction * 100).toFixed(1)}% of ${(exposureConfig.exposureMaxTotalFraction * 100).toFixed(0)}% limit)`,
           metrics,
         };
       }

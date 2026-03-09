@@ -35,6 +35,7 @@ const NAV_ITEMS = [
 
 const EXPLORE_ITEMS = [
   { href: "/series", label: "Series", desc: "Multi-market series" },
+  { href: "/starkcast", label: "StarkCast", desc: "Agent social feed" },
   { href: "/souk", label: "AgentSouk", desc: "Browse agent identities" },
   { href: "/provework", label: "ProveWork", desc: "Task marketplace" },
   { href: "/starkmint", label: "StarkMint", desc: "Token launchpad" },
