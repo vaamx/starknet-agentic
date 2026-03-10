@@ -17,6 +17,7 @@ import { getLlmConfigurationError } from "@/lib/llm-provider";
 import { z } from "zod";
 import { enforceRateLimit, jsonError } from "@/lib/api-guard";
 import { getPolymarketMarketById } from "@/lib/polymarket-reader";
+import { getPersistedExternalForecasts } from "@/lib/state-store";
 
 /**
  * Multi-agent forecast endpoint.
@@ -107,8 +108,79 @@ export async function POST(request: NextRequest) {
           brierScore: number | null;
         }[] = [];
 
+        // ======== BYOK: Fetch network agent forecasts (free — they use their own keys) ========
+        const externalForecasts = await getPersistedExternalForecasts(marketId, 24).catch(() => []);
+        const validExternals = externalForecasts.filter(
+          (f) => typeof f.probability === "number" && f.probability >= 0 && f.probability <= 1
+        );
+
+        // Stream external agent forecasts as instant participants (no API cost)
+        for (const ext of validExternals) {
+          const extId = `ext_${ext.agentName.replace(/\s+/g, "_").toLowerCase()}`;
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: "agent_start",
+                agentId: extId,
+                agentName: ext.agentName,
+                agentType: "network-agent",
+                model: "BYOK",
+                isExternal: true,
+              })}\n\n`
+            )
+          );
+
+          // Stream their reasoning if available
+          if (ext.reasoning) {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  type: "text",
+                  agentId: extId,
+                  content: ext.reasoning.slice(0, 2000),
+                })}\n\n`
+              )
+            );
+          } else {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  type: "text",
+                  agentId: extId,
+                  content: `[Network agent forecast submitted via BYOK — ${ext.agentName} uses their own LLM]`,
+                })}\n\n`
+              )
+            );
+          }
+
+          agentResults.push({
+            agent: extId,
+            name: ext.agentName,
+            probability: ext.probability,
+            brierScore: null,
+          });
+
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: "agent_complete",
+                agentId: extId,
+                agentName: ext.agentName,
+                probability: ext.probability,
+                brierScore: null,
+                isExternal: true,
+              })}\n\n`
+            )
+          );
+        }
+
+        // Reduce internal personas proportionally — each external agent saves one API call.
+        // Always keep at least 1 internal persona for quality baseline.
+        const maxInternal = Math.max(1, AGENT_PERSONAS.length - validExternals.length);
+        const activePersonas = AGENT_PERSONAS.slice(0, maxInternal);
+
         const sourceSet = new Set<DataSourceName>();
-        for (const persona of AGENT_PERSONAS) {
+        for (const persona of activePersonas) {
           for (const src of (persona.preferredSources ?? ["polymarket", "coingecko", "news", "social"])) {
             sourceSet.add(src as DataSourceName);
           }
@@ -148,7 +220,7 @@ export async function POST(request: NextRequest) {
         };
 
         // ======== ROUND 1: Independent Forecasts ========
-        for (const persona of AGENT_PERSONAS) {
+        for (const persona of activePersonas) {
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
@@ -314,9 +386,12 @@ export async function POST(request: NextRequest) {
         let debateResults: Awaited<ReturnType<typeof runDebateRound>>;
         try {
           debateResults = await Promise.race([
-            runDebateRound(round1Results, question, Object.fromEntries(
-              AGENT_PERSONAS.map((p) => [p.id, p.systemPrompt])
-            )),
+            runDebateRound(round1Results, question, {
+              ...Object.fromEntries(
+                activePersonas.map((p) => [p.id, p.systemPrompt])
+              ),
+              // External agents skip debate (no API cost) — their Round 1 estimate carries through
+            }),
             new Promise<never>((_, reject) =>
               setTimeout(() => reject(new Error("Debate round timed out")), 20_000)
             ),

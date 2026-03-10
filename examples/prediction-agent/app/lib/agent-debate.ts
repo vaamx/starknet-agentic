@@ -68,6 +68,19 @@ export async function runDebateRound(
   const results: DebateResult[] = [];
 
   for (const agent of round1Results) {
+    // Skip external/network agents — they submitted via BYOK and don't cost us API calls.
+    // Their Round 1 probability carries through unchanged.
+    if (!(agent.agentId in systemPrompts) && !AGENT_PERSONAS.find((p) => p.id === agent.agentId)) {
+      results.push({
+        agentId: agent.agentId,
+        agentName: agent.agentName,
+        originalProbability: agent.probability,
+        revisedProbability: agent.probability,
+        debateReasoning: `[${agent.agentName} is a network agent — forecast submitted via BYOK]`,
+      });
+      continue;
+    }
+
     const otherForecasts = round1Results
       .filter((r) => r.agentId !== agent.agentId)
       .map(
