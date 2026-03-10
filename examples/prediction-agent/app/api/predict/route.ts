@@ -128,7 +128,13 @@ export async function POST(request: NextRequest) {
         const alphaPrompt =
           AGENT_PERSONAS.find((p) => p.id === "alpha")?.systemPrompt;
 
-        const useToolUse = process.env.AGENT_TOOL_USE_ENABLED !== "false";
+        // Tool-use (agenticForecastMarket) uses Anthropic SDK exclusively.
+        // When provider is xAI, skip it — xAI gets native tools (web_search, x_search)
+        // via the streaming path in forecastMarket() instead.
+        const forecastProvider = config.llmForecastProvider;
+        const useToolUse =
+          process.env.AGENT_TOOL_USE_ENABLED !== "false" &&
+          forecastProvider === "anthropic";
 
         const forecastContext = {
           currentMarketProb: impliedProbYes,
