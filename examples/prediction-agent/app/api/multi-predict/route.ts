@@ -86,6 +86,19 @@ export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
+      // Safety timeout — kill stream before Vercel's 60s limit
+      const streamTimeout = setTimeout(() => {
+        try {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "error", message: "Swarm forecast timed out" })}\n\n`
+            )
+          );
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        } catch { /* stream may already be closed */ }
+      }, 55_000);
+
       try {
         const agentResults: {
           agent: string;
@@ -162,58 +175,100 @@ export async function POST(request: NextRequest) {
 
           const forecastContext = { ...baseContext, systemPrompt: persona.systemPrompt };
 
-          const generator = useToolUse
-            ? agenticForecastMarket(question, forecastContext)
-            : forecastMarket(question, forecastContext);
+          // Run forecast with timeout + fallback (tool-use → no-tool-use → skip)
+          async function runAgentForecast(withTools: boolean): Promise<any> {
+            const generator = withTools
+              ? agenticForecastMarket(question, forecastContext)
+              : forecastMarket(question, forecastContext);
 
-          let result: any;
-          while (true) {
-            const { value, done } = await generator.next();
-            if (done) {
-              result = value;
-              break;
-            }
-            if (useToolUse) {
-              const event = value as AgenticForecastEvent;
-              if (event.type === "reasoning_chunk") {
+            // 35s per-agent hard timeout
+            const deadline = Date.now() + 35_000;
+            let result: any;
+            while (true) {
+              if (Date.now() > deadline) {
+                throw new Error(`Agent ${persona.name} forecast timed out`);
+              }
+              const stepPromise = generator.next();
+              const timeLeft = Math.max(1000, deadline - Date.now());
+              const { value, done } = await Promise.race([
+                stepPromise,
+                new Promise<never>((_, reject) =>
+                  setTimeout(() => reject(new Error(`Step timeout for ${persona.name}`)), timeLeft)
+                ),
+              ]);
+              if (done) {
+                result = value;
+                break;
+              }
+              if (withTools) {
+                const event = value as AgenticForecastEvent;
+                if (event.type === "reasoning_chunk") {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({ type: "text", agentId: persona.id, content: event.content })}\n\n`
+                    )
+                  );
+                } else if (event.type === "tool_call") {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({ type: "tool_call", agentId: persona.id, toolName: event.toolName, toolUseId: event.toolUseId, input: event.input })}\n\n`
+                    )
+                  );
+                } else if (event.type === "tool_result") {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({
+                        type: "tool_result",
+                        agentId: persona.id,
+                        toolName: event.toolName,
+                        toolUseId: event.toolUseId,
+                        result: event.result,
+                        isError: event.isError,
+                        source: event.source,
+                        dataPoints: event.dataPoints,
+                      })}\n\n`
+                    )
+                  );
+                }
+              } else {
                 controller.enqueue(
                   encoder.encode(
-                    `data: ${JSON.stringify({ type: "text", agentId: persona.id, content: event.content })}\n\n`
-                  )
-                );
-              } else if (event.type === "tool_call") {
-                controller.enqueue(
-                  encoder.encode(
-                    `data: ${JSON.stringify({ type: "tool_call", agentId: persona.id, toolName: event.toolName, toolUseId: event.toolUseId, input: event.input })}\n\n`
-                  )
-                );
-              } else if (event.type === "tool_result") {
-                controller.enqueue(
-                  encoder.encode(
-                    `data: ${JSON.stringify({
-                      type: "tool_result",
-                      agentId: persona.id,
-                      toolName: event.toolName,
-                      toolUseId: event.toolUseId,
-                      result: event.result,
-                      isError: event.isError,
-                      source: event.source,
-                      dataPoints: event.dataPoints,
-                    })}\n\n`
+                    `data: ${JSON.stringify({ type: "text", agentId: persona.id, content: value as string })}\n\n`
                   )
                 );
               }
-            } else {
+            }
+            return result;
+          }
+
+          let result: any;
+          try {
+            result = await runAgentForecast(useToolUse);
+          } catch (primaryErr: any) {
+            // Fallback: retry without tool-use for speed
+            console.warn(`[multi-predict] ${persona.name} primary failed: ${primaryErr?.message}. Retrying without tools...`);
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: "text", agentId: persona.id, content: `\n[Retrying ${persona.name} with fallback provider...]\n` })}\n\n`
+              )
+            );
+            try {
+              result = await runAgentForecast(false);
+            } catch (fallbackErr: any) {
+              console.error(`[multi-predict] ${persona.name} fallback also failed: ${fallbackErr?.message}`);
+              // Skip this agent — use market prob as default
+              result = { probability: impliedProbYes };
               controller.enqueue(
                 encoder.encode(
-                  `data: ${JSON.stringify({ type: "text", agentId: persona.id, content: value as string })}\n\n`
+                  `data: ${JSON.stringify({ type: "text", agentId: persona.id, content: `\n[${persona.name} forecast failed, using market probability]\n` })}\n\n`
                 )
               );
             }
           }
 
           if (typeof result?.probability !== "number") {
-            throw new Error(`Forecast missing probability for ${persona.name}`);
+            // Use market probability as safe default
+            result = { probability: impliedProbYes };
           }
           probability = result.probability;
 
@@ -253,9 +308,27 @@ export async function POST(request: NextRequest) {
           brierScore: a.brierScore,
         }));
 
-        const debateResults = await runDebateRound(round1Results, question, Object.fromEntries(
-          AGENT_PERSONAS.map((p) => [p.id, p.systemPrompt])
-        ));
+        let debateResults: Awaited<ReturnType<typeof runDebateRound>>;
+        try {
+          debateResults = await Promise.race([
+            runDebateRound(round1Results, question, Object.fromEntries(
+              AGENT_PERSONAS.map((p) => [p.id, p.systemPrompt])
+            )),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("Debate round timed out")), 20_000)
+            ),
+          ]);
+        } catch (debateErr: any) {
+          console.warn(`[multi-predict] Debate failed: ${debateErr?.message}. Skipping debate.`);
+          // Skip debate — just use Round 1 results as-is
+          debateResults = round1Results.map((r) => ({
+            agentId: r.agentId,
+            agentName: r.agentName,
+            originalProbability: r.probability,
+            revisedProbability: r.probability,
+            debateReasoning: "[Debate skipped due to timeout]",
+          }));
+        }
 
         for (const debate of debateResults) {
           // Stream debate reasoning
@@ -321,8 +394,10 @@ export async function POST(request: NextRequest) {
         );
 
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        clearTimeout(streamTimeout);
         controller.close();
       } catch (err: any) {
+        clearTimeout(streamTimeout);
         controller.enqueue(
           encoder.encode(
             `data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`
