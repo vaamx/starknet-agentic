@@ -116,7 +116,6 @@ const MAX_PENDING = 500; // hard cap to prevent unbounded growth
 const MAX_RETRIES = 3;   // drop rewards after N failed mint attempts
 
 // Dedup: prevent same address+market+type from earning twice within a window
-const rewardDedupSet = new Set<string>();
 const DEDUP_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 const dedupTimestamps = new Map<string, number>();
 
@@ -133,15 +132,13 @@ function isDuplicate(type: BuzzRewardType, address: string, marketId?: number): 
 
 function markRewarded(type: BuzzRewardType, address: string, marketId?: number): void {
   const key = dedupKey(type, address, marketId);
-  rewardDedupSet.add(key);
   dedupTimestamps.set(key, Date.now());
   // Prune old entries periodically
-  if (dedupTimestamps.size > 5000) {
+  if (dedupTimestamps.size > 1000) {
     const now = Date.now();
     for (const [k, t] of dedupTimestamps) {
       if (now - t > DEDUP_WINDOW_MS) {
         dedupTimestamps.delete(k);
-        rewardDedupSet.delete(k);
       }
     }
   }
@@ -248,7 +245,7 @@ export function queueBuzzReward(
   }
 ): BuzzReward | null {
   if (!BUZZ_REWARDS_ENABLED) return null;
-  if (!recipientAddress || !recipientAddress.startsWith("0x")) return null;
+  if (!recipientAddress || !recipientAddress.startsWith("0x") || recipientAddress === "0x0") return null;
 
   // Dedup: skip if same address+market+type was rewarded within window
   if (isDuplicate(type, recipientAddress, options?.marketId)) return null;
@@ -257,8 +254,10 @@ export function queueBuzzReward(
   if (pendingRewards.length >= MAX_PENDING) return null;
 
   const baseAmount = options?.amount ?? BUZZ_REWARD_AMOUNTS[type];
-  const halvingMul = getHalvingMultiplier();
-  const amount = Math.max(0, Math.round(baseAmount * BUZZ_EMISSION_MULTIPLIER * halvingMul * 100) / 100);
+  // If caller provided a pre-computed amount (e.g. computeWinningClaimReward), skip halving
+  const amount = options?.amount !== undefined
+    ? Math.max(0, Math.round(baseAmount * 100) / 100)
+    : Math.max(0, Math.round(baseAmount * BUZZ_EMISSION_MULTIPLIER * getHalvingMultiplier() * 100) / 100);
   if (amount <= 0) return null;
 
   markRewarded(type, recipientAddress, options?.marketId);
@@ -309,19 +308,20 @@ export async function processPendingBuzzRewards(
     processed++;
 
     const result = await mintBuzzReward(reward);
-    reward.distributed = result.status === "success";
-    reward.txHash = result.txHash || undefined;
-    pushToHistory(reward);
     results.push(result);
 
-    // Re-queue on failure with retry limit
-    if (result.status === "error") {
-      reward.distributed = false;
+    if (result.status === "success") {
+      reward.distributed = true;
+      reward.txHash = result.txHash || undefined;
+      pushToHistory(reward);
+    } else {
       reward.retryCount = (reward.retryCount ?? 0) + 1;
       if (reward.retryCount < MAX_RETRIES) {
-        pendingRewards.push(reward);
+        pendingRewards.push(reward); // re-queue for retry
+      } else {
+        reward.distributed = false;
+        pushToHistory(reward); // final failure — log once
       }
-      // else: drop — exceeded max retries
     }
   }
 
@@ -359,9 +359,10 @@ async function mintBuzzReward(reward: BuzzReward): Promise<BuzzTxResult> {
       };
 
       const result = await account.execute([tx]);
-      await provider.waitForTransaction(result.transaction_hash, {
-        retryInterval: 3000,
-      });
+      await Promise.race([
+        provider.waitForTransaction(result.transaction_hash, { retryInterval: 3000 }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("tx wait timeout")), 30_000)),
+      ]);
 
       return { txHash: result.transaction_hash, status: "success" };
     } catch (err: any) {
@@ -378,8 +379,9 @@ async function mintBuzzReward(reward: BuzzReward): Promise<BuzzTxResult> {
 
 // ── Balance reader ───────────────────────────────────────────────────────────
 
-let balanceCache: { address: string; balance: bigint; fetchedAt: number } | null = null;
+const balanceCache = new Map<string, { balance: bigint; fetchedAt: number }>();
 const BALANCE_CACHE_TTL_MS = 15_000;
+const BALANCE_CACHE_MAX = 100;
 
 /**
  * Read BUZZ token balance for an address. Uses RPC failover with 15s cache.
@@ -387,12 +389,10 @@ const BALANCE_CACHE_TTL_MS = 15_000;
 export async function getBuzzBalance(address: string): Promise<bigint> {
   if (BUZZ_TOKEN_ADDRESS === "0x0") return 0n;
 
-  if (
-    balanceCache &&
-    balanceCache.address === address &&
-    Date.now() - balanceCache.fetchedAt < BALANCE_CACHE_TTL_MS
-  ) {
-    return balanceCache.balance;
+  const normalizedAddr = address.toLowerCase();
+  const cached = balanceCache.get(normalizedAddr);
+  if (cached && Date.now() - cached.fetchedAt < BALANCE_CACHE_TTL_MS) {
+    return cached.balance;
   }
 
   const rpcUrls = getOrderedRpcUrls();
@@ -406,7 +406,11 @@ export async function getBuzzBalance(address: string): Promise<bigint> {
       const low = BigInt(result[0] ?? "0x0");
       const high = BigInt(result[1] ?? "0x0");
       const balance = low + high * (2n ** 128n);
-      balanceCache = { address, balance, fetchedAt: Date.now() };
+      if (balanceCache.size >= BALANCE_CACHE_MAX) {
+        const oldest = balanceCache.keys().next().value;
+        if (oldest) balanceCache.delete(oldest);
+      }
+      balanceCache.set(normalizedAddr, { balance, fetchedAt: Date.now() });
       return balance;
     } catch {
       // Try next RPC provider
@@ -505,8 +509,8 @@ export function getBuzzStats(): {
 
 function pushToHistory(reward: BuzzReward): void {
   rewardHistory.unshift(reward);
-  if (rewardHistory.length > MAX_HISTORY) {
-    rewardHistory = rewardHistory.slice(0, MAX_HISTORY);
+  while (rewardHistory.length > MAX_HISTORY) {
+    rewardHistory.pop();
   }
 }
 
@@ -532,7 +536,7 @@ export async function executeBuzzBurn(
   if (BUZZ_TOKEN_ADDRESS === "0x0") return null;
 
   const amount = BUZZ_BURN_COSTS[action];
-  const amountWei = BigInt(Math.round(amount * 100)) * 10n ** 16n; // amount * 1e18
+  const amountWei = BigInt(Math.round(amount * 1e4)) * 10n ** 14n; // amount * 1e18
   const rpcUrls = getOrderedRpcUrls();
 
   // Note: burn is called by the token holder, so this would need the user's

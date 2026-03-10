@@ -2621,6 +2621,16 @@ class AgentLoop {
             debateTarget: params.lead.name,
           })
         );
+
+        // Queue BUZZ reward for debate participation
+        if (config.buzzRewardsEnabled) {
+          queueBuzzReward(
+            "debate_participate",
+            config.AGENT_ADDRESS ?? "",
+            `Debate on market ${params.marketId}`,
+            { marketId: params.marketId },
+          );
+        }
       } catch (err: any) {
         emit(
           this.createAction({

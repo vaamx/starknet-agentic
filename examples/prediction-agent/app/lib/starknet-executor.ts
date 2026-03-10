@@ -180,12 +180,21 @@ async function waitForTransactionWithTimeout(
   const waitProvider = providerOverride ?? provider;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([
+    const receipt = await Promise.race([
       waitProvider.waitForTransaction(txHash),
       new Promise<null>((resolve) => {
         timeoutId = setTimeout(() => resolve(null), timeoutMs);
       }),
     ]);
+    // Check for reverted transactions (handle both v8 receipt shapes)
+    if (receipt && typeof receipt === "object") {
+      const r = receipt as Record<string, unknown>;
+      if (r.execution_status === "REVERTED" || r.statusReceipt === "reverted") {
+        const reason = (r.revert_reason as string) ?? "Transaction reverted on-chain";
+        throw new Error(`REVERTED: ${reason}`);
+      }
+    }
+    return receipt;
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
@@ -289,7 +298,11 @@ function usingSessionSigner(): boolean {
 }
 
 function normalizeAddress(value: string): string {
-  return value.toLowerCase();
+  try {
+    return `0x${BigInt(value).toString(16)}`;
+  } catch {
+    return value.toLowerCase();
+  }
 }
 
 function parseBigNumberish(value: unknown): bigint {

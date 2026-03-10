@@ -7,6 +7,19 @@ import {
   persistQuestion as persistQuestionToUpstash,
 } from "./market-questions-store";
 
+// RPC failover URLs — primary + configured fallbacks
+function getOrderedRpcUrls(): string[] {
+  const urls: string[] = [config.STARKNET_RPC_URL];
+  const fallbacks = (process.env.STARKNET_RPC_FALLBACK_URLS ?? "")
+    .split(",")
+    .map((u) => u.trim())
+    .filter(Boolean);
+  for (const u of fallbacks) {
+    if (!urls.includes(u)) urls.push(u);
+  }
+  return urls;
+}
+
 // Create a fresh provider per invocation to avoid stale/corrupted state on Vercel serverless
 function getProvider(): RpcProvider {
   return new RpcProvider({ nodeUrl: config.STARKNET_RPC_URL });
@@ -419,10 +432,21 @@ export async function getMarketById(id: number): Promise<MarketState | null> {
   }
 }
 
-/** Get a single market's state. */
+/** Get a single market's state. Uses RPC failover. */
 export async function getMarketState(id: number, address: string): Promise<MarketState> {
-  // Use raw callContract with fresh provider to avoid JSON parsing issues on Vercel
-  const p = new RpcProvider({ nodeUrl: config.STARKNET_RPC_URL });
+  const rpcUrls = getOrderedRpcUrls();
+  let lastError: unknown;
+  for (const rpcUrl of rpcUrls) {
+    try {
+      return await getMarketStateWithProvider(id, address, new RpcProvider({ nodeUrl: rpcUrl }));
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError ?? new Error("All RPC providers failed for getMarketState");
+}
+
+async function getMarketStateWithProvider(id: number, address: string, p: RpcProvider): Promise<MarketState> {
   const call = (entrypoint: string, calldata: string[] = []) =>
     p.callContract({ contractAddress: address, entrypoint, calldata });
 
