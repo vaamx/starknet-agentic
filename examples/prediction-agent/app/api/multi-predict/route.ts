@@ -114,8 +114,18 @@ export async function POST(request: NextRequest) {
           (f) => typeof f.probability === "number" && f.probability >= 0 && f.probability <= 1
         );
 
+        // Dedup by agent name — keep most recent forecast per agent
+        const seen = new Map<string, typeof validExternals[0]>();
+        for (const f of validExternals) {
+          const existing = seen.get(f.agentName);
+          if (!existing || f.receivedAt > existing.receivedAt) {
+            seen.set(f.agentName, f);
+          }
+        }
+        const dedupedExternals = Array.from(seen.values()).slice(0, 10);
+
         // Stream external agent forecasts as instant participants (no API cost)
-        for (const ext of validExternals) {
+        for (const ext of dedupedExternals) {
           const extId = `ext_${ext.agentName.replace(/\s+/g, "_").toLowerCase()}`;
           controller.enqueue(
             encoder.encode(
@@ -176,7 +186,7 @@ export async function POST(request: NextRequest) {
 
         // Reduce internal personas proportionally — each external agent saves one API call.
         // Always keep at least 1 internal persona for quality baseline.
-        const maxInternal = Math.max(1, AGENT_PERSONAS.length - validExternals.length);
+        const maxInternal = Math.max(1, AGENT_PERSONAS.length - dedupedExternals.length);
         const activePersonas = AGENT_PERSONAS.slice(0, maxInternal);
 
         const sourceSet = new Set<DataSourceName>();
@@ -444,20 +454,15 @@ export async function POST(request: NextRequest) {
         }
 
         // ======== CONSENSUS (from Round 2 revised estimates) ========
-        const totalWeight = agentResults.length || 1;
-        const weightedProb =
-          agentResults.reduce((sum, a) => sum + a.probability, 0) /
-          totalWeight;
-
         const simpleAvg =
           agentResults.reduce((sum, a) => sum + a.probability, 0) /
-          agentResults.length;
+          (agentResults.length || 1);
 
         controller.enqueue(
           encoder.encode(
             `data: ${JSON.stringify({
               type: "consensus",
-              weightedProbability: weightedProb,
+              weightedProbability: simpleAvg,
               simpleProbability: simpleAvg,
               agentCount: agentResults.length,
               agents: agentResults.map((a) => ({
@@ -465,7 +470,7 @@ export async function POST(request: NextRequest) {
                 name: a.name,
                 probability: a.probability,
                 brierScore: a.brierScore,
-                weight: 1 / totalWeight,
+                weight: 1 / (agentResults.length || 1),
               })),
             })}\n\n`
           )

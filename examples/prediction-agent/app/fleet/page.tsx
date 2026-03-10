@@ -122,7 +122,7 @@ function fetchWithTimeout(
   timeoutMs: number
 ): Promise<Response | null> {
   return Promise.race([
-    fetch(url),
+    fetch(url, { credentials: "include" }),
     new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
   ]);
 }
@@ -343,7 +343,7 @@ export default function FleetPage() {
     // Load loop status
     const fetchLoopStatus = async () => {
       try {
-        const res = await fetch("/api/agent-loop", { cache: "no-store" });
+        const res = await fetch("/api/agent-loop", { cache: "no-store", credentials: "include" });
         if (res.ok) {
           const data = await res.json();
           setLoopStatus(data.status ?? null);
@@ -380,6 +380,7 @@ export default function FleetPage() {
       await fetch("/api/agent-loop", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ action }),
       });
       setAutonomousMode(!autonomousMode);

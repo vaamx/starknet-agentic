@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAccount } from "@starknet-react/core";
@@ -63,6 +63,19 @@ export default function SimpleHeader({
   const isAuthed = Boolean(authUser) || isConnected;
 
   const brandName = process.env.NEXT_PUBLIC_SWARM_NAME?.trim() || "HiveCaster";
+
+  // Close all dropdowns on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setExploreOpen(false);
+        setMenuOpen(false);
+        setMobileSearchOpen(false);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/[0.07] bg-[#0f1420]/95 backdrop-blur-xl shadow-[0_8px_40px_rgba(2,6,23,0.35)]">

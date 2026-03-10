@@ -330,6 +330,22 @@ function PriceChart({ trail, yesPercent, noPercent, predictions }: { trail: Mark
 
   const handleMouseLeave = useCallback(() => setHoverIdx(null), []);
 
+  const handleTouchMove = useCallback((e: React.TouchEvent<SVGSVGElement>) => {
+    if (points.length < 2 || !e.touches[0]) return;
+    const svg = e.currentTarget;
+    const rect = svg.getBoundingClientRect();
+    const touchX = ((e.touches[0].clientX - rect.left) / rect.width) * W;
+    let nearest = 0;
+    let minDist = Infinity;
+    for (let i = 0; i < points.length; i++) {
+      const d = Math.abs(points[i].x - touchX);
+      if (d < minDist) { minDist = d; nearest = i; }
+    }
+    setHoverIdx(nearest);
+  }, [points]);
+
+  const handleTouchEnd = useCallback(() => setHoverIdx(null), []);
+
   const hoverPoint = hoverIdx !== null ? points[hoverIdx] : null;
 
   return (
@@ -432,6 +448,8 @@ function PriceChart({ trail, yesPercent, noPercent, predictions }: { trail: Mark
             style={{ height: 380, display: "block" }}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
           >
             <defs>
               {/* Green gradient for area above 50% */}
@@ -786,6 +804,27 @@ function TradeSidebar({
   const noPoolStrk = Number(safeBigInt(market.noPool)) / 1e18;
   const totalPoolStrk = Number(safeBigInt(market.totalPool)) / 1e18;
 
+  const orderBookData = useMemo(() => {
+    const bidRows = [];
+    for (let i = 0; i < 5; i++) {
+      const price = Math.max(1, costPerShare + 4 - i);
+      const shares = Math.floor(800 + ((costPerShare * 137 + i * 251) % 600));
+      const total = shares * price;
+      const depth = (5 - i) / 5;
+      bidRows.push({ price, shares, total, depth });
+    }
+    const askRows = [];
+    const askBasePrice = 100 - costPerShare;
+    for (let i = 0; i < 5; i++) {
+      const price = Math.max(1, askBasePrice - 4 + i);
+      const shares = Math.floor(600 + ((askBasePrice * 179 + i * 313) % 700));
+      const total = shares * price;
+      const depth = (i + 1) / 5;
+      askRows.push({ price, shares, total, depth });
+    }
+    return { bidRows, askRows };
+  }, [costPerShare]);
+
   async function handleDeployMirror() {
     setDeploying(true);
     setDeployError(null);
@@ -902,7 +941,7 @@ function TradeSidebar({
               <span className="text-[11px] text-sky-400/70 font-semibold cursor-pointer hover:text-sky-400 transition-colors">Max: {totalPoolStrk > 0 ? `${Math.floor(totalPoolStrk)}` : "0"}</span>
             </div>
             <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/25 text-sm font-mono">$</span>
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/25 text-sm font-mono">STRK</span>
               <input
                 type="number"
                 value={amount}
@@ -910,7 +949,7 @@ function TradeSidebar({
                 placeholder="0.00"
                 min="0"
                 step="1"
-                className="w-full pl-8 pr-4 py-3 rounded-xl text-lg font-bold tabular-nums text-white bg-white/[0.04] border border-white/[0.08] focus:border-white/20 outline-none transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                className="w-full pl-16 pr-4 py-3 rounded-xl text-lg font-bold tabular-nums text-white bg-white/[0.04] border border-white/[0.08] focus:border-white/20 outline-none transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
               />
             </div>
             <div className="grid grid-cols-4 gap-2 mt-2.5">
@@ -921,7 +960,7 @@ function TradeSidebar({
                   onClick={() => setAmount(String(val))}
                   className="py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-[12px] font-bold text-white/50 hover:bg-white/[0.08] hover:text-white/80 hover:border-white/[0.12] transition-all"
                 >
-                  +${val}
+                  +{val}
                 </button>
               ))}
             </div>
@@ -930,7 +969,7 @@ function TradeSidebar({
           {/* Available balance */}
           <div className="flex items-center justify-between text-xs text-white/30">
             <span>Available balance:</span>
-            <span className="font-mono font-semibold text-white/50">$0.00 STRK</span>
+            <span className="font-mono font-semibold text-white/50">0.00 STRK</span>
           </div>
 
           {/* CTA Button */}
@@ -1122,25 +1161,14 @@ function TradeSidebar({
               </div>
 
               {/* Bid side (green) */}
-              {(() => {
-                const basePrice = costPerShare;
-                const rows = [];
-                for (let i = 0; i < 5; i++) {
-                  const price = Math.max(1, basePrice + 4 - i);
-                  const shares = Math.floor(800 + Math.random() * 600);
-                  const total = shares * price;
-                  const depth = (5 - i) / 5;
-                  rows.push(
-                    <div key={`bid-${i}`} className="relative flex items-center py-1 text-xs font-mono">
-                      <div className="absolute inset-0 rounded-sm bg-emerald-500/8" style={{ width: `${depth * 100}%` }} />
-                      <span className="flex-1 text-emerald-400 relative z-10">{price}&cent;</span>
-                      <span className="w-16 text-right text-white/40 relative z-10">{shares.toLocaleString()}</span>
-                      <span className="w-20 text-right text-white/50 relative z-10">${total.toLocaleString()}</span>
-                    </div>
-                  );
-                }
-                return rows;
-              })()}
+              {orderBookData.bidRows.map((row, i) => (
+                <div key={`bid-${i}`} className="relative flex items-center py-1 text-xs font-mono">
+                  <div className="absolute inset-0 rounded-sm bg-emerald-500/8" style={{ width: `${row.depth * 100}%` }} />
+                  <span className="flex-1 text-emerald-400 relative z-10">{row.price}&cent;</span>
+                  <span className="w-16 text-right text-white/40 relative z-10">{row.shares.toLocaleString()}</span>
+                  <span className="w-20 text-right text-white/50 relative z-10">${row.total.toLocaleString()}</span>
+                </div>
+              ))}
 
               {/* Spread */}
               <div className="flex items-center justify-between py-2 my-1 border-y border-white/[0.04]">
@@ -1150,25 +1178,14 @@ function TradeSidebar({
               </div>
 
               {/* Ask side (red) */}
-              {(() => {
-                const basePrice = 100 - costPerShare;
-                const rows = [];
-                for (let i = 0; i < 5; i++) {
-                  const price = Math.max(1, basePrice - 4 + i);
-                  const shares = Math.floor(600 + Math.random() * 700);
-                  const total = shares * price;
-                  const depth = (i + 1) / 5;
-                  rows.push(
-                    <div key={`ask-${i}`} className="relative flex items-center py-1 text-xs font-mono">
-                      <div className="absolute inset-0 right-0 left-auto rounded-sm bg-rose-500/8" style={{ width: `${depth * 100}%` }} />
-                      <span className="flex-1 text-rose-400 relative z-10">{price}&cent;</span>
-                      <span className="w-16 text-right text-white/40 relative z-10">{shares.toLocaleString()}</span>
-                      <span className="w-20 text-right text-white/50 relative z-10">${total.toLocaleString()}</span>
-                    </div>
-                  );
-                }
-                return rows;
-              })()}
+              {orderBookData.askRows.map((row, i) => (
+                <div key={`ask-${i}`} className="relative flex items-center py-1 text-xs font-mono">
+                  <div className="absolute inset-0 right-0 left-auto rounded-sm bg-rose-500/8" style={{ width: `${row.depth * 100}%` }} />
+                  <span className="flex-1 text-rose-400 relative z-10">{row.price}&cent;</span>
+                  <span className="w-16 text-right text-white/40 relative z-10">{row.shares.toLocaleString()}</span>
+                  <span className="w-20 text-right text-white/50 relative z-10">${row.total.toLocaleString()}</span>
+                </div>
+              ))}
 
               <p className="text-[10px] text-white/15 text-center mt-3">Click price to fill order form</p>
             </div>
@@ -1344,8 +1361,8 @@ export default function MarketPage() {
   const [activeTab, setActiveTab] = useState<"agents" | "activity" | "details">("agents");
 
   /* ---- Fetch ---- */
-  const fetchMarket = useCallback(async () => {
-    setLoading(true);
+  const fetchMarket = useCallback(async (isInitial = true) => {
+    if (isInitial) setLoading(true);
     setError(null);
     try {
       let canFetchOrgData = false;
@@ -1445,7 +1462,11 @@ export default function MarketPage() {
     }
   }, [id]);
 
-  useEffect(() => { fetchMarket(); }, [fetchMarket]);
+  useEffect(() => {
+    fetchMarket(true);
+    const intervalId = setInterval(() => { fetchMarket(false); }, 30_000);
+    return () => clearInterval(intervalId);
+  }, [fetchMarket]);
 
   /** Force-refresh market data from chain (cache-busting). Called after bets/trades. */
   const refreshMarket = useCallback(async () => {

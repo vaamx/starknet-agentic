@@ -98,7 +98,7 @@ export default function ResolutionStatusPanel({ marketId }: Props) {
     setManualResolving(true);
     setManualError(null);
     try {
-      const res = await fetch(`/api/resolution/${marketId}/resolve`, { method: "POST" });
+      const res = await fetch(`/api/resolution/${marketId}/resolve`, { method: "POST", credentials: "include" });
       if (res.ok) {
         await fetchData();
       } else {

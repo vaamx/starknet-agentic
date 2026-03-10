@@ -348,7 +348,7 @@ export function evaluateProposedBet(
       };
     }
 
-    const adjusted = BigInt(Math.floor(headroom));
+    const adjusted = BigInt(Math.floor(headroom * 1e18));
     if (adjusted < proposedBetWei) {
       return {
         allow: true,
@@ -385,7 +385,7 @@ export function evaluateProposedBet(
           };
         }
 
-        const adjusted = BigInt(Math.floor(headroom));
+        const adjusted = BigInt(Math.floor(headroom * 1e18));
         if (adjusted < proposedBetWei) {
           return {
             allow: true,

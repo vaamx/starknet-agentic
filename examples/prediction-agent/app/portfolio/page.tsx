@@ -364,7 +364,7 @@ export default function PortfolioPage() {
         </div>
 
         {/* Not connected */}
-        {!isConnected && (
+        {!hasWallet && (
           <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-12 text-center">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/[0.04] flex items-center justify-center text-2xl text-white/20">
               &empty;
@@ -380,7 +380,7 @@ export default function PortfolioPage() {
         )}
 
         {/* Connected */}
-        {isConnected && (
+        {hasWallet && (
           <>
             {/* Summary cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">

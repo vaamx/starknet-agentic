@@ -216,13 +216,13 @@ export async function* forecastMarket(
 export function extractProbability(text: string): number | null {
   // Look for "**My estimate: XX%**" pattern
   const match = text.match(/\*\*My estimate:\s*(\d+(?:\.\d+)?)%\*\*/i);
-  if (match) return parseFloat(match[1]) / 100;
+  if (match) return Math.max(0, Math.min(1, parseFloat(match[1]) / 100));
 
   // Fallback: look for any "XX%" near the end
   const fallback = text.match(/(\d+(?:\.\d+)?)%/g);
   if (fallback && fallback.length > 0) {
     const last = fallback[fallback.length - 1];
-    return parseFloat(last) / 100;
+    return Math.max(0, Math.min(1, parseFloat(last) / 100));
   }
 
   return null;

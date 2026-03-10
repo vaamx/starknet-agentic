@@ -199,16 +199,19 @@ export default function SurvivalDashboard() {
   const [copiedAddress, setCopiedAddress] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     const fetchSurvival = () =>
       fetch("/api/survival")
         .then((r) => r.json())
-        .then((data: SurvivalState) => setSurvival(data))
+        .then((data: SurvivalState) => { if (!cancelled) setSurvival(data); })
         .catch(() => {});
 
     const fetchSoul = () =>
       fetch("/api/soul")
         .then((r) => r.text())
         .then((md) => {
+          if (cancelled) return;
           setSoulText(md);
           // Parse children from soul markdown
           const childMatches = [...md.matchAll(/\| `([^`]+)…` \| ([^|]+) \| ([^|]+) \|/g)];
@@ -228,7 +231,7 @@ export default function SurvivalDashboard() {
       fetchSurvival();
       fetchSoul();
     }, 15_000);
-    return () => clearInterval(iv);
+    return () => { cancelled = true; clearInterval(iv); };
   }, []);
 
   const tier = (survival?.tier as SurvivalTier) ?? "unknown";
