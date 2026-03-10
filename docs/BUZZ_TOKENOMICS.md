@@ -141,23 +141,64 @@ trait IBuzzToken {
 
 ## Architecture
 
+### Trustless On-Chain Distributor (Target)
+
 ```
-User Action (forecast, create market, etc.)
+User/Agent Action (forecast, create market, etc.)
     │
     ▼
-Reward Engine (buzz-rewards.ts)
-    │  computes amount × halving multiplier × emission multiplier
+Reporter (agent server) calls BuzzDistributor.report_action()
     │
     ▼
-Pending Queue (in-memory)
-    │
-    ▼
-Batch Mint (once per agent tick)
-    │  calls BuzzToken.mint(recipient, amount)
-    │
-    ▼
-On-Chain ERC-20 Balance
+BuzzDistributor (on-chain)
+    ├─ Verifies caller is authorized reporter
+    ├─ Checks dedup (5-min window per recipient+action+market)
+    ├─ Reads halving multiplier from BuzzToken
+    ├─ Computes: base_amount × halving_bps / 10000
+    └─ Calls BuzzToken.mint(recipient, computed_amount)
+         │
+         ▼
+    On-Chain ERC-20 Balance
 ```
+
+**Key guarantee**: The distributor is the ONLY minter on the BUZZ token. Reporters can trigger rewards but cannot control amounts — the contract enforces all rules. If the server is compromised, the worst case is extra reports within the dedup window (5 min per action).
+
+### BuzzDistributor Interface
+
+```cairo
+trait IBuzzDistributor {
+    // Report an action — contract calculates and mints the reward
+    fn report_action(action_type: felt252, recipient: ContractAddress, market_id: u256);
+    fn report_actions(action_types: Span<felt252>, recipients: Span<ContractAddress>, market_ids: Span<u256>);
+
+    // Admin (owner only)
+    fn add_reporter(reporter: ContractAddress);
+    fn remove_reporter(reporter: ContractAddress);
+    fn set_reward_amount(action_type: felt252, amount: u256);
+
+    // View
+    fn get_total_distributed() -> u256;
+    fn get_total_actions() -> u256;
+    fn get_reward_amount(action_type: felt252) -> u256;
+    fn is_reporter(address: ContractAddress) -> bool;
+}
+```
+
+### Action Types
+
+| Constant | felt252 | Base Amount |
+|----------|---------|-------------|
+| `forecast_submit` | `'forecast_submit'` | 5 BUZZ |
+| `forecast_accurate` | `'forecast_accurate'` | 25 BUZZ |
+| `forecast_elite` | `'forecast_elite'` | 75 BUZZ |
+| `byok_forecast` | `'byok_forecast'` | 15 BUZZ |
+| `debate_participate` | `'debate_participate'` | 5 BUZZ |
+| `market_create` | `'market_create'` | 25 BUZZ |
+| `research_contribute` | `'research_contribute'` | 10 BUZZ |
+| `starkcast_post` | `'starkcast_post'` | 2.5 BUZZ |
+| `task_complete` | `'task_complete'` | 10 BUZZ |
+| `token_launch` | `'token_launch'` | 25 BUZZ |
+| `guild_participate` | `'guild_participate'` | 5 BUZZ |
 
 Burns happen at the point of action (market creation, boost, etc.) via `BuzzToken.burn(amount)`.
 

@@ -38,3 +38,46 @@ pub trait IBuzzToken<TState> {
     fn cancel_upgrade(ref self: TState);
     fn get_pending_upgrade(self: @TState) -> (ClassHash, u64);
 }
+
+/// On-chain reward distributor — trustless BUZZ minting.
+/// Reporters call `report_action` to trigger rewards; the contract
+/// enforces amounts, halving, and dedup. Only the distributor can mint.
+#[starknet::interface]
+pub trait IBuzzDistributor<TState> {
+    // ── Core ─────────────────────────────────────────────────────────
+    fn report_action(
+        ref self: TState,
+        action_type: felt252,
+        recipient: ContractAddress,
+        market_id: u256,
+    );
+    fn report_actions(
+        ref self: TState,
+        action_types: Span<felt252>,
+        recipients: Span<ContractAddress>,
+        market_ids: Span<u256>,
+    );
+
+    // ── Reporter management ──────────────────────────────────────────
+    fn add_reporter(ref self: TState, reporter: ContractAddress);
+    fn remove_reporter(ref self: TState, reporter: ContractAddress);
+    fn is_reporter(self: @TState, address: ContractAddress) -> bool;
+
+    // ── Reward configuration ─────────────────────────────────────────
+    fn set_reward_amount(ref self: TState, action_type: felt252, amount: u256);
+    fn get_reward_amount(self: @TState, action_type: felt252) -> u256;
+
+    // ── View ─────────────────────────────────────────────────────────
+    fn get_total_distributed(self: @TState) -> u256;
+    fn get_total_actions(self: @TState) -> u256;
+    fn get_buzz_token(self: @TState) -> ContractAddress;
+    fn get_owner(self: @TState) -> ContractAddress;
+
+    // ── Emergency ────────────────────────────────────────────────────
+    fn pause(ref self: TState);
+    fn unpause(ref self: TState);
+    fn is_paused(self: @TState) -> bool;
+
+    // ── Ownership ────────────────────────────────────────────────────
+    fn transfer_ownership(ref self: TState, new_owner: ContractAddress);
+}
