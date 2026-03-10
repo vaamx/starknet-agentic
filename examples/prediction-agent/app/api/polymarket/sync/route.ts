@@ -9,8 +9,7 @@ export const maxDuration = 60;
  * Protected by HEARTBEAT_SECRET or admin auth.
  *
  * Query params:
- *   maxPerCategory (default 30)
- *   categories (comma-separated, optional)
+ *   maxTotal (default 300) — max total markets to sync
  */
 export async function POST(request: NextRequest) {
   // Auth: accept heartbeat secret or skip in dev
@@ -22,19 +21,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const maxPerCategory = Number(
-    request.nextUrl.searchParams.get("maxPerCategory") ?? "30"
+  const maxTotal = Number(
+    request.nextUrl.searchParams.get("maxTotal") ?? "300"
   );
-  const categoriesParam = request.nextUrl.searchParams.get("categories");
-  const categories = categoriesParam
-    ? categoriesParam.split(",").map((c) => c.trim()).filter(Boolean)
-    : null;
 
   try {
-    const result = await syncPolymarketMarkets(
-      maxPerCategory,
-      categories?.length ? categories : null
-    );
+    const result = await syncPolymarketMarkets(maxTotal);
 
     return NextResponse.json({
       ok: true,

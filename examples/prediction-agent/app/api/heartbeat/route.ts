@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
       try {
         const { syncPolymarketMarkets } = await import("@/lib/polymarket-sync");
         polySyncResult = await withTimeout(
-          syncPolymarketMarkets(30),
+          syncPolymarketMarkets(300),
           25_000,
           "Polymarket sync timed out"
         );
