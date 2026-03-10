@@ -183,7 +183,29 @@ const FORECAST_TOOLS: Anthropic.Tool[] = [
 
 // ── Tool executor ─────────────────────────────────────────────────────────
 
-async function executeForecasterTool(
+const TOOL_TIMEOUT_MS = 10_000; // 10s max per tool execution
+
+async function withToolTimeout<T>(
+  promise: Promise<T>,
+  toolName: string
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error(`Tool ${toolName} timed out after ${TOOL_TIMEOUT_MS}ms`)),
+          TOOL_TIMEOUT_MS
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+async function executeForecasterToolInner(
   name: string,
   input: Record<string, unknown>
 ): Promise<{
@@ -362,6 +384,30 @@ async function executeForecasterTool(
     }
   } catch (err: any) {
     // Never throw — return error as text, Claude continues
+    return {
+      text: `Tool error: ${err?.message ?? String(err)}`,
+      isError: true,
+      source: name,
+      dataPoints: 0,
+    };
+  }
+}
+
+async function executeForecasterTool(
+  name: string,
+  input: Record<string, unknown>
+): Promise<{
+  text: string;
+  isError: boolean;
+  source: string;
+  dataPoints: number;
+}> {
+  try {
+    return await withToolTimeout(
+      executeForecasterToolInner(name, input),
+      name
+    );
+  } catch (err: any) {
     return {
       text: `Tool error: ${err?.message ?? String(err)}`,
       isError: true,

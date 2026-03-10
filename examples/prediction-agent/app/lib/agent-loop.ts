@@ -1234,15 +1234,15 @@ class AgentLoop {
 
       const gen = researchAndForecast(persona, question, context, sources);
       const forecastStartedAt = Date.now();
-      // Keep each actor bounded so one tick can complete within Vercel's runtime cap,
-      // but allow longer tool rounds to avoid over-triggering fallback forecasts.
+      // Keep each actor bounded so one tick can complete within Vercel's runtime cap.
+      // Vercel maxDuration=60s, so we allow up to 45s for research+forecast per actor.
       const researchTotalTimeoutMs = Math.max(
         12_000,
-        Math.min(config.agentResearchTotalTimeoutMs, 24_000)
+        Math.min(config.agentResearchTotalTimeoutMs, 45_000)
       );
       const researchStepTimeoutCeilingMs = Math.max(
-        3_000,
-        Math.min(config.agentResearchStepTimeoutMs, 12_000)
+        5_000,
+        Math.min(config.agentResearchStepTimeoutMs, 20_000)
       );
       let result: any;
       while (true) {
