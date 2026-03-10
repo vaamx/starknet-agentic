@@ -70,8 +70,13 @@ export interface BuzzLeaderboardEntry {
 // ── Config (use validated config.ts values, not raw process.env) ─────────────
 
 const BUZZ_TOKEN_ADDRESS = config.buzzTokenAddress ?? "0x0";
+const BUZZ_DISTRIBUTOR_ADDRESS = process.env.BUZZ_DISTRIBUTOR_ADDRESS ?? "0x0";
 const BUZZ_REWARDS_ENABLED = config.buzzRewardsEnabled;
 const BUZZ_EMISSION_MULTIPLIER = config.buzzEmissionMultiplier;
+
+// When distributor is deployed, we route mints through it instead of calling mint() directly.
+// The distributor enforces amounts, halving, dedup, and rate limits on-chain.
+const USE_DISTRIBUTOR = BUZZ_DISTRIBUTOR_ADDRESS !== "0x0";
 
 /** Base emission amounts per action (epoch 0, before halving). */
 export const BUZZ_REWARD_AMOUNTS: Record<BuzzRewardType, number> = {
@@ -338,7 +343,13 @@ export async function processPendingBuzzRewards(
 }
 
 /**
- * Mint BUZZ tokens to a recipient by calling the contract's `mint(to, amount)`.
+ * Mint BUZZ tokens to a recipient.
+ *
+ * When BUZZ_DISTRIBUTOR_ADDRESS is set, routes through the on-chain distributor's
+ * `report_action(action_type, recipient, market_id)` which enforces amounts, halving,
+ * dedup, and rate limits trustlessly on-chain.
+ *
+ * Falls back to direct `mint(to, amount)` on the token contract when no distributor.
  * Uses RPC failover like starknet-executor.ts.
  */
 async function mintBuzzReward(reward: BuzzReward): Promise<BuzzTxResult> {
@@ -348,9 +359,6 @@ async function mintBuzzReward(reward: BuzzReward): Promise<BuzzTxResult> {
     return { txHash: "", status: "error", error: "No agent account configured" };
   }
 
-  // Safe BigInt conversion for fractional amounts (e.g. 0.5 BUZZ)
-  // BigInt(0.5) throws RangeError — multiply first to get integer cents
-  const amountWei = BigInt(Math.round(reward.amount * 1e4)) * 10n ** 14n;
   const rpcUrls = getOrderedRpcUrls();
 
   for (const rpcUrl of rpcUrls) {
@@ -358,14 +366,31 @@ async function mintBuzzReward(reward: BuzzReward): Promise<BuzzTxResult> {
       const provider = getRpcProvider(rpcUrl);
       const account = new Account({ provider, address: agentAddress, signer: privateKey });
 
-      const tx = {
-        contractAddress: BUZZ_TOKEN_ADDRESS,
-        entrypoint: "mint",
-        calldata: CallData.compile({
-          to: reward.recipientAddress,
-          amount: { low: amountWei, high: 0n },
-        }),
-      };
+      let tx;
+      if (USE_DISTRIBUTOR) {
+        // Route through on-chain distributor — it handles amounts + halving + dedup
+        const marketId = BigInt(reward.marketId ?? 0);
+        tx = {
+          contractAddress: BUZZ_DISTRIBUTOR_ADDRESS,
+          entrypoint: "report_action",
+          calldata: CallData.compile({
+            action_type: reward.type, // felt252 string like 'forecast_submit'
+            recipient: reward.recipientAddress,
+            market_id: { low: marketId, high: 0n },
+          }),
+        };
+      } else {
+        // Direct mint fallback (legacy — agent must be a minter on the token)
+        const amountWei = BigInt(Math.round(reward.amount * 1e4)) * 10n ** 14n;
+        tx = {
+          contractAddress: BUZZ_TOKEN_ADDRESS,
+          entrypoint: "mint",
+          calldata: CallData.compile({
+            to: reward.recipientAddress,
+            amount: { low: amountWei, high: 0n },
+          }),
+        };
+      }
 
       const result = await account.execute([tx]);
       await Promise.race([
@@ -376,6 +401,10 @@ async function mintBuzzReward(reward: BuzzReward): Promise<BuzzTxResult> {
       return { txHash: result.transaction_hash, status: "success" };
     } catch (err: any) {
       const msg = err?.message ?? String(err);
+      // On-chain dedup is not a real error — the distributor silently skips duplicates
+      if (msg.includes("action already rewarded")) {
+        return { txHash: "", status: "success", error: "dedup: already rewarded on-chain" };
+      }
       // Retry on RPC-level errors, not contract reverts
       if (!/timeout|timed out|network|502|503|504|429|ECONN/i.test(msg)) {
         return { txHash: "", status: "error", error: msg };

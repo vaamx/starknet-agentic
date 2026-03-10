@@ -2,11 +2,15 @@
 pub mod BuzzDistributor {
     use starknet::storage::*;
     use starknet::ContractAddress;
+    use starknet::ClassHash;
     use core::num::traits::Zero;
+    use openzeppelin::upgrades::UpgradeableComponent;
     use crate::interfaces::{IBuzzTokenDispatcher, IBuzzTokenDispatcherTrait, IBuzzDistributor};
 
+    component!(path: UpgradeableComponent, storage: upgradeable, event: UpgradeableEvent);
+    impl UpgradeableInternalImpl = UpgradeableComponent::InternalImpl<ContractState>;
+
     // ── Action type constants (felt252 for gas efficiency) ────────────────
-    // Callers pass these as the `action_type` parameter to `report_action`.
     pub const ACTION_FORECAST_SUBMIT: felt252 = 'forecast_submit';
     pub const ACTION_FORECAST_ACCURATE: felt252 = 'forecast_accurate';
     pub const ACTION_FORECAST_ELITE: felt252 = 'forecast_elite';
@@ -22,8 +26,23 @@ pub mod BuzzDistributor {
     // Dedup window: 5 minutes in seconds
     const DEDUP_WINDOW_SECS: u64 = 300;
 
+    // Upgrade timelock: 5 minutes
+    const UPGRADE_DELAY_SECS: u64 = 300;
+
+    // Default max reward cap: 500 BUZZ (prevents misconfigured reward amounts)
+    const DEFAULT_MAX_REWARD_CAP: u256 = 500_000_000_000_000_000_000; // 500e18
+
+    // Default max batch size
+    const DEFAULT_MAX_BATCH_SIZE: u32 = 50;
+
+    // Reporter rate limit: max actions per window
+    const REPORTER_RATE_WINDOW_SECS: u64 = 60;
+    const REPORTER_RATE_MAX_ACTIONS: u32 = 100;
+
     #[storage]
     struct Storage {
+        #[substorage(v0)]
+        upgradeable: UpgradeableComponent::Storage,
         // The BUZZ token contract to mint from
         buzz_token: ContractAddress,
         // Owner — can add/remove reporters, update reward amounts
@@ -39,11 +58,24 @@ pub mod BuzzDistributor {
         total_actions_reported: u256,
         // Pause
         paused: bool,
+        // ── Timelocked upgrade ──────────────────────────────────────────
+        pending_upgrade_hash: ClassHash,
+        pending_upgrade_ready_at: u64,
+        // ── Security hardening ──────────────────────────────────────────
+        // Max reward per single action (cap on compute_reward output)
+        max_reward_cap: u256,
+        // Max batch size for report_actions
+        max_batch_size: u32,
+        // Reporter rate limiting: reporter → (window_start, action_count)
+        reporter_window_start: Map<ContractAddress, u64>,
+        reporter_window_count: Map<ContractAddress, u32>,
     }
 
     #[event]
     #[derive(Drop, starknet::Event)]
     pub enum Event {
+        #[flat]
+        UpgradeableEvent: UpgradeableComponent::Event,
         ActionReported: ActionReported,
         RewardMinted: RewardMinted,
         ReporterAdded: ReporterAdded,
@@ -52,6 +84,10 @@ pub mod BuzzDistributor {
         OwnershipTransferred: OwnershipTransferred,
         Paused: Paused,
         Unpaused: Unpaused,
+        UpgradeProposed: UpgradeProposed,
+        UpgradeExecuted: UpgradeExecuted,
+        UpgradeCancelled: UpgradeCancelled,
+        ReporterRateLimited: ReporterRateLimited,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -102,6 +138,28 @@ pub mod BuzzDistributor {
         pub by: ContractAddress,
     }
 
+    #[derive(Drop, starknet::Event)]
+    pub struct UpgradeProposed {
+        pub new_class_hash: ClassHash,
+        pub ready_at: u64,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct UpgradeExecuted {
+        pub new_class_hash: ClassHash,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct UpgradeCancelled {
+        pub class_hash: ClassHash,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct ReporterRateLimited {
+        pub reporter: ContractAddress,
+        pub count: u32,
+    }
+
     #[constructor]
     fn constructor(
         ref self: ContractState,
@@ -115,6 +173,9 @@ pub mod BuzzDistributor {
         self.paused.write(false);
         self.total_distributed.write(0);
         self.total_actions_reported.write(0);
+        self.pending_upgrade_ready_at.write(0);
+        self.max_reward_cap.write(DEFAULT_MAX_REWARD_CAP);
+        self.max_batch_size.write(DEFAULT_MAX_BATCH_SIZE);
 
         // Initialize default reward amounts (epoch 0, in wei = amount * 1e18)
         let e18: u256 = 1_000_000_000_000_000_000; // 1e18
@@ -167,6 +228,7 @@ pub mod BuzzDistributor {
         }
 
         /// Compute the reward amount with on-chain halving from the BUZZ token.
+        /// Capped by max_reward_cap for safety.
         fn compute_reward(self: @ContractState, action_type: felt252) -> u256 {
             let base_amount = self.reward_amounts.entry(action_type).read();
             if base_amount == 0 {
@@ -178,7 +240,37 @@ pub mod BuzzDistributor {
             let multiplier_bps: u64 = buzz.get_emission_multiplier_bps();
 
             // Apply halving: amount * multiplier_bps / 10000
-            (base_amount * multiplier_bps.into()) / 10000
+            let reward = (base_amount * multiplier_bps.into()) / 10000;
+
+            // Cap at max_reward_cap
+            let cap = self.max_reward_cap.read();
+            if cap > 0 && reward > cap {
+                cap
+            } else {
+                reward
+            }
+        }
+
+        /// Check and update reporter rate limit. Returns true if rate limited.
+        fn check_reporter_rate_limit(ref self: ContractState, reporter: ContractAddress) -> bool {
+            let now = starknet::get_block_timestamp();
+            let window_start = self.reporter_window_start.entry(reporter).read();
+            let window_count = self.reporter_window_count.entry(reporter).read();
+
+            // New window if expired or first call
+            if window_start == 0 || now >= window_start + REPORTER_RATE_WINDOW_SECS {
+                self.reporter_window_start.entry(reporter).write(now);
+                self.reporter_window_count.entry(reporter).write(1);
+                return false;
+            }
+
+            // Within window — check count
+            if window_count >= REPORTER_RATE_MAX_ACTIONS {
+                return true; // Rate limited
+            }
+
+            self.reporter_window_count.entry(reporter).write(window_count + 1);
+            false
         }
     }
 
@@ -188,7 +280,7 @@ pub mod BuzzDistributor {
     impl BuzzDistributorImpl of IBuzzDistributor<ContractState> {
         /// Report an action and mint the corresponding reward.
         /// Only authorized reporters (or owner) can call this.
-        /// Enforces dedup, halving, and reward amounts on-chain.
+        /// Enforces dedup, halving, reward cap, and rate limiting on-chain.
         fn report_action(
             ref self: ContractState,
             action_type: felt252,
@@ -199,13 +291,24 @@ pub mod BuzzDistributor {
             self.assert_reporter();
             assert(!recipient.is_zero(), 'recipient cannot be zero');
 
+            // Rate limit check
+            let caller = starknet::get_caller_address();
+            let rate_limited = InternalImpl::check_reporter_rate_limit(ref self, caller);
+            if rate_limited {
+                self.emit(ReporterRateLimited {
+                    reporter: caller,
+                    count: REPORTER_RATE_MAX_ACTIONS,
+                });
+                return; // Silent no-op when rate limited
+            }
+
             // Dedup check
             assert(
                 !InternalImpl::is_duplicate(@self, recipient, action_type, market_id),
                 'action already rewarded'
             );
 
-            // Compute reward with halving
+            // Compute reward with halving + cap
             let amount = InternalImpl::compute_reward(@self, action_type);
             if amount == 0 {
                 return; // Unknown action type or zero reward — no-op
@@ -225,7 +328,7 @@ pub mod BuzzDistributor {
 
             // Emit events
             self.emit(ActionReported {
-                reporter: starknet::get_caller_address(),
+                reporter: caller,
                 recipient,
                 action_type,
                 market_id,
@@ -235,6 +338,7 @@ pub mod BuzzDistributor {
         }
 
         /// Batch report multiple actions in a single transaction.
+        /// Enforces max batch size limit.
         fn report_actions(
             ref self: ContractState,
             action_types: Span<felt252>,
@@ -246,6 +350,22 @@ pub mod BuzzDistributor {
             let len = action_types.len();
             assert(len == recipients.len(), 'array length mismatch');
             assert(len == market_ids.len(), 'array length mismatch');
+
+            // Enforce max batch size
+            let max_batch = self.max_batch_size.read();
+            assert(len <= max_batch, 'batch too large');
+
+            let caller = starknet::get_caller_address();
+
+            // Rate limit check for batch — consume all at once
+            let rate_limited = InternalImpl::check_reporter_rate_limit(ref self, caller);
+            if rate_limited {
+                self.emit(ReporterRateLimited {
+                    reporter: caller,
+                    count: REPORTER_RATE_MAX_ACTIONS,
+                });
+                return;
+            }
 
             let mut i: u32 = 0;
             while i < len {
@@ -271,7 +391,7 @@ pub mod BuzzDistributor {
                         );
 
                         self.emit(ActionReported {
-                            reporter: starknet::get_caller_address(),
+                            reporter: caller,
                             recipient,
                             action_type,
                             market_id,
@@ -311,6 +431,11 @@ pub mod BuzzDistributor {
             amount: u256,
         ) {
             self.assert_owner();
+            // Reward amount must not exceed the cap
+            let cap = self.max_reward_cap.read();
+            if cap > 0 {
+                assert(amount <= cap, 'exceeds max reward cap');
+            }
             let old = self.reward_amounts.entry(action_type).read();
             self.reward_amounts.entry(action_type).write(amount);
             self.emit(RewardAmountUpdated {
@@ -371,6 +496,67 @@ pub mod BuzzDistributor {
                 previous_owner: previous,
                 new_owner,
             });
+        }
+
+        // ── Timelocked Upgrade (5 min) ───────────────────────────────────
+
+        /// Step 1: Owner proposes an upgrade. Must wait 5 minutes before executing.
+        fn propose_upgrade(ref self: ContractState, new_class_hash: ClassHash) {
+            self.assert_owner();
+            let ready_at = starknet::get_block_timestamp() + UPGRADE_DELAY_SECS;
+            self.pending_upgrade_hash.write(new_class_hash);
+            self.pending_upgrade_ready_at.write(ready_at);
+            self.emit(UpgradeProposed { new_class_hash, ready_at });
+        }
+
+        /// Step 2: Owner executes the upgrade after the timelock has elapsed.
+        fn execute_upgrade(ref self: ContractState) {
+            self.assert_owner();
+            let ready_at = self.pending_upgrade_ready_at.read();
+            assert(ready_at > 0, 'no upgrade proposed');
+            let now = starknet::get_block_timestamp();
+            assert(now >= ready_at, 'upgrade timelock not elapsed');
+
+            let new_class_hash = self.pending_upgrade_hash.read();
+            // Clear pending state before upgrading
+            self.pending_upgrade_ready_at.write(0);
+            self.emit(UpgradeExecuted { new_class_hash });
+            self.upgradeable.upgrade(new_class_hash);
+        }
+
+        /// Cancel a pending upgrade proposal.
+        fn cancel_upgrade(ref self: ContractState) {
+            self.assert_owner();
+            let hash = self.pending_upgrade_hash.read();
+            self.pending_upgrade_ready_at.write(0);
+            self.emit(UpgradeCancelled { class_hash: hash });
+        }
+
+        /// Returns (pending_class_hash, ready_at_timestamp). ready_at=0 means no pending upgrade.
+        fn get_pending_upgrade(self: @ContractState) -> (ClassHash, u64) {
+            (self.pending_upgrade_hash.read(), self.pending_upgrade_ready_at.read())
+        }
+
+        // ── Security configuration ───────────────────────────────────────
+
+        fn get_max_reward_cap(self: @ContractState) -> u256 {
+            self.max_reward_cap.read()
+        }
+
+        fn set_max_reward_cap(ref self: ContractState, cap: u256) {
+            self.assert_owner();
+            self.max_reward_cap.write(cap);
+        }
+
+        fn get_max_batch_size(self: @ContractState) -> u32 {
+            self.max_batch_size.read()
+        }
+
+        fn set_max_batch_size(ref self: ContractState, size: u32) {
+            self.assert_owner();
+            assert(size > 0, 'batch size must be > 0');
+            assert(size <= 200, 'batch size too large');
+            self.max_batch_size.write(size);
         }
     }
 }

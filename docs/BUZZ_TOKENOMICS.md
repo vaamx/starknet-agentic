@@ -80,11 +80,13 @@ At this rate, the 100M cap would take ~85 years to approach — and halving redu
 
 ## Deployed Contracts
 
-| Network | Address | Class Hash |
-|---------|---------|------------|
-| **Sepolia** | `0x69e28a7eac4b3602a1c29d349db4511e14541c11861e872e58399ef2601d7c9` | `0x614efc80fc99f1261f1ff42ab4c22770fbcdf9f74c1e0b7c23610888eb3d518` |
+| Network | Contract | Address | Class Hash |
+|---------|----------|---------|------------|
+| **Sepolia** | BuzzToken | `0x53792fe0ae244eb29e421d46218f5e7dfcae9ed79c3e370ac5146697440bf5f` | `0x174863f1c0df8fa3dfea79954d7eb4647fe76b248442ba4fc66cc49d446b86` |
+| **Sepolia** | BuzzDistributor | `0x6f128d75be3433b147518eefa8fd033f02d842699d8722665cd8a4e673f1157` | `0x22872448048eab6527517291a0c4da89411af30907a9d0e34716883e70bdeff` |
 
-Owner: `0x0759a4374389b0e3cfcc59d49310b6bc75bb12bbf8ce550eb5c2f026918bb344`
+Token Owner: `0x0759a4374389b0e3cfcc59d49310b6bc75bb12bbf8ce550eb5c2f026918bb344`
+Distributor Owner/Reporter: `0x1491211e2ff6bc71825644f0ba4912e1eeb3d8800707e6586faaadfb0e961ec`
 
 ## Contract Security
 

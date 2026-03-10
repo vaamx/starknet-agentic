@@ -6,5 +6,13 @@
   "ownerAddress": "0x0759a4374389b0e3cfcc59d49310b6bc75bb12bbf8ce550eb5c2f026918bb344",
   "tokenName": "Buzz Token",
   "tokenSymbol": "BUZZ",
-  "maxSupply": "100000000"
+  "maxSupply": "100000000",
+  "distributor": {
+    "deployedAt": "2026-03-10T15:56:22.040Z",
+    "classHash": "0x22872448048eab6527517291a0c4da89411af30907a9d0e34716883e70bdeff",
+    "address": "0x6f128d75be3433b147518eefa8fd033f02d842699d8722665cd8a4e673f1157",
+    "buzzTokenAddress": "0x53792fe0ae244eb29e421d46218f5e7dfcae9ed79c3e370ac5146697440bf5f",
+    "ownerAddress": "0x1491211e2ff6bc71825644f0ba4912e1eeb3d8800707e6586faaadfb0e961ec",
+    "reporterAddress": "0x1491211e2ff6bc71825644f0ba4912e1eeb3d8800707e6586faaadfb0e961ec"
+  }
 }

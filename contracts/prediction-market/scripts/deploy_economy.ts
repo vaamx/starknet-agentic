@@ -36,12 +36,13 @@ const STRK_SEPOLIA =
 // ── Config ────────────────────────────────────────────────────────────────
 
 const RPC_URL = process.env.STARKNET_RPC_URL ?? "https://rpc.starknet-testnet.lava.build";
-const DEPLOYER_ADDRESS =
-  process.env.DEPLOYER_ADDRESS ??
-  "0x0759a4374389b0e3cfcc59d49310b6bc75bb12bbf8ce550eb5c2f026918bb344";
-const DEPLOYER_PRIVATE_KEY =
-  process.env.DEPLOYER_PRIVATE_KEY ??
-  "***REDACTED***";
+const DEPLOYER_ADDRESS = process.env.DEPLOYER_ADDRESS;
+const DEPLOYER_PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY;
+
+if (!DEPLOYER_ADDRESS || !DEPLOYER_PRIVATE_KEY) {
+  console.error("Missing required env vars: DEPLOYER_ADDRESS, DEPLOYER_PRIVATE_KEY");
+  process.exit(1);
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 

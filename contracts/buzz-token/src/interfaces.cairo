@@ -80,4 +80,16 @@ pub trait IBuzzDistributor<TState> {
 
     // ── Ownership ────────────────────────────────────────────────────
     fn transfer_ownership(ref self: TState, new_owner: ContractAddress);
+
+    // ── Timelocked Upgrade (5 min) ───────────────────────────────────
+    fn propose_upgrade(ref self: TState, new_class_hash: ClassHash);
+    fn execute_upgrade(ref self: TState);
+    fn cancel_upgrade(ref self: TState);
+    fn get_pending_upgrade(self: @TState) -> (ClassHash, u64);
+
+    // ── Security ─────────────────────────────────────────────────────
+    fn get_max_reward_cap(self: @TState) -> u256;
+    fn set_max_reward_cap(ref self: TState, cap: u256);
+    fn get_max_batch_size(self: @TState) -> u32;
+    fn set_max_batch_size(ref self: TState, size: u32);
 }
