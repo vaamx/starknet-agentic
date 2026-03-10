@@ -23,7 +23,7 @@ import { requireRole } from "@/lib/require-auth";
 import { recordAudit, recordTradeExecution } from "@/lib/ops-store";
 import { reviewMarketQuestion } from "@/lib/market-quality";
 import { getResolutionStatus } from "@/lib/resolution-store";
-import { getPolymarketMarkets } from "@/lib/polymarket-reader";
+import { getPolymarketMarketsDiverse } from "@/lib/polymarket-reader";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -411,7 +411,7 @@ export async function GET(request: NextRequest) {
     // Merge Polymarket markets from MarketCache
     let polymarketMarkets: typeof allEnriched = [];
     try {
-      const polyRows = await getPolymarketMarkets(500);
+      const polyRows = await getPolymarketMarketsDiverse(30, statusFilter);
       const allIds = new Set([...onChainIds, ...dbSeeded.map((s) => s.id)]);
       polymarketMarkets = polyRows
         .filter((p) => !allIds.has(p.id))
