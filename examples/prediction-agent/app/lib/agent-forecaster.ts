@@ -147,6 +147,8 @@ export async function* forecastMarket(
       max_tokens: 1024,
     };
 
+    // No AbortSignal.timeout here — xAI with native tools (web_search, x_search)
+    // streams data incrementally over 30-50s. The outer per-agent timeout handles limits.
     const res = await fetch(`${xaiBaseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -155,7 +157,6 @@ export async function* forecastMarket(
       },
       body: JSON.stringify(body),
       cache: "no-store",
-      signal: AbortSignal.timeout(30_000),
     });
 
     if (!res.ok) {

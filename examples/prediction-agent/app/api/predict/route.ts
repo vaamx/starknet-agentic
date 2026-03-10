@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
         try {
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({ type: "error", message: "Forecast timed out — check LLM provider configuration (AGENT_LLM_PROVIDER, XAI_API_KEY)" })}\n\n`
+              `data: ${JSON.stringify({ type: "error", message: "Forecast timed out after 50s — the LLM response took too long" })}\n\n`
             )
           );
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));

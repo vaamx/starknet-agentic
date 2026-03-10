@@ -128,8 +128,10 @@ export async function POST(request: NextRequest) {
           researchBrief = "";
         }
 
-        // Compute once — same value for all 5 persona iterations.
-        const useToolUse = process.env.AGENT_TOOL_USE_ENABLED !== "false";
+        // Swarm mode: always disable tool-use. Research is gathered upfront and
+        // passed via researchBrief, so per-agent tool-use is redundant and too slow
+        // for Vercel's 60s limit (5 sequential agents × 20-40s each with native tools).
+        const useToolUse = false;
 
         // Base context fields are identical across all personas; only systemPrompt varies.
         // Factoring avoids re-computing agentPredictions.map() 5× unnecessarily.
@@ -181,8 +183,9 @@ export async function POST(request: NextRequest) {
               ? agenticForecastMarket(question, forecastContext)
               : forecastMarket(question, forecastContext);
 
-            // 35s per-agent hard timeout
-            const deadline = Date.now() + 35_000;
+            // 8s per-agent timeout (no tool-use in swarm, just streaming LLM generation)
+            // Budget: 5 agents × 8s = 40s + 10s debate + 5s overhead = 55s < 60s Vercel limit
+            const deadline = Date.now() + 8_000;
             let result: any;
             while (true) {
               if (Date.now() > deadline) {
