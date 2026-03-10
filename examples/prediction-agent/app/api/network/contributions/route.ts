@@ -14,6 +14,7 @@ import {
   normalizeWalletAddress,
 } from "@/lib/agent-network";
 import { config } from "@/lib/config";
+import { queueBuzzReward } from "@/lib/buzz-rewards";
 import { registerQuestion } from "@/lib/market-reader";
 import {
   type NetworkAuthEnvelope,
@@ -206,6 +207,16 @@ export async function POST(request: NextRequest) {
         receivedAt: contribution.createdAt,
       },
       config.openclawForecastTtlHours
+    );
+  }
+
+  // Queue BUZZ reward for BYOK forecast contribution
+  if (config.buzzRewardsEnabled && contribution.kind === "forecast" && contribution.walletAddress) {
+    queueBuzzReward(
+      "byok_forecast",
+      contribution.walletAddress,
+      `BYOK forecast by ${contribution.actorName}`,
+      { amount: 10, marketId: contribution.marketId },
     );
   }
 

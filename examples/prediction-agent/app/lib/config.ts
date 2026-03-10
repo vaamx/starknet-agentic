@@ -274,6 +274,10 @@ const envSchema = z.object({
   PROOF_AUDIT_RELAY_URL: z.string().url().optional(),
   PROOF_AUDIT_RELAY_API_KEY: z.string().optional(),
   PROOF_ARWEAVE_GATEWAY: z.string().default("https://arweave.net"),
+  // $BUZZ token rewards
+  BUZZ_TOKEN_ADDRESS: z.string().default("0x0"),
+  BUZZ_REWARDS_ENABLED: z.string().default("true"),
+  BUZZ_EMISSION_MULTIPLIER: z.string().default("1.0"),
 });
 
 const rawConfig = envSchema.parse(process.env);
@@ -732,6 +736,11 @@ export const config = {
   proofAuditRelayUrl: rawConfig.PROOF_AUDIT_RELAY_URL,
   proofAuditRelayApiKey: rawConfig.PROOF_AUDIT_RELAY_API_KEY,
   proofArweaveGateway: rawConfig.PROOF_ARWEAVE_GATEWAY,
+
+  // ── $BUZZ token rewards derived helpers ────────────────────────────────
+  buzzTokenAddress: rawConfig.BUZZ_TOKEN_ADDRESS,
+  buzzRewardsEnabled: rawConfig.BUZZ_REWARDS_ENABLED !== "false",
+  buzzEmissionMultiplier: Math.max(0, Math.min(10, parseFloat(rawConfig.BUZZ_EMISSION_MULTIPLIER) || 1.0)),
 };
 
 export type Config = typeof config;

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAccount } from "@starknet-react/core";
 import WalletConnect from "./WalletConnect";
+import BuzzBalance from "./BuzzBalance";
 import TamagotchiBadge from "./dashboard/TamagotchiBadge";
 import type { AuthModalMode } from "./AuthModal";
 
@@ -35,6 +36,7 @@ const NAV_ITEMS = [
 ];
 
 const EXPLORE_ITEMS = [
+  { href: "/buzz", label: "BUZZ", desc: "Forecaster reputation token" },
   { href: "/series", label: "Series", desc: "Multi-market series" },
   { href: "/starkcast", label: "StarkCast", desc: "Agent social feed" },
   { href: "/souk", label: "AgentSouk", desc: "Browse agent identities" },
@@ -225,6 +227,10 @@ export default function SimpleHeader({
 
             {authLoading && !isConnected && (
               <div className="hidden h-8 w-[120px] animate-pulse rounded-lg border border-white/[0.08] bg-white/[0.03] md:block" />
+            )}
+
+            {isConnected && walletAddress && (
+              <BuzzBalance walletAddress={walletAddress} />
             )}
 
             <WalletConnect showTrigger={isAuthed} />

@@ -68,6 +68,7 @@ import {
 import { updateSoul, getSoulChildren, incrementSoulPredictions, incrementSoulBets } from "./soul";
 import { deployChildAgent } from "./child-spawner";
 import { recordAgentActionProof } from "./proof-pipeline";
+import { queueBuzzReward, processPendingBuzzRewards } from "./buzz-rewards";
 import {
   assessResearchCoverage,
   checkResearchGate,
@@ -1022,6 +1023,15 @@ class AgentLoop {
       );
     }
 
+    // Process pending BUZZ rewards (batch mint)
+    if (config.buzzRewardsEnabled) {
+      try {
+        await processPendingBuzzRewards(5);
+      } catch (err) {
+        console.warn("[agent-loop] BUZZ reward processing failed:", (err as any)?.message);
+      }
+    }
+
     return tickActions;
   }
 
@@ -1630,6 +1640,16 @@ class AgentLoop {
       })
     );
 
+    // Queue BUZZ reward for forecast
+    if (config.buzzRewardsEnabled) {
+      queueBuzzReward(
+        "forecast_submit",
+        config.AGENT_ADDRESS ?? "",
+        `Forecast on market ${target.id}`,
+        { amount: 5, marketId: target.id },
+      );
+    }
+
     if (!predictionTxHash) {
       emit(
         this.createAction({
@@ -2090,6 +2110,15 @@ class AgentLoop {
       })
     );
 
+    if (config.buzzRewardsEnabled) {
+      queueBuzzReward(
+        "market_create",
+        config.AGENT_ADDRESS ?? "",
+        "Created market",
+        { amount: 10 },
+      );
+    }
+
     return true;
   }
 
@@ -2319,6 +2348,14 @@ class AgentLoop {
               txHash: result.txHash,
             })
           );
+          if (config.buzzRewardsEnabled) {
+            queueBuzzReward(
+              "winning_claim",
+              config.AGENT_ADDRESS ?? "",
+              `Claimed winnings on market ${market.id}`,
+              { amount: 5, marketId: market.id },
+            );
+          }
         } else {
           // Remove from claimed set so it retries next tick
           this.claimedMarkets.delete(market.id);
@@ -2405,6 +2442,14 @@ class AgentLoop {
               txHash: result.txHash,
             })
           );
+          if (config.buzzRewardsEnabled) {
+            queueBuzzReward(
+              "market_create",
+              config.AGENT_ADDRESS ?? "",
+              "Created market",
+              { amount: 10 },
+            );
+          }
           return; // Only 1 per tick
         }
       } catch (err: any) {
