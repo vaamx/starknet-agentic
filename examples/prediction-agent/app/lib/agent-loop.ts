@@ -1646,7 +1646,7 @@ class AgentLoop {
         "forecast_submit",
         config.AGENT_ADDRESS ?? "",
         `Forecast on market ${target.id}`,
-        { amount: 5, marketId: target.id },
+        { amount: 1, marketId: target.id },
       );
     }
 
@@ -2115,7 +2115,7 @@ class AgentLoop {
         "market_create",
         config.AGENT_ADDRESS ?? "",
         "Created market",
-        { amount: 10 },
+        { amount: 5 },
       );
     }
 
@@ -2353,7 +2353,7 @@ class AgentLoop {
               "winning_claim",
               config.AGENT_ADDRESS ?? "",
               `Claimed winnings on market ${market.id}`,
-              { amount: 5, marketId: market.id },
+              { amount: 1, marketId: market.id },
             );
           }
         } else {
@@ -2447,7 +2447,7 @@ class AgentLoop {
               "market_create",
               config.AGENT_ADDRESS ?? "",
               "Created market",
-              { amount: 10 },
+              { amount: 5 },
             );
           }
           return; // Only 1 per tick

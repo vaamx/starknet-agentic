@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 
 interface BuzzBalanceProps {
   walletAddress?: string;
@@ -20,13 +21,19 @@ export default function BuzzBalance({ walletAddress }: BuzzBalanceProps) {
     async function load() {
       try {
         const res = await fetch(
-          `/api/buzz/balance?address=${encodeURIComponent(walletAddress!)}`
+          `/api/buzz/balance?address=${encodeURIComponent(walletAddress!)}`,
+          { credentials: "include" },
         );
         if (!res.ok) return;
         const data = await res.json();
-        if (!cancelled && typeof data.balance === "number") {
-          setBalance(data.balance);
-        }
+        if (cancelled) return;
+        // API returns balance as number (whole BUZZ) or string — handle both
+        const val = typeof data.balance === "number"
+          ? data.balance
+          : typeof data.balance === "string"
+            ? parseFloat(data.balance) || 0
+            : null;
+        if (val !== null) setBalance(val);
       } catch {
         // silently ignore — header component should never break the page
       }
@@ -43,7 +50,7 @@ export default function BuzzBalance({ walletAddress }: BuzzBalanceProps) {
   if (!walletAddress || balance === null) return null;
 
   return (
-    <a
+    <Link
       href="/buzz"
       className="group flex items-center gap-1.5 rounded-lg border border-amber-400/20 bg-amber-400/[0.06] px-2.5 py-1 no-underline transition-all duration-150 hover:border-amber-400/35 hover:bg-amber-400/10"
     >
@@ -52,6 +59,7 @@ export default function BuzzBalance({ walletAddress }: BuzzBalanceProps) {
         className="h-3.5 w-3.5 text-amber-400 transition-transform group-hover:scale-110"
         viewBox="0 0 24 24"
         fill="currentColor"
+        aria-hidden="true"
       >
         <path d="M12 2l8.66 5v10L12 22l-8.66-5V7L12 2zm0 2.31L5.34 8.15v7.69L12 19.69l6.66-3.85V8.15L12 4.31z" />
         <path d="M12 7l4.33 2.5v5L12 17l-4.33-2.5v-5L12 7z" />
@@ -62,6 +70,6 @@ export default function BuzzBalance({ walletAddress }: BuzzBalanceProps) {
       <span className="text-[11px] font-semibold text-amber-400/60">
         BUZZ
       </span>
-    </a>
+    </Link>
   );
 }

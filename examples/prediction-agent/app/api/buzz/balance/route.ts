@@ -9,6 +9,12 @@ const RATE_WINDOW_MS = 60_000;
 
 function checkRateLimit(ip: string): boolean {
   const now = Date.now();
+  // Prune expired entries to prevent memory leak
+  if (rateLimitMap.size > 1000) {
+    for (const [k, v] of rateLimitMap) {
+      if (now >= v.resetAt) rateLimitMap.delete(k);
+    }
+  }
   const entry = rateLimitMap.get(ip);
   if (!entry || now >= entry.resetAt) {
     rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
@@ -51,17 +57,21 @@ export async function GET(req: NextRequest) {
     }
 
     const balance = await getBuzzBalance(address);
+    // Return both numeric (for client) and formatted (for display)
+    // Safe: 21M max supply * 1e18 decimals → whole BUZZ fits in Number
+    const balanceWhole = Number(balance / 10n ** 18n);
     const body = {
       address,
-      balance: balance.toString(),
+      balance: balanceWhole,
+      balanceRaw: balance.toString(),
       balanceFormatted: formatBuzzBalance(balance),
     };
 
     cached = { address: address.toLowerCase(), body, fetchedAt: Date.now() };
     return NextResponse.json(body);
-  } catch (err: any) {
+  } catch {
     return NextResponse.json(
-      { error: err.message ?? "Internal error" },
+      { error: "Failed to fetch balance" },
       { status: 500 }
     );
   }

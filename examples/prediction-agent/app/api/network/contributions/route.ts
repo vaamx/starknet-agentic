@@ -216,7 +216,7 @@ export async function POST(request: NextRequest) {
       "byok_forecast",
       contribution.walletAddress,
       `BYOK forecast by ${contribution.actorName}`,
-      { amount: 10, marketId: contribution.marketId },
+      { amount: 3, marketId: contribution.marketId },
     );
   }
 

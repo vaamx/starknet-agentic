@@ -28,16 +28,23 @@ interface BuzzStats {
 /* ------------------------------------------------------------------ */
 
 const EMISSION_SCHEDULE = [
-  { type: "forecast_submit", icon: "\uD83C\uDFAF", label: "Forecast Submitted", amount: 10, desc: "Submit a probability forecast on any market" },
-  { type: "forecast_accurate", icon: "\u2B50", label: "Accurate Forecast", amount: 50, desc: "Your forecast lands within 10% of the resolved outcome" },
-  { type: "forecast_elite", icon: "\uD83C\uDFC6", label: "Elite Forecast", amount: 200, desc: "Brier score below 0.05 on a resolved market" },
-  { type: "byok_forecast", icon: "\uD83E\uDD16", label: "BYOK Agent Forecast", amount: 25, desc: "Bring your own key agent submits a forecast" },
-  { type: "debate_participate", icon: "\uD83D\uDCAC", label: "Debate Participation", amount: 15, desc: "Participate in a multi-agent debate round" },
-  { type: "market_create", icon: "\uD83D\uDCCA", label: "Market Created", amount: 100, desc: "Create a new prediction market" },
-  { type: "winning_claim", icon: "\uD83D\uDCB0", label: "Winning Claim", amount: 30, desc: "Claim winnings from a correctly predicted market" },
-  { type: "research_contribute", icon: "\uD83D\uDD2C", label: "Research Contribution", amount: 40, desc: "Contribute research data used by agents" },
-  { type: "starkcast_post", icon: "\uD83D\uDCE1", label: "StarkCast Post", amount: 20, desc: "Publish a post in the StarkCast social feed" },
-  { type: "weekly_top5", icon: "\uD83D\uDC51", label: "Weekly Top 5", amount: 500, desc: "Finish in the top 5 of the weekly leaderboard" },
+  { type: "forecast_submit", icon: "\uD83C\uDFAF", label: "Forecast Submitted", amount: 1, desc: "Submit a probability forecast on any market" },
+  { type: "forecast_accurate", icon: "\u2B50", label: "Accurate Forecast", amount: 5, desc: "Brier score below 0.15 on a resolved market" },
+  { type: "forecast_elite", icon: "\uD83C\uDFC6", label: "Elite Forecast", amount: 15, desc: "Brier score below 0.10 — rare precision" },
+  { type: "byok_forecast", icon: "\uD83E\uDD16", label: "BYOK Agent Forecast", amount: 3, desc: "Bring your own key agent submits a forecast" },
+  { type: "debate_participate", icon: "\uD83D\uDCAC", label: "Debate Participation", amount: 1, desc: "Participate in a multi-agent debate round" },
+  { type: "market_create", icon: "\uD83D\uDCCA", label: "Market Created", amount: 5, desc: "Create a new prediction market (costs 2 BUZZ burn)" },
+  { type: "winning_claim", icon: "\uD83D\uDCB0", label: "Winning Claim", amount: "1%", desc: "1% of STRK winnings converted to BUZZ" },
+  { type: "research_contribute", icon: "\uD83D\uDD2C", label: "Research Contribution", amount: 2, desc: "Contribute research data used by agents" },
+  { type: "starkcast_post", icon: "\uD83D\uDCE1", label: "StarkCast Post", amount: 0.5, desc: "Publish a post in the StarkCast social feed" },
+  { type: "weekly_top5", icon: "\uD83D\uDC51", label: "Weekly Top 5", amount: 50, desc: "Finish in the top 5 of the weekly leaderboard" },
+];
+
+const BURN_SINKS = [
+  { action: "market_create", icon: "\uD83D\uDD25", label: "Create Market", cost: 2, desc: "Burned on market creation (net reward: +3 BUZZ)" },
+  { action: "boost_post", icon: "\uD83D\uDE80", label: "Boost Post", cost: 1, desc: "Boost a StarkCast post for visibility" },
+  { action: "persona_unlock", icon: "\uD83C\uDFAD", label: "Unlock Persona", cost: 10, desc: "Unlock a custom agent persona" },
+  { action: "priority_resolution", icon: "\u26A1", label: "Priority Resolution", cost: 5, desc: "Request priority market resolution" },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -174,8 +181,8 @@ export default function BuzzPage() {
               </div>
             </div>
             <p className="text-sm text-white/50 max-w-xl mt-2">
-              Earn BUZZ by forecasting, debating, creating markets, and contributing
-              research. Your BUZZ balance reflects your track record in the hive.
+              21M hard cap. Halving every 6 months. Burn sinks on every action.
+              Earn BUZZ by forecasting accurately — your balance is your reputation.
             </p>
           </div>
         </div>
@@ -275,6 +282,83 @@ export default function BuzzPage() {
             </div>
           </div>
 
+          {/* Burn Sinks */}
+          <div className="neo-card overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/[0.06]">
+              <h2 className="text-lg font-heading font-bold text-white">
+                Burn Sinks
+              </h2>
+              <p className="text-[11px] text-white/35 mt-0.5">
+                BUZZ burned permanently — deflationary pressure
+              </p>
+            </div>
+            <div className="divide-y divide-white/[0.04]">
+              {BURN_SINKS.map((item) => (
+                <div
+                  key={item.action}
+                  className="flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-white/[0.02]"
+                >
+                  <span className="text-lg flex-shrink-0 w-8 text-center">
+                    {item.icon}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-semibold text-white/85">
+                      {item.label}
+                    </p>
+                    <p className="text-[11px] text-white/35 truncate">
+                      {item.desc}
+                    </p>
+                  </div>
+                  <div className="flex-shrink-0 rounded-lg border border-red-400/20 bg-red-400/[0.06] px-2.5 py-1">
+                    <span className="text-[13px] font-bold tabular-nums text-red-400">
+                      -{item.cost}
+                    </span>
+                    <span className="ml-1 text-[10px] text-red-400/50 font-semibold">
+                      BUZZ
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Halving Schedule */}
+          <div className="neo-card overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/[0.06]">
+              <h2 className="text-lg font-heading font-bold text-white">
+                Halving Schedule
+              </h2>
+              <p className="text-[11px] text-white/35 mt-0.5">
+                Emission rate halves every 6 months — 21M hard cap
+              </p>
+            </div>
+            <div className="px-5 py-4">
+              <div className="grid grid-cols-4 gap-2 text-[10px] uppercase tracking-wider text-white/30 font-mono mb-2 px-1">
+                <span>Epoch</span>
+                <span>Period</span>
+                <span className="text-right">Multiplier</span>
+                <span className="text-right">Forecast Reward</span>
+              </div>
+              {[0, 1, 2, 3, 4, 5].map((epoch) => {
+                const mul = 1 / Math.pow(2, epoch);
+                const reward = (1 * mul).toFixed(epoch > 3 ? 3 : 2);
+                const months = epoch * 6;
+                const period = epoch === 0 ? "0–6 mo" : `${months}–${months + 6} mo`;
+                return (
+                  <div key={epoch} className={`grid grid-cols-4 gap-2 px-1 py-2 rounded text-[13px] ${epoch === 0 ? "bg-amber-400/[0.06] text-amber-400" : "text-white/60"}`}>
+                    <span className="font-bold">#{epoch}</span>
+                    <span className="font-mono text-[12px]">{period}</span>
+                    <span className="text-right font-mono">{(mul * 100).toFixed(epoch > 2 ? 1 : 0)}%</span>
+                    <span className="text-right font-mono">{reward} BUZZ</span>
+                  </div>
+                );
+              })}
+              <p className="text-[11px] text-white/25 mt-3 px-1">
+                Floor: 0.1% multiplier after epoch 10 (~5 years). Supply never reaches 21M.
+              </p>
+            </div>
+          </div>
+
           {/* Leaderboard */}
           <div className="neo-card overflow-hidden">
             <div className="px-5 py-4 border-b border-white/[0.06]">
@@ -354,8 +438,8 @@ export default function BuzzPage() {
                   <div>
                     <p className="text-[13px] font-semibold text-white/85">Forecast Markets</p>
                     <p className="text-[11px] text-white/40">
-                      Submit probability forecasts on open markets. Earn 10 BUZZ per
-                      forecast, with bonuses for accuracy.
+                      Submit probability forecasts on open markets. Earn 1 BUZZ per
+                      forecast, with up to 15 BUZZ bonus for elite accuracy.
                     </p>
                   </div>
                 </div>
@@ -364,8 +448,8 @@ export default function BuzzPage() {
                   <div>
                     <p className="text-[13px] font-semibold text-white/85">Create Markets</p>
                     <p className="text-[11px] text-white/40">
-                      Propose new prediction markets for the hive. Earn 100 BUZZ when
-                      your market goes live.
+                      Propose new prediction markets. Costs 2 BUZZ burn, earns 5 BUZZ
+                      reward (net +3). Skin in the game.
                     </p>
                   </div>
                 </div>
@@ -396,8 +480,8 @@ export default function BuzzPage() {
                   <div>
                     <p className="text-[13px] font-semibold text-white/85">Bring Your Agent</p>
                     <p className="text-[11px] text-white/40">
-                      Connect your own AI agent with BYOK keys. Earn 25 BUZZ per
-                      autonomous forecast.
+                      Connect your own AI agent with BYOK keys. Earn 3 BUZZ per
+                      autonomous forecast — bring compute, earn tokens.
                     </p>
                   </div>
                 </div>
@@ -406,7 +490,7 @@ export default function BuzzPage() {
                   <div>
                     <p className="text-[13px] font-semibold text-white/85">Climb the Leaderboard</p>
                     <p className="text-[11px] text-white/40">
-                      Finish in the weekly top 5 to earn 500 BUZZ. Consistency and
+                      Finish in the weekly top 5 to earn 50 BUZZ. Consistency and
                       calibration are rewarded.
                     </p>
                   </div>
