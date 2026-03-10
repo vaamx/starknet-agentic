@@ -68,7 +68,7 @@ import {
 import { updateSoul, getSoulChildren, incrementSoulPredictions, incrementSoulBets } from "./soul";
 import { deployChildAgent } from "./child-spawner";
 import { recordAgentActionProof } from "./proof-pipeline";
-import { queueBuzzReward, processPendingBuzzRewards } from "./buzz-rewards";
+import { queueBuzzReward, processPendingBuzzRewards, computeWinningClaimReward, syncEpochFromContract } from "./buzz-rewards";
 import {
   assessResearchCoverage,
   checkResearchGate,
@@ -712,6 +712,11 @@ class AgentLoop {
     this.tickCount++;
     this.lastTickAt = Date.now();
     incrementDiscoveryTick();
+
+    // Sync BUZZ halving epoch from contract on first tick
+    if (this.tickCount === 1 && config.buzzRewardsEnabled) {
+      syncEpochFromContract().catch(() => {});
+    }
     void setPersistedLoopRuntime({
       tickCount: this.tickCount,
       lastTickAt: this.lastTickAt,
@@ -2349,12 +2354,17 @@ class AgentLoop {
             })
           );
           if (config.buzzRewardsEnabled) {
-            queueBuzzReward(
-              "winning_claim",
-              config.AGENT_ADDRESS ?? "",
-              `Claimed winnings on market ${market.id}`,
-              { amount: 1, marketId: market.id },
-            );
+            // Compute reward as 1% of STRK winnings (convert from wei)
+            const strkWinnings = Number(winningBet) / 1e18;
+            const buzzAmount = computeWinningClaimReward(strkWinnings);
+            if (buzzAmount > 0) {
+              queueBuzzReward(
+                "winning_claim",
+                config.AGENT_ADDRESS ?? "",
+                `Claimed ${strkWinnings.toFixed(2)} STRK from market ${market.id}`,
+                { amount: buzzAmount, marketId: market.id },
+              );
+            }
           }
         } else {
           // Remove from claimed set so it retries next tick

@@ -1,0 +1,10 @@
+{
+  "network": "sepolia",
+  "deployedAt": "2026-03-10T14:26:14.338Z",
+  "tokenAddress": "0x69e28a7eac4b3602a1c29d349db4511e14541c11861e872e58399ef2601d7c9",
+  "classHash": "0x614efc80fc99f1261f1ff42ab4c22770fbcdf9f74c1e0b7c23610888eb3d518",
+  "ownerAddress": "0x0759a4374389b0e3cfcc59d49310b6bc75bb12bbf8ce550eb5c2f026918bb344",
+  "tokenName": "Buzz Token",
+  "tokenSymbol": "BUZZ",
+  "maxSupply": "21000000"
+}

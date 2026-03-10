@@ -75,12 +75,20 @@ Assuming moderate platform activity:
 
 At this rate, the 21M cap would take ~88 years to approach — and halving reduces emissions by 50% every 6 months. In practice, the circulating supply will stabilize well below the cap.
 
+## Deployed Contracts
+
+| Network | Address | Class Hash |
+|---------|---------|------------|
+| **Sepolia** | `0x69e28a7eac4b3602a1c29d349db4511e14541c11861e872e58399ef2601d7c9` | `0x614efc80fc99f1261f1ff42ab4c22770fbcdf9f74c1e0b7c23610888eb3d518` |
+
+Owner: `0x0759a4374389b0e3cfcc59d49310b6bc75bb12bbf8ce550eb5c2f026918bb344`
+
 ## Contract Security
 
 | Feature | Status |
 |---------|--------|
-| **Upgradeable** | Yes — OZ UpgradeableComponent, owner-only |
-| **Pausable** | Yes — owner can pause/unpause minting |
+| **Timelocked Upgrade** | 5-minute delay — `propose_upgrade()` → wait 300s → `execute_upgrade()` or `cancel_upgrade()` |
+| **Pausable** | Yes — owner can pause/unpause minting and burning |
 | **Ownership Transfer** | Yes — `transfer_ownership()` |
 | **Minter Roles** | Owner can add/remove authorized minters |
 | **Zero-Address Guards** | Cannot mint to or set zero address as owner/minter |
@@ -119,7 +127,12 @@ trait IBuzzToken {
     // Governance
     fn transfer_ownership(new_owner: ContractAddress);
     fn get_owner() -> ContractAddress;
-    fn upgrade(new_class_hash: ClassHash);
+
+    // Timelocked Upgrade (5-min delay)
+    fn propose_upgrade(new_class_hash: ClassHash);
+    fn execute_upgrade();
+    fn cancel_upgrade();
+    fn get_pending_upgrade() -> (ClassHash, u64);
 }
 ```
 
@@ -149,7 +162,7 @@ Burns happen at the point of action (market creation, boost, etc.) via `BuzzToke
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BUZZ_TOKEN_ADDRESS` | `0x0` | Deployed contract address (dry-run when `0x0`) |
+| `BUZZ_TOKEN_ADDRESS` | `0x69e28a7...d7c9` | Deployed contract address (dry-run when `0x0`) |
 | `BUZZ_REWARDS_ENABLED` | `true` | Enable/disable reward engine |
 | `BUZZ_EMISSION_MULTIPLIER` | `1.0` | Global scaling factor for all emissions |
 
