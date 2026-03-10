@@ -823,7 +823,11 @@ class AgentLoop {
       try {
         const snapshotOpen = (await getPersistedMarketSnapshots(300)).filter(
           (snapshot) =>
-            snapshot.status === 0 && snapshot.resolutionTime > nowSec
+            snapshot.status === 0 &&
+            snapshot.resolutionTime > nowSec &&
+            // Exclude external markets (Polymarket etc.) — can't bet on-chain
+            snapshot.address.startsWith("0x") &&
+            !snapshot.address.startsWith("poly_")
         );
         if (snapshotOpen.length > 0) {
           openMarkets = snapshotOpen.map((snapshot) => ({
@@ -1742,23 +1746,27 @@ class AgentLoop {
         let betTxError: string | undefined;
         if (onChain) {
           try {
-            // Pre-check: skip if market is expired or no longer open
-            const nowSec = Math.floor(Date.now() / 1000);
-            if (target.status !== 0 || target.resolutionTime <= nowSec) {
-              betTxError = "Market no longer open — bet skipped";
+            // Pre-check: skip if market is external (Polymarket) or expired
+            if (!target.address.startsWith("0x") || target.address.startsWith("poly_")) {
+              betTxError = "External market — on-chain bet skipped";
             } else {
-              const outcomeNum: 0 | 1 = probability > 0.5 ? 1 : 0;
-              const txResult = await placeBet(
-                target.address,
-                outcomeNum,
-                betAmount,
-                config.COLLATERAL_TOKEN_ADDRESS,
-                execAccount
-              );
-              if (txResult.status === "success") {
-                betTxHash = txResult.txHash;
+              const nowSec = Math.floor(Date.now() / 1000);
+              if (target.status !== 0 || target.resolutionTime <= nowSec) {
+                betTxError = "Market no longer open — bet skipped";
               } else {
-                betTxError = txResult.error;
+                const outcomeNum: 0 | 1 = probability > 0.5 ? 1 : 0;
+                const txResult = await placeBet(
+                  target.address,
+                  outcomeNum,
+                  betAmount,
+                  config.COLLATERAL_TOKEN_ADDRESS,
+                  execAccount
+                );
+                if (txResult.status === "success") {
+                  betTxHash = txResult.txHash;
+                } else {
+                  betTxError = txResult.error;
+                }
               }
             }
           } catch {
