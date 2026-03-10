@@ -137,7 +137,7 @@ export async function getSurvivalState(tickCount: number): Promise<SurvivalState
 
   const rawTier   = balanceToRawTier(balanceWei);
   const tier      = smoothTier(rawTier);
-  const balanceStrk = Number(balanceWei) / 1e18;
+  const balanceStrk = Number(balanceWei / 10n ** 14n) / 10_000;
 
   const state: SurvivalState = {
     tier,

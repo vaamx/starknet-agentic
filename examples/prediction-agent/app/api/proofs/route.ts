@@ -51,9 +51,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const rateLimited = await enforceRateLimit(request, "proofs_post", {
+  const rateLimited = await enforceRateLimit(request, "proofs_create", {
     windowMs: 60_000,
-    maxRequests: 60,
+    maxRequests: 10,
   });
   if (rateLimited) return rateLimited;
 

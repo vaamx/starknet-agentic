@@ -284,6 +284,7 @@ export async function logThoughtOnChain(reasoning: string): Promise<HuginnLogRes
   // ── Execute on-chain ────────────────────────────────────────────────────
   try {
     const txHash = await executeLogThought(huginnAddress, thoughtHash);
+    if (submittedHashes.size > 10_000) submittedHashes.clear();
     submittedHashes.add(thoughtHash);
     console.log(
       `[huginn] log_thought: success — hash=${thoughtHash.slice(0, 18)}... tx=${txHash.slice(0, 18)}...`

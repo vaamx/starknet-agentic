@@ -130,6 +130,7 @@ async function anchorProofToAuditRelay(params: {
       },
       body: JSON.stringify(body),
       cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
     }
   );
 

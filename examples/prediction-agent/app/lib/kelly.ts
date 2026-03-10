@@ -102,7 +102,7 @@ export function computeKellyBet(input: KellyInput): KellyResult {
   let scaledFraction = rawFraction * fraction;
 
   // Critical tier → force minimum only (survive mode)
-  const bankrollStrk = Number(bankrollWei) / 1e18;
+  const bankrollStrk = Number(bankrollWei / 10n ** 14n) / 10_000;
   const effectiveMaxStrk = survivalTier === "critical"
     ? Math.min(minBetStrk, maxBetStrk)
     : maxBetStrk;

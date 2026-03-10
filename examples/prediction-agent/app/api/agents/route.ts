@@ -111,12 +111,12 @@ export async function POST(request: NextRequest) {
         });
         agent.keyRef = storedKey.keyRef;
         agent.keyCustodyProvider = storedKey.provider;
-        agent.privateKey = payload.walletPrivateKey;
         agent.account = await hydrateAgentAccount(agent) ?? undefined;
       } catch (err: any) {
+        console.error("[agents] Failed to store BYO wallet signing key:", err?.message, err?.stack);
         return Response.json(
           {
-            error: `Failed to store BYO wallet signing key: ${err?.message ?? String(err)}`,
+            error: "Failed to store BYO wallet signing key",
           },
           { status: 500 }
         );
@@ -196,9 +196,10 @@ export async function POST(request: NextRequest) {
   });
 
   if (deploy.error || !deploy.agentAddress) {
+    console.error("[agents] Failed to deploy sovereign child agent:", deploy.error);
     return Response.json(
       {
-        error: `Failed to deploy sovereign child agent: ${deploy.error ?? "unknown error"}`,
+        error: "Failed to deploy sovereign child agent",
       },
       { status: 500 }
     );
@@ -206,22 +207,21 @@ export async function POST(request: NextRequest) {
 
   const agent = agentSpawner.spawn(spawnConfig);
   agent.walletAddress = deploy.agentAddress;
-  agent.privateKey = deploy.privateKey; // in-memory only
   agent.account = deploy.account;
   agent.agentId = deploy.agentId;
   try {
-    const storedKey = await storeAgentPrivateKey({
+    const storedKey = await deploy.storeKey({
+      storeAgentPrivateKey,
       agentId: agent.id,
-      walletAddress: deploy.agentAddress,
-      privateKey: deploy.privateKey,
     });
     agent.keyRef = storedKey.keyRef;
     agent.keyCustodyProvider = storedKey.provider;
     agent.account = (await hydrateAgentAccount(agent)) ?? deploy.account;
   } catch (err: any) {
+    console.error("[agents] Failed to persist sovereign child signing key:", err?.message, err?.stack);
     return Response.json(
       {
-        error: `Failed to persist sovereign child signing key: ${err?.message ?? String(err)}`,
+        error: "Failed to persist sovereign child signing key",
       },
       { status: 500 }
     );

@@ -8,6 +8,7 @@
  */
 
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import { tryResolveMarket } from "@/lib/resolution-oracle";
 import { requireAuth } from "@/lib/require-auth";
 
@@ -27,32 +28,30 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  let body: any;
+  const resolveSchema = z.object({
+    marketId: z.number().int().min(0),
+    marketAddress: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/).optional(),
+    question: z.string().min(1).max(1000).optional(),
+  });
+
+  let marketId: number;
+  let marketAddress: string | undefined;
+  let question: string | undefined;
   try {
-    body = await request.json();
-  } catch {
-    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  const { marketId, marketAddress, question } = body as {
-    marketId?: number;
-    marketAddress?: string;
-    question?: string;
-  };
-
-  if (typeof marketId !== "number" || !marketAddress || !question) {
+    const body = resolveSchema.parse(await request.json());
+    marketId = body.marketId;
+    marketAddress = body.marketAddress;
+    question = body.question;
+  } catch (err: any) {
     return new Response(
-      JSON.stringify({ error: "marketId (number), marketAddress, and question are required" }),
+      JSON.stringify({ error: "Invalid request body", details: err?.issues ?? err?.message }),
       { status: 400, headers: { "Content-Type": "application/json" } }
     );
   }
 
   let result;
   try {
-    result = await tryResolveMarket(marketId, marketAddress, question);
+    result = await tryResolveMarket(marketId, marketAddress ?? "", question ?? "");
   } catch (err: any) {
     // tryResolveMarket is documented as "never throws", but starknet.js network
     // calls and the Anthropic SDK can both throw outside the internal catch blocks.

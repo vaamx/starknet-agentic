@@ -13,8 +13,7 @@ export const maxDuration = 60;
  */
 export async function POST(request: NextRequest) {
   // Auth: accept heartbeat secret or skip in dev
-  const secret = request.headers.get("x-heartbeat-secret")
-    ?? request.nextUrl.searchParams.get("secret");
+  const secret = request.headers.get("x-heartbeat-secret");
   const expectedSecret = process.env.HEARTBEAT_SECRET;
 
   if (expectedSecret && secret !== expectedSecret) {

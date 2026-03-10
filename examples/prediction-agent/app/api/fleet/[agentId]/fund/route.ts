@@ -60,6 +60,12 @@ export async function POST(
         { status: 400 }
       );
     }
+    if (amountStrk > 100) {
+      return NextResponse.json(
+        { ok: false, error: "Maximum transfer is 100 STRK" },
+        { status: 400 }
+      );
+    }
 
     const amountWei = BigInt(Math.floor(amountStrk * 1e18));
     const ownerAccount = getOwnerAccount();
@@ -87,8 +93,9 @@ export async function POST(
       recipient: agent.walletAddress,
     });
   } catch (err: any) {
+    console.error("[fleet/fund] Error:", err?.message, err?.stack);
     return NextResponse.json(
-      { ok: false, error: err?.message ?? "Failed to fund agent" },
+      { ok: false, error: "Fund transfer failed" },
       { status: 500 }
     );
   }

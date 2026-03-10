@@ -293,6 +293,7 @@ async function fetchOllamaChat(
       },
     }),
     cache: "no-store",
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!response.ok) {

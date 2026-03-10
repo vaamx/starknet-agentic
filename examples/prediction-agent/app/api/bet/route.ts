@@ -70,6 +70,7 @@ export async function POST(request: NextRequest) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.errors }, { status: 400 });
     }
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("[bet] Error:", err?.message, err?.stack);
+    return NextResponse.json({ error: "Bet execution failed" }, { status: 500 });
   }
 }

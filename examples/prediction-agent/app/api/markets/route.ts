@@ -558,19 +558,21 @@ export async function GET(request: NextRequest) {
         : fallbackEnriched;
       const fallbackDeduped = dedupeQuestionClones(fallbackFiltered);
       const markets = applyMarketWindow(fallbackDeduped, statusFilter, limit);
+      console.error("[markets] Fallback triggered:", err?.message, err?.stack);
       return NextResponse.json({
         markets,
         factoryConfigured,
         factoryAddress,
         stale: true,
         source: fallbackSource,
-        warning: err?.message ?? "on-chain fetch failed",
+        warning: "on-chain fetch failed",
       });
     }
 
+    console.error("[markets] Error:", err?.message, err?.stack);
     return NextResponse.json(
       {
-        error: err?.message ?? "Failed to load markets",
+        error: "Failed to fetch markets",
         factoryConfigured,
         factoryAddress,
       },
@@ -732,6 +734,7 @@ export async function POST(request: NextRequest) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.errors }, { status: 400 });
     }
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("[markets] POST Error:", err?.message, err?.stack);
+    return NextResponse.json({ error: "Failed to create market" }, { status: 500 });
   }
 }

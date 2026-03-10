@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { enforceRateLimit, jsonError } from "@/lib/api-guard";
+import { requireRole } from "@/lib/require-auth";
 import { createMarket } from "@/lib/starknet-executor";
 import { getPolymarketMarketById, setMirrorAddress } from "@/lib/polymarket-reader";
 import { registerQuestion } from "@/lib/market-reader";
@@ -18,6 +20,12 @@ const MirrorSchema = z.object({
  * Users can then bet on it with STRK using the same prediction market contract.
  */
 export async function POST(request: NextRequest) {
+  const rateLimited = await enforceRateLimit(request, "polymarket_mirror", { windowMs: 60_000, maxRequests: 3 });
+  if (rateLimited) return rateLimited;
+
+  const context = await requireRole(request, "admin");
+  if (!context) return jsonError("Forbidden — admin role required", 403);
+
   let marketId: number;
   try {
     const body = MirrorSchema.parse(await request.json());

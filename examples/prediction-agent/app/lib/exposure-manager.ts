@@ -264,12 +264,12 @@ function computePortfolioMetrics(
     }
   }
 
-  const bankrollF = Number(bankrollWei) || 1;
+  const bankrollF = Number(bankrollWei / 10n ** 14n) / 10_000 || 1;
   return {
     totalExposureWei: totalExposure,
-    exposureFraction: Number(totalExposure) / bankrollF,
+    exposureFraction: Number(totalExposure / 10n ** 14n) / 10_000 / bankrollF,
     groupCount: groups.length,
-    largestGroupFraction: Number(largestGroupExposure) / bankrollF,
+    largestGroupFraction: Number(largestGroupExposure / 10n ** 14n) / 10_000 / bankrollF,
     positionCount,
   };
 }
@@ -334,8 +334,8 @@ export function evaluateProposedBet(
   // ── Gate 1: Total portfolio exposure limit ──
   if (metrics.exposureFraction > exposureConfig.exposureMaxTotalFraction) {
     // Scale down to fit within limit
-    const currentExposure = Number(metrics.totalExposureWei - proposedBetWei);
-    const maxTotal = Number(bankrollWei) * exposureConfig.exposureMaxTotalFraction;
+    const currentExposure = Number((metrics.totalExposureWei - proposedBetWei) / 10n ** 14n) / 10_000;
+    const maxTotal = Number(bankrollWei / 10n ** 14n) / 10_000 * exposureConfig.exposureMaxTotalFraction;
     const headroom = Math.max(0, maxTotal - currentExposure);
 
     if (headroom <= 0) {
@@ -365,14 +365,14 @@ export function evaluateProposedBet(
     const assetGroup = groups.find((g) => g.asset === underlying.asset);
     if (assetGroup) {
       const groupFraction =
-        Number(assetGroup.totalExposureWei) / (Number(bankrollWei) || 1);
+        Number(assetGroup.totalExposureWei / 10n ** 14n) / 10_000 / (Number(bankrollWei / 10n ** 14n) / 10_000 || 1);
 
       if (groupFraction > exposureConfig.exposureMaxGroupFraction) {
         const currentGroupExposure = Number(
-          assetGroup.totalExposureWei - proposedBetWei
-        );
+          (assetGroup.totalExposureWei - proposedBetWei) / 10n ** 14n
+        ) / 10_000;
         const maxGroupTotal =
-          Number(bankrollWei) * exposureConfig.exposureMaxGroupFraction;
+          Number(bankrollWei / 10n ** 14n) / 10_000 * exposureConfig.exposureMaxGroupFraction;
         const headroom = Math.max(0, maxGroupTotal - currentGroupExposure);
 
         if (headroom <= 0) {
@@ -420,7 +420,7 @@ export function evaluateProposedBet(
     if (usedFraction > 0.8) {
       const scaleFactor = Math.max(0.1, 1 - (usedFraction - 0.8) / 0.2);
       const scaled = BigInt(
-        Math.floor(Number(proposedBetWei) * scaleFactor)
+        Math.floor(Number(proposedBetWei / 10n ** 14n) / 10_000 * scaleFactor * 1e18)
       );
       if (scaled < proposedBetWei) {
         return {

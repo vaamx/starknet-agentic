@@ -51,7 +51,6 @@ import {
   provisionChildServerRuntime,
 } from "./child-runtime";
 import { hydrateAgentAccount, storeAgentPrivateKey } from "./agent-key-custody";
-import { Account, RpcProvider } from "starknet";
 import { placeBet, recordPrediction, isAgentConfigured, createMarket, getSignerMode, claimWinnings, getAgentAddress } from "./starknet-executor";
 import { config } from "./config";
 import { logThoughtOnChain } from "./huginn-executor";
@@ -703,6 +702,11 @@ class AgentLoop {
    * Returns the actions generated during this tick.
    */
   async singleTick(context?: TickExecutionContext): Promise<AgentAction[]> {
+    // Prune stale tracking sets to prevent memory leaks
+    if (this.claimedMarkets.size > 500) this.claimedMarkets.clear();
+    if (this.lastResolutionAttemptAt.size > 500) this.lastResolutionAttemptAt.clear();
+    if (this.recurringSpawned.size > 500) this.recurringSpawned.clear();
+
     await ensureAgentSpawnerHydrated();
     this.tickCount++;
     this.lastTickAt = Date.now();
@@ -2660,13 +2664,7 @@ class AgentLoop {
     }
 
     // Register child in spawner with its own Account instance
-    const provider = new RpcProvider({ nodeUrl: config.STARKNET_RPC_URL });
     const childBasePersona = AGENT_PERSONAS[0];
-    const childAccount = new Account({
-      provider,
-      address: result.agentAddress,
-      signer: result.privateKey,
-    });
 
     const spawned = agentSpawner.spawn({
       name,
@@ -2675,14 +2673,12 @@ class AgentLoop {
       maxBetStrk: 5,
     });
     spawned.walletAddress = result.agentAddress;
-    spawned.privateKey = result.privateKey; // in-memory only
-    spawned.account = childAccount;
+    spawned.account = result.account;
     spawned.agentId = result.agentId;
     try {
-      const storedKey = await storeAgentPrivateKey({
+      const storedKey = await result.storeKey({
+        storeAgentPrivateKey,
         agentId: spawned.id,
-        walletAddress: result.agentAddress,
-        privateKey: result.privateKey,
       });
       spawned.keyRef = storedKey.keyRef;
       spawned.keyCustodyProvider = storedKey.provider;

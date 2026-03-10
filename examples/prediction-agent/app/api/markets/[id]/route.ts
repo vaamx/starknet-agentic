@@ -302,6 +302,7 @@ export async function GET(
       resolution,
     });
   } catch (err: any) {
+    console.error(`[markets/${marketId}] Error:`, err?.message, err?.stack);
     // Try SQLite fallback before 500
     try {
       const dbMarket = await getMarketByIdFromDb(marketId);
@@ -310,7 +311,7 @@ export async function GET(
           marketId,
           snapshot: dbMarket,
           source: "db",
-          warning: err?.message ?? "on-chain fetch failed",
+          warning: "on-chain fetch failed",
         });
       }
     } catch { /* SQLite also unavailable */ }
@@ -323,12 +324,12 @@ export async function GET(
           marketId,
           snapshot: cached,
           source: "cache",
-          warning: err?.message ?? "on-chain fetch failed",
+          warning: "on-chain fetch failed",
         });
       }
     } catch {
       // ignore cache failures
     }
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch market" }, { status: 500 });
   }
 }

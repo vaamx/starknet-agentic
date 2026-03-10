@@ -14,6 +14,7 @@
 import { Account, CallData, RpcProvider, stark, ec } from "starknet";
 import { config } from "./config";
 import { getOwnerAccount } from "./starknet-executor";
+import type { AgentKeyCustodyProvider } from "./agent-spawner";
 
 // ── Deployed contract addresses (Sepolia) ────────────────────────────────────
 
@@ -28,11 +29,23 @@ const IDENTITY_REGISTRY_ADDRESS =
 export interface ChildAgentDeployResult {
   agentAddress: string;
   agentId: bigint;
-  privateKey: string;
   publicKey: string;
   txHash: string;
   account?: Account;
   error?: string;
+  /**
+   * Store the ephemeral private key into custody. The key is held in a closure
+   * and never exposed to callers. Returns the raw key string solely for the
+   * custody provider to persist — callers must NOT retain it.
+   */
+  storeKey: (custody: {
+    storeAgentPrivateKey: (args: {
+      agentId: string;
+      walletAddress: string;
+      privateKey: string;
+    }) => Promise<{ keyRef: string; provider: AgentKeyCustodyProvider }>;
+    agentId: string;
+  }) => Promise<{ keyRef: string; provider: AgentKeyCustodyProvider }>;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -90,10 +103,13 @@ export async function deployChildAgent(cfg: {
   model: string;
   fundingStrk: number;
 }): Promise<ChildAgentDeployResult> {
+  const noopStoreKey = async () => ({ keyRef: "", provider: "memory" as AgentKeyCustodyProvider });
+
   const factoryAddress = String((config as any).CHILD_AGENT_FACTORY_ADDRESS ?? "0x0");
   if (!factoryAddress || factoryAddress === "0x0") {
     return {
-      agentAddress: "", agentId: 0n, privateKey: "", publicKey: "", txHash: "",
+      agentAddress: "", agentId: 0n, publicKey: "", txHash: "",
+      storeKey: noopStoreKey,
       error: "CHILD_AGENT_FACTORY_ADDRESS not configured",
     };
   }
@@ -101,7 +117,8 @@ export async function deployChildAgent(cfg: {
   const ownerAccount = getOwnerAccount();
   if (!ownerAccount) {
     return {
-      agentAddress: "", agentId: 0n, privateKey: "", publicKey: "", txHash: "",
+      agentAddress: "", agentId: 0n, publicKey: "", txHash: "",
+      storeKey: noopStoreKey,
       error: "Owner account not configured — cannot deploy child",
     };
   }
@@ -134,7 +151,8 @@ export async function deployChildAgent(cfg: {
     receipt = await provider.waitForTransaction(txHash);
   } catch (err: any) {
     return {
-      agentAddress: "", agentId: 0n, privateKey: "", publicKey: "", txHash: "",
+      agentAddress: "", agentId: 0n, publicKey: "", txHash: "",
+      storeKey: noopStoreKey,
       error: `deploy_account failed: ${err?.message ?? String(err)}`,
     };
   }
@@ -156,7 +174,8 @@ export async function deployChildAgent(cfg: {
 
   if (!agentAddress) {
     return {
-      agentAddress: "", agentId: 0n, privateKey, publicKey, txHash,
+      agentAddress: "", agentId: 0n, publicKey, txHash,
+      storeKey: noopStoreKey,
       error: "Could not parse AccountDeployed event — check factory ABI",
     };
   }
@@ -195,9 +214,15 @@ export async function deployChildAgent(cfg: {
   return {
     agentAddress,
     agentId,
-    privateKey,
     publicKey,
     txHash,
     account: childAccount,
+    storeKey: async (custody) => {
+      return custody.storeAgentPrivateKey({
+        agentId: custody.agentId,
+        walletAddress: agentAddress,
+        privateKey,
+      });
+    },
   };
 }
