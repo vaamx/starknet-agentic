@@ -142,54 +142,76 @@ export async function POST(request: NextRequest) {
           systemPrompt: alphaPrompt,
         };
 
-        const generator = useToolUse
-          ? agenticForecastMarket(question, forecastContext)
-          : forecastMarket(question, forecastContext);
-
         let fullText = "";
         let result: any;
 
-        while (true) {
-          const { value, done } = await generator.next();
-          if (done) {
-            result = value;
-            break;
-          }
+        // Run forecast with automatic fallback on provider failure
+        async function runForecast(toolUse: boolean, attempt = 1): Promise<void> {
+          const generator = toolUse
+            ? agenticForecastMarket(question, forecastContext)
+            : forecastMarket(question, forecastContext);
 
-          if (useToolUse) {
-            const event = value as AgenticForecastEvent;
-            if (event.type === "reasoning_chunk") {
-              fullText += event.content;
-              controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify({ type: "text", content: event.content })}\n\n`)
-              );
-            } else if (event.type === "tool_call") {
-              controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify({ type: "tool_call", toolName: event.toolName, toolUseId: event.toolUseId, input: event.input })}\n\n`)
-              );
-            } else if (event.type === "tool_result") {
+          try {
+            while (true) {
+              const { value, done } = await generator.next();
+              if (done) {
+                result = value;
+                break;
+              }
+
+              if (toolUse) {
+                const event = value as AgenticForecastEvent;
+                if (event.type === "reasoning_chunk") {
+                  fullText += event.content;
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ type: "text", content: event.content })}\n\n`)
+                  );
+                } else if (event.type === "tool_call") {
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ type: "tool_call", toolName: event.toolName, toolUseId: event.toolUseId, input: event.input })}\n\n`)
+                  );
+                } else if (event.type === "tool_result") {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({
+                        type: "tool_result",
+                        toolName: event.toolName,
+                        toolUseId: event.toolUseId,
+                        result: event.result,
+                        isError: event.isError,
+                        source: event.source,
+                        dataPoints: event.dataPoints,
+                      })}\n\n`
+                    )
+                  );
+                }
+              } else {
+                const chunk = value as string;
+                fullText += chunk;
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ type: "text", content: chunk })}\n\n`)
+                );
+              }
+            }
+          } catch (err: any) {
+            // On first attempt failure, try fallback without tool-use (faster, simpler)
+            if (attempt === 1) {
+              const errMsg = err?.message ?? String(err);
+              console.warn(`[predict] Primary forecast failed (attempt ${attempt}): ${errMsg}. Retrying without tool-use...`);
               controller.enqueue(
                 encoder.encode(
-                  `data: ${JSON.stringify({
-                    type: "tool_result",
-                    toolName: event.toolName,
-                    toolUseId: event.toolUseId,
-                    result: event.result,
-                    isError: event.isError,
-                    source: event.source,
-                    dataPoints: event.dataPoints,
-                  })}\n\n`
+                  `data: ${JSON.stringify({ type: "text", content: `\n\n[Provider error: ${errMsg.slice(0, 100)}. Retrying with fallback...]\n\n` })}\n\n`
                 )
               );
+              fullText = "";
+              result = undefined;
+              return runForecast(false, 2);
             }
-          } else {
-            const chunk = value as string;
-            fullText += chunk;
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ type: "text", content: chunk })}\n\n`)
-            );
+            throw err;
           }
         }
+
+        await runForecast(useToolUse);
 
         const probability =
           result?.probability ?? extractProbability(fullText);

@@ -627,7 +627,7 @@ export async function* agenticForecastMarket(
       system: systemPrompt,
       tools: FORECAST_TOOLS,
       messages,
-    });
+    }, { signal: AbortSignal.timeout(25_000) });
 
     // Collect text blocks and tool use blocks
     const textBlocks: string[] = [];

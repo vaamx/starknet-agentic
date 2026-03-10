@@ -181,6 +181,7 @@ async function completeWithXai(params: CompleteTextParams): Promise<string> {
       },
       body: JSON.stringify(body),
       cache: "no-store",
+      signal: AbortSignal.timeout(30_000), // 30s hard timeout per xAI call
     });
 
     const payload = await response
@@ -245,6 +246,7 @@ async function completeWithLocal(params: CompleteTextParams): Promise<string> {
       },
     }),
     cache: "no-store",
+    signal: AbortSignal.timeout(30_000),
   });
 
   const payload = await response
@@ -285,20 +287,43 @@ async function completeWithAnthropic(params: CompleteTextParams): Promise<string
 
 export async function completeText(params: CompleteTextParams): Promise<string> {
   const provider = getLlmProviderForTask(params.task);
-  if (provider === "xai") {
-    if (!process.env.XAI_API_KEY) {
+
+  // Primary provider attempt
+  try {
+    if (provider === "xai") {
+      if (!process.env.XAI_API_KEY) {
+        throw new Error(getLlmConfigurationError(params.task));
+      }
+      return await completeWithXai(params);
+    }
+    if (provider === "local") {
+      if (!config.ollamaBaseUrl || !config.ollamaModel) {
+        throw new Error(getLlmConfigurationError(params.task));
+      }
+      return await completeWithLocal(params);
+    }
+    if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error(getLlmConfigurationError(params.task));
+    }
+    return await completeWithAnthropic(params);
+  } catch (primaryErr: any) {
+    // Fallback: if primary provider fails and a secondary is available, try it
+    const fallbackProvider =
+      provider === "xai" && process.env.ANTHROPIC_API_KEY
+        ? "anthropic"
+        : provider === "anthropic" && process.env.XAI_API_KEY
+          ? "xai"
+          : null;
+
+    if (!fallbackProvider) throw primaryErr;
+
+    console.warn(
+      `[llm-provider] ${provider} failed for ${params.task}: ${primaryErr?.message}. Falling back to ${fallbackProvider}.`
+    );
+
+    if (fallbackProvider === "anthropic") {
+      return completeWithAnthropic(params);
     }
     return completeWithXai(params);
   }
-  if (provider === "local") {
-    if (!config.ollamaBaseUrl || !config.ollamaModel) {
-      throw new Error(getLlmConfigurationError(params.task));
-    }
-    return completeWithLocal(params);
-  }
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error(getLlmConfigurationError(params.task));
-  }
-  return completeWithAnthropic(params);
 }

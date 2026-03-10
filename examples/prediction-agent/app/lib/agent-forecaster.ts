@@ -155,6 +155,7 @@ export async function* forecastMarket(
       },
       body: JSON.stringify(body),
       cache: "no-store",
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (!res.ok) {
