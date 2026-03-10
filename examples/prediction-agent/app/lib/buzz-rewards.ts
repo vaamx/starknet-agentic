@@ -1,21 +1,24 @@
 /**
- * $BUZZ Token Reward Engine — Scarce Edition
+ * $BUZZ Token Reward Engine
  *
- * Max supply: 21,000,000 BUZZ (Bitcoin-inspired hard cap)
+ * Max supply: 100,000,000 BUZZ
  * Halving: every 6 months, emission multiplier drops 50%
- * Burns: market creation (2 BUZZ), boost post (1), persona unlock (10), priority resolution (5)
+ * Burns: market creation (10 BUZZ), boost post (5), persona unlock (50), priority resolution (25)
  *
  * Emission schedule — tokens minted per action (epoch 0, before halving):
- * - forecast_submit:       1 BUZZ   (base for any forecast)
- * - forecast_accurate:     5 BUZZ   bonus (Brier < 0.15)
- * - forecast_elite:       15 BUZZ   bonus (Brier < 0.10)
- * - byok_forecast:         3 BUZZ   (network agent, saves API cost)
- * - debate_participate:    1 BUZZ
- * - market_create:         5 BUZZ   (net +3 after 2 BUZZ burn cost)
+ * - forecast_submit:       5 BUZZ   (base for any forecast)
+ * - forecast_accurate:    25 BUZZ   bonus (Brier < 0.15)
+ * - forecast_elite:       75 BUZZ   bonus (Brier < 0.10)
+ * - byok_forecast:        15 BUZZ   (network agent, saves API cost)
+ * - debate_participate:    5 BUZZ
+ * - market_create:        25 BUZZ   (net +15 after 10 BUZZ burn cost)
  * - winning_claim:         1% of STRK winnings equivalent
- * - research_contribute:   2 BUZZ
- * - starkcast_post:        0.5 BUZZ
- * - weekly_top5:          50 BUZZ   bonus (distributed to top 5 leaderboard)
+ * - research_contribute:  10 BUZZ
+ * - starkcast_post:        2.5 BUZZ
+ * - weekly_top5:         250 BUZZ   bonus (distributed to top 5 leaderboard)
+ * - task_complete:        10 BUZZ   (ProveWork task completion)
+ * - token_launch:         25 BUZZ   (StarkMint token launch)
+ * - guild_participate:     5 BUZZ   (Guilds join/vote/propose)
  */
 
 import { RpcProvider, CallData, Account } from "starknet";
@@ -33,7 +36,10 @@ export type BuzzRewardType =
   | "winning_claim"
   | "research_contribute"
   | "starkcast_post"
-  | "weekly_top5";
+  | "weekly_top5"
+  | "task_complete"
+  | "token_launch"
+  | "guild_participate";
 
 export interface BuzzReward {
   id: string;
@@ -69,24 +75,27 @@ const BUZZ_EMISSION_MULTIPLIER = config.buzzEmissionMultiplier;
 
 /** Base emission amounts per action (epoch 0, before halving). */
 export const BUZZ_REWARD_AMOUNTS: Record<BuzzRewardType, number> = {
-  forecast_submit: 1,
-  forecast_accurate: 5,
-  forecast_elite: 15,
-  byok_forecast: 3,
-  debate_participate: 1,
-  market_create: 5,
+  forecast_submit: 5,
+  forecast_accurate: 25,
+  forecast_elite: 75,
+  byok_forecast: 15,
+  debate_participate: 5,
+  market_create: 25,
   winning_claim: 0, // dynamic — 1% of STRK winnings
-  research_contribute: 2,
-  starkcast_post: 0.5,
-  weekly_top5: 50,
+  research_contribute: 10,
+  starkcast_post: 2.5,
+  weekly_top5: 250,
+  task_complete: 10,     // ProveWork task completion
+  token_launch: 25,      // StarkMint token launch
+  guild_participate: 5,  // Guilds join/vote/propose
 } as const;
 
 /** Burn costs for platform actions (in BUZZ). */
 export const BUZZ_BURN_COSTS = {
-  market_create: 2,       // net reward = 5 - 2 = 3 BUZZ
-  boost_post: 1,          // boost a StarkCast post
-  persona_unlock: 10,     // unlock a custom agent persona
-  priority_resolution: 5, // request priority market resolution
+  market_create: 10,       // net reward = 25 - 10 = 15 BUZZ
+  boost_post: 5,           // boost a StarkCast post
+  persona_unlock: 50,      // unlock a custom agent persona
+  priority_resolution: 25, // request priority market resolution
 } as const;
 
 export type BuzzBurnAction = keyof typeof BUZZ_BURN_COSTS;

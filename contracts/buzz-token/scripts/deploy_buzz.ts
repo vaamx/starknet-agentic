@@ -212,7 +212,7 @@ async function main() {
     tokenAddress,
     tokenName: "Buzz Token",
     tokenSymbol: "BUZZ",
-    maxSupply: "21000000000000000000000000",
+    maxSupply: "100000000000000000000000000",
   };
 
   const outputPath = path.join(deploymentsDir, "sepolia.json");
@@ -225,7 +225,7 @@ async function main() {
   console.log(`Token:     ${tokenAddress}`);
   console.log(`Owner:     ${OWNER_ADDRESS}`);
   console.log(`Class:     ${classHash}`);
-  console.log(`Max Supply: 21,000,000 BUZZ`);
+  console.log(`Max Supply: 100,000,000 BUZZ`);
   console.log("");
   console.log("Add to .env:");
   console.log(`  BUZZ_TOKEN_ADDRESS=${tokenAddress}`);

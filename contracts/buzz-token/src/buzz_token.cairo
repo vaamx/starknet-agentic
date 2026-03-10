@@ -17,8 +17,8 @@ pub mod BuzzToken {
     impl ERC20InternalImpl = ERC20Component::InternalImpl<ContractState>;
     impl UpgradeableInternalImpl = UpgradeableComponent::InternalImpl<ContractState>;
 
-    // 21 million tokens with 18 decimals
-    const MAX_SUPPLY: u256 = 21_000_000_000_000_000_000_000_000;
+    // 100 million tokens with 18 decimals
+    const MAX_SUPPLY: u256 = 100_000_000_000_000_000_000_000_000;
 
     // Halving epoch duration: ~6 months in seconds (182.5 days)
     const EPOCH_DURATION_SECS: u64 = 15_768_000;

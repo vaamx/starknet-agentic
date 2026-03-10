@@ -10,14 +10,14 @@ $BUZZ is an ERC-20 token on Starknet that represents forecaster reputation. It i
 
 | Parameter | Value |
 |-----------|-------|
-| **Max Supply** | 21,000,000 BUZZ |
+| **Max Supply** | 100,000,000 BUZZ |
 | **Decimals** | 18 |
 | **Pre-mine** | 0 |
 | **Team Allocation** | 0% |
 | **Investor Allocation** | 0% |
 | **Emission Model** | Mint-on-earn with halving |
 
-The 21M cap is a hard limit enforced at the contract level. Even the owner cannot bypass it.
+The 100M cap is a hard limit enforced at the contract level. Even the owner cannot bypass it.
 
 ## Halving Schedule
 
@@ -25,14 +25,14 @@ Emission rates halve every 6 months, making early participation more rewarding:
 
 | Epoch | Period | Multiplier | Forecast Reward |
 |-------|--------|------------|-----------------|
-| #0 | Months 0–6 | 100% | 1.00 BUZZ |
-| #1 | Months 6–12 | 50% | 0.50 BUZZ |
-| #2 | Months 12–18 | 25% | 0.25 BUZZ |
-| #3 | Months 18–24 | 12.5% | 0.13 BUZZ |
-| #4 | Months 24–30 | 6.25% | 0.06 BUZZ |
-| #5 | Months 30–36 | 3.125% | 0.03 BUZZ |
+| #0 | Months 0–6 | 100% | 5.00 BUZZ |
+| #1 | Months 6–12 | 50% | 2.50 BUZZ |
+| #2 | Months 12–18 | 25% | 1.25 BUZZ |
+| #3 | Months 18–24 | 12.5% | 0.63 BUZZ |
+| #4 | Months 24–30 | 6.25% | 0.31 BUZZ |
+| #5 | Months 30–36 | 3.125% | 0.16 BUZZ |
 
-**Floor**: 0.1% multiplier after epoch 10 (~5 years). The supply asymptotically approaches but never reaches 21M.
+**Floor**: 0.1% multiplier after epoch 10 (~5 years). The supply asymptotically approaches but never reaches 100M.
 
 ## Emission Schedule (Epoch 0)
 
@@ -40,16 +40,19 @@ Emission rates halve every 6 months, making early participation more rewarding:
 
 | Action | Reward | Trigger |
 |--------|--------|---------|
-| Forecast Submitted | **1 BUZZ** | Submit a probability forecast on any market |
-| Accurate Forecast | **5 BUZZ** | Brier score < 0.15 on a resolved market |
-| Elite Forecast | **15 BUZZ** | Brier score < 0.10 — rare precision |
-| BYOK Agent Forecast | **3 BUZZ** | Network agent submits forecast with own API key |
-| Debate Participation | **1 BUZZ** | Participate in a multi-agent debate round |
-| Market Created | **5 BUZZ** | Create a new prediction market (net +3 after burn) |
+| Forecast Submitted | **5 BUZZ** | Submit a probability forecast on any market |
+| Accurate Forecast | **25 BUZZ** | Brier score < 0.15 on a resolved market |
+| Elite Forecast | **75 BUZZ** | Brier score < 0.10 — rare precision |
+| BYOK Agent Forecast | **15 BUZZ** | Network agent submits forecast with own API key |
+| Debate Participation | **5 BUZZ** | Participate in a multi-agent debate round |
+| Market Created | **25 BUZZ** | Create a new prediction market (net +15 after burn) |
 | Winning Claim | **1% of STRK** | 1% of STRK winnings converted to BUZZ |
-| Research Contribution | **2 BUZZ** | Contribute data used by forecasting agents |
-| StarkCast Post | **0.5 BUZZ** | Publish in the social feed |
-| Weekly Top 5 | **50 BUZZ** | Finish in the weekly leaderboard top 5 |
+| Research Contribution | **10 BUZZ** | Contribute data used by forecasting agents |
+| StarkCast Post | **2.5 BUZZ** | Publish in the social feed |
+| Weekly Top 5 | **250 BUZZ** | Finish in the weekly leaderboard top 5 |
+| ProveWork Task | **10 BUZZ** | Complete a task on the ProveWork marketplace |
+| StarkMint Launch | **25 BUZZ** | Launch a new token on StarkMint |
+| Guild Activity | **5 BUZZ** | Join, vote, or propose in an Agent Guild |
 
 All amounts are multiplied by the current halving multiplier and the global `BUZZ_EMISSION_MULTIPLIER` (default 1.0x, adjustable by owner).
 
@@ -57,10 +60,10 @@ All amounts are multiplied by the current halving multiplier and the global `BUZ
 
 | Action | Cost | Effect |
 |--------|------|--------|
-| Create Market | **2 BUZZ** | Burned on creation (net reward: +3 BUZZ) |
-| Boost Post | **1 BUZZ** | Boost a StarkCast post for visibility |
-| Unlock Persona | **10 BUZZ** | Unlock a custom agent persona |
-| Priority Resolution | **5 BUZZ** | Request priority market resolution |
+| Create Market | **10 BUZZ** | Burned on creation (net reward: +15 BUZZ) |
+| Boost Post | **5 BUZZ** | Boost a StarkCast post for visibility |
+| Unlock Persona | **50 BUZZ** | Unlock a custom agent persona |
+| Priority Resolution | **25 BUZZ** | Request priority market resolution |
 
 Burns are permanent and reduce effective max supply, creating deflationary pressure as the platform grows.
 
@@ -68,12 +71,12 @@ Burns are permanent and reduce effective max supply, creating deflationary press
 
 Assuming moderate platform activity:
 
-- ~500 forecasts/day = **500 BUZZ/day** base
-- Accuracy bonuses + creation + weekly = **~300 BUZZ/day**
+- ~500 forecasts/day = **2,500 BUZZ/day** base
+- Accuracy bonuses + creation + economy = **~1,500 BUZZ/day**
 - Burns eat back **~15-20%**
-- **Net: ~650 BUZZ/day = ~237K BUZZ/year** (epoch 0)
+- **Net: ~3,200 BUZZ/day = ~1.17M BUZZ/year** (epoch 0)
 
-At this rate, the 21M cap would take ~88 years to approach — and halving reduces emissions by 50% every 6 months. In practice, the circulating supply will stabilize well below the cap.
+At this rate, the 100M cap would take ~85 years to approach — and halving reduces emissions by 50% every 6 months. In practice, the circulating supply will stabilize well below the cap.
 
 ## Deployed Contracts
 
@@ -177,7 +180,7 @@ Burns happen at the point of action (market creation, boost, etc.) via `BuzzToke
 ## Why $BUZZ?
 
 1. **Reputation is the product.** Prediction markets live and die by forecast quality. BUZZ makes accuracy visible and tradeable.
-2. **Scarce by design.** 21M cap + halving + burns. Early participants are rewarded exponentially more.
+2. **Scarce by design.** 100M cap + halving + burns. Early participants are rewarded exponentially more.
 3. **No free lunch.** Creating markets costs BUZZ. Boosting costs BUZZ. The token circulates, not just inflates.
 4. **BYOK incentive.** Network agents earn BUZZ for bringing their own compute — reducing platform costs while growing the swarm.
 5. **Starknet-native.** On-chain ERC-20 with full composability. Can be integrated with DeFi, DAOs, and other Starknet protocols.
