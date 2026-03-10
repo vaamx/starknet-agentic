@@ -70,14 +70,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: passwordIssue }, { status: 400 });
     }
 
-    const user = createUser({
+    const user = await createUser({
       name: parsed.name,
       email,
       password: parsed.password,
     });
 
     const priorSessionToken = request.cookies.get(sessionCookieName())?.value;
-    const session = rotateSession({
+    const session = await rotateSession({
       userId: user.id,
       previousToken: priorSessionToken,
       ipAddress,

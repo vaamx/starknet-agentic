@@ -8,23 +8,58 @@ datasource db {
 }
 
 model User {
-  id           String       @id
-  email        String       @unique
-  name         String
-  passwordHash String       @map("password_hash")
-  createdAt    Int          @map("created_at")
-  updatedAt    Int          @map("updated_at")
-  sessions     Session[]
-  memberships  Membership[]
-  forecasts    Forecast[]
-  executions   TradeExecution[]
-  audits       AuditLog[]
-  automationPolicies AutomationPolicy[]
-  automationRuns     AutomationRun[]
-  agentComments      AgentComment[]
-  ownedOrgs    Organization[] @relation("OrgOwner")
+  id                   String       @id
+  email                String       @unique
+  name                 String
+  passwordHash         String       @map("password_hash")
+  interests            String?      @default("[]")
+  onboardingCompleted  Boolean      @default(false) @map("onboarding_completed")
+  createdAt            Int          @map("created_at")
+  updatedAt            Int          @map("updated_at")
+  sessions             Session[]
+  memberships          Membership[]
+  forecasts            Forecast[]
+  executions           TradeExecution[]
+  audits               AuditLog[]
+  automationPolicies   AutomationPolicy[]
+  automationRuns       AutomationRun[]
+  agentComments        AgentComment[]
+  ownedOrgs            Organization[] @relation("OrgOwner")
+  favorites            Favorite[]
+  wallets              UserWallet[]
 
   @@map("users")
+}
+
+model UserWallet {
+  id            String  @id
+  userId        String  @map("user_id")
+  walletAddress String  @map("wallet_address")
+  provider      String  @default("unknown")
+  label         String?
+  isPrimary     Boolean @default(false) @map("is_primary")
+  chainId       String  @default("SN_SEPOLIA") @map("chain_id")
+  verifiedAt    Int     @map("verified_at")
+  lastUsedAt    Int     @map("last_used_at")
+  createdAt     Int     @map("created_at")
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, walletAddress])
+  @@unique([walletAddress])
+  @@index([userId, isPrimary])
+  @@map("user_wallets")
+}
+
+model Favorite {
+  id        String @id
+  userId    String @map("user_id")
+  marketId  Int    @map("market_id")
+  createdAt Int    @map("created_at")
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, marketId])
+  @@index([userId, createdAt])
+  @@map("favorites")
 }
 
 model Session {
@@ -235,4 +270,298 @@ model AgentComment {
   @@index([orgId, marketId, createdAt])
   @@index([orgId, createdAt])
   @@map("agent_comments")
+}
+
+model ResolutionAttempt {
+  id              String  @id
+  orgId           String  @map("org_id")
+  marketId        Int     @map("market_id")
+  attemptNumber   Int     @map("attempt_number")
+  strategy        String
+  status          String
+  outcome         Int?
+  confidence      Float?
+  evidence        String?
+  reasoning       String?
+  resolveTxHash   String? @map("resolve_tx_hash")
+  finalizeTxHash  String? @map("finalize_tx_hash")
+  errorMessage    String? @map("error_message")
+  createdAt       Int     @map("created_at")
+
+  @@index([orgId, marketId, createdAt])
+  @@index([orgId, status])
+  @@map("resolution_attempts")
+}
+
+model ResolutionStatus {
+  orgId          String  @map("org_id")
+  marketId       Int     @map("market_id")
+  totalAttempts  Int     @default(0) @map("total_attempts")
+  lastAttemptAt  Int?    @map("last_attempt_at")
+  lastStatus     String? @map("last_status")
+  escalation     String  @default("auto")
+
+  @@id([orgId, marketId])
+  @@index([orgId, escalation])
+  @@map("resolution_statuses")
+}
+
+// ---------------------------------------------------------------------------
+// Market cache (replaces SQLite markets/predictions/weighted_probs/agent_takes)
+// ---------------------------------------------------------------------------
+
+model MarketCache {
+  id              Int     @id
+  address         String  @default("0x0")
+  questionHash    String  @default("0x0") @map("question_hash")
+  question        String  @default("")
+  resolutionTime  Int     @default(0) @map("resolution_time")
+  oracle          String  @default("0x0")
+  collateralToken String  @default("0x0") @map("collateral_token")
+  feeBps          Int     @default(0) @map("fee_bps")
+  status          Int     @default(0)
+  totalPool       String  @default("0") @map("total_pool")
+  yesPool         String  @default("0") @map("yes_pool")
+  noPool          String  @default("0") @map("no_pool")
+  impliedProbYes  Float   @default(0.5) @map("implied_prob_yes")
+  impliedProbNo   Float   @default(0.5) @map("implied_prob_no")
+  winningOutcome  Int?    @map("winning_outcome")
+  tradeCount      Int     @default(0) @map("trade_count")
+  updatedAt       BigInt  @default(0) @map("updated_at")
+  source          String  @default("onchain")
+  category        String?
+  slug            String?
+  imageUrl        String? @map("image_url")
+  externalId      String? @map("external_id")
+  volume24h       Float?  @map("volume_24h")
+  liquidity       Float?
+  description     String?
+  endDate         String? @map("end_date")
+  outcomes        String? @default("[\"Yes\",\"No\"]")
+  oneDayChange    Float?  @map("one_day_change")
+  polymarketUrl   String? @map("polymarket_url")
+  mirrorAddress   String? @map("mirror_address")
+
+  @@index([source])
+  @@index([source, category])
+  @@map("market_cache")
+}
+
+model AgentPrediction {
+  agent           String
+  marketId        Int     @map("market_id")
+  predictedProb   Float   @default(0.5) @map("predicted_prob")
+  brierScore      Float   @default(0.25) @map("brier_score")
+  predictionCount Int     @default(0) @map("prediction_count")
+  updatedAt       BigInt  @default(0) @map("updated_at")
+
+  @@id([agent, marketId])
+  @@map("agent_predictions")
+}
+
+model WeightedProb {
+  marketId      Int    @id @map("market_id")
+  weightedProb  Float  @default(0.5) @map("weighted_prob")
+  updatedAt     BigInt @default(0) @map("updated_at")
+
+  @@map("weighted_probs")
+}
+
+model AgentTake {
+  marketId    Int    @map("market_id")
+  agentName   String @map("agent_name")
+  probability Float  @default(0.5)
+  reasoning   String @default("")
+  timestamp   BigInt @default(0)
+
+  @@id([marketId, agentName])
+  @@map("agent_takes")
+}
+
+// ---------------------------------------------------------------------------
+// State store (replaces file/Upstash JSON blob)
+// ---------------------------------------------------------------------------
+
+model SpawnedAgent {
+  id                String  @id
+  name              String
+  personaId         String  @map("persona_id")
+  agentType         String  @map("agent_type")
+  model             String
+  preferredSources  String  @default("[]") @map("preferred_sources")
+  budgetStrk        Float   @default(0) @map("budget_strk")
+  maxBetStrk        Float   @default(0) @map("max_bet_strk")
+  status            String  @default("running")
+  walletAddress     String? @map("wallet_address")
+  keyRef            String? @map("key_ref")
+  keyCustodyProvider String? @map("key_custody_provider")
+  agentIdRef        String? @map("agent_id_ref")
+  runtimeJson       String? @map("runtime_json")
+  createdAt         BigInt  @map("created_at")
+
+  @@map("spawned_agents")
+}
+
+model ExternalForecast {
+  id           String  @id @default(cuid())
+  marketId     Int     @map("market_id")
+  agentName    String  @map("agent_name")
+  agentCardUrl String? @map("agent_card_url")
+  probability  Float
+  reasoning    String?
+  thoughtHash  String? @map("thought_hash")
+  receivedAt   BigInt  @map("received_at")
+
+  @@unique([marketId, agentName])
+  @@index([marketId, receivedAt])
+  @@map("external_forecasts")
+}
+
+model AgentKeyMaterial {
+  agentId       String  @id @map("agent_id")
+  walletAddress String  @map("wallet_address")
+  provider      String
+  keyRef        String  @map("key_ref")
+  ciphertext    String
+  iv            String?
+  authTag       String? @map("auth_tag")
+  awsKmsKeyId   String? @map("aws_kms_key_id")
+  createdAt     BigInt  @map("created_at")
+  updatedAt     BigInt  @map("updated_at")
+
+  @@map("agent_key_materials")
+}
+
+model ProofRecord {
+  id             String  @id
+  kind           String
+  chainId        String  @map("chain_id")
+  txHash         String? @map("tx_hash")
+  explorerUrl    String? @map("explorer_url")
+  agentId        String? @map("agent_id")
+  agentName      String? @map("agent_name")
+  walletAddress  String? @map("wallet_address")
+  marketId       Int?    @map("market_id")
+  question       String?
+  reasoningHash  String? @map("reasoning_hash")
+  payloadHash    String  @map("payload_hash")
+  payload        String
+  verificationJson String? @map("verification_json")
+  anchorJson     String? @map("anchor_json")
+  tagsJson       String? @map("tags_json")
+  createdAt      BigInt  @map("created_at")
+  updatedAt      BigInt  @map("updated_at")
+
+  @@index([kind, createdAt])
+  @@map("proof_records")
+}
+
+model LoopRuntime {
+  id                  String @id @default("singleton")
+  tickCount           Int    @default(0) @map("tick_count")
+  lastTickAt          BigInt? @map("last_tick_at")
+  intervalMs          Int    @default(60000) @map("interval_ms")
+  agentRotationIndex  Int    @default(0) @map("agent_rotation_index")
+  debateCounter       Int    @default(0) @map("debate_counter")
+  actionCounter       Int    @default(0) @map("action_counter")
+  updatedAt           BigInt @map("updated_at")
+
+  @@map("loop_runtime")
+}
+
+model LoopAction {
+  id               String  @id
+  timestamp        BigInt
+  agentId          String  @map("agent_id")
+  agentName        String  @map("agent_name")
+  actionType       String  @map("action_type")
+  marketId         Int?    @map("market_id")
+  question         String?
+  detail           String
+  probability      Float?
+  betAmount        String? @map("bet_amount")
+  betOutcome       String? @map("bet_outcome")
+  resolutionOutcome String? @map("resolution_outcome")
+  sourcesUsed      String? @map("sources_used")
+  txHash           String? @map("tx_hash")
+  huginnTxHash     String? @map("huginn_tx_hash")
+  reasoningHash    String? @map("reasoning_hash")
+  reasoning        String?
+  defiDirection    String? @map("defi_direction")
+  defiPair         String? @map("defi_pair")
+  defiAmount       String? @map("defi_amount")
+  debateTarget     String? @map("debate_target")
+
+  @@index([timestamp])
+  @@index([agentId, timestamp])
+  @@map("loop_actions")
+}
+
+model NetworkAgent {
+  id              String  @id
+  walletAddress   String  @map("wallet_address")
+  x402Address     String? @map("x402_address")
+  name            String
+  handle          String?
+  description     String?
+  model           String?
+  endpointUrl     String? @map("endpoint_url")
+  agentCardUrl    String? @map("agent_card_url")
+  budgetStrk      Float?  @map("budget_strk")
+  maxBetStrk      Float?  @map("max_bet_strk")
+  topics          String? @default("[]")
+  metadataJson    String? @map("metadata_json")
+  proofUrl        String? @map("proof_url")
+  signature       String?
+  active          Boolean @default(true)
+  runtimeJson     String? @map("runtime_json")
+  createdAt       BigInt  @map("created_at")
+  updatedAt       BigInt  @map("updated_at")
+  lastSeenAt      BigInt  @map("last_seen_at")
+  lastHeartbeatAt BigInt? @map("last_heartbeat_at")
+  heartbeatCount  Int     @default(0) @map("heartbeat_count")
+
+  @@index([active, updatedAt])
+  @@map("network_agents")
+}
+
+model NetworkContribution {
+  id            String  @id
+  actorType     String  @map("actor_type")
+  agentId       String? @map("agent_id")
+  actorName     String  @map("actor_name")
+  walletAddress String? @map("wallet_address")
+  kind          String
+  marketId      Int?    @map("market_id")
+  question      String?
+  content       String?
+  probability   Float?
+  outcome       String?
+  amountStrk    Float?  @map("amount_strk")
+  sources       String? @default("[]")
+  txHash        String? @map("tx_hash")
+  proofId       String? @map("proof_id")
+  metadataJson  String? @map("metadata_json")
+  signature     String?
+  createdAt     BigInt  @map("created_at")
+
+  @@index([kind, createdAt])
+  @@index([marketId, createdAt])
+  @@index([agentId, createdAt])
+  @@map("network_contributions")
+}
+
+model NetworkAuthChallenge {
+  id            String  @id
+  walletAddress String  @map("wallet_address")
+  action        String
+  payloadHash   String  @map("payload_hash")
+  nonce         String
+  expirySec     Int     @map("expiry_sec")
+  createdAt     BigInt  @map("created_at")
+  expiresAt     BigInt  @map("expires_at")
+  usedAt        BigInt? @map("used_at")
+
+  @@index([walletAddress, expiresAt])
+  @@map("network_auth_challenges")
 }

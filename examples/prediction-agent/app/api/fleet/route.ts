@@ -285,7 +285,7 @@ async function buildSourceHeartbeat(params: {
 
 export async function GET(request: NextRequest) {
   try {
-    const membership = requireMembership(request);
+    const membership = await requireMembership(request);
     const requestedMarketIds = parseSeedMarketIds(
       request.nextUrl.searchParams.get("marketIds")
     );

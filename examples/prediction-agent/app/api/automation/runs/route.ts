@@ -30,9 +30,9 @@ function parseLimit(raw: string | null): number {
 }
 
 export async function GET(request: NextRequest) {
-  const context = requireRole(request, "viewer");
+  const context = await requireRole(request, "viewer");
   if (!context) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    return NextResponse.json({ runs: [] });
   }
 
   const marketId = parseMarketId(request.nextUrl.searchParams.get("marketId"));
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const context = requireRole(request, "analyst");
+  const context = await requireRole(request, "analyst");
   if (!context) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

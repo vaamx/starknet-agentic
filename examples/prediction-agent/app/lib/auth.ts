@@ -5,6 +5,7 @@ import {
   scryptSync,
   timingSafeEqual,
 } from "node:crypto";
+import { usePrismaRuntime, getPrismaClient } from "./prisma";
 import { db, nowUnix } from "./db";
 import type { MembershipRole } from "./rbac";
 
@@ -58,19 +59,6 @@ function slugify(input: string): string {
     .slice(0, 48);
 }
 
-function createUniqueOrgSlug(baseName: string): string {
-  const base = slugify(baseName) || "workspace";
-  for (let i = 0; i < 20; i++) {
-    const suffix = i === 0 ? "" : `-${randomBytes(2).toString("hex")}`;
-    const candidate = `${base}${suffix}`.slice(0, 56);
-    const exists = db
-      .prepare("SELECT id FROM organizations WHERE slug = ? LIMIT 1")
-      .get(candidate) as { id: string } | undefined;
-    if (!exists) return candidate;
-  }
-  return `${base}-${randomBytes(4).toString("hex")}`.slice(0, 56);
-}
-
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -113,24 +101,211 @@ export function validatePasswordStrength(password: string): string | null {
   return null;
 }
 
-export function createUser(params: {
+// ---------------------------------------------------------------------------
+// Prisma (PostgreSQL) implementations
+// ---------------------------------------------------------------------------
+
+async function createUniqueOrgSlugPrisma(
+  prisma: any,
+  baseName: string
+): Promise<string> {
+  const base = slugify(baseName) || "workspace";
+  for (let i = 0; i < 20; i++) {
+    const suffix = i === 0 ? "" : `-${randomBytes(2).toString("hex")}`;
+    const candidate = `${base}${suffix}`.slice(0, 56);
+    const exists = await prisma.organization.findUnique({
+      where: { slug: candidate },
+      select: { id: true },
+    });
+    if (!exists) return candidate;
+  }
+  return `${base}-${randomBytes(4).toString("hex")}`.slice(0, 56);
+}
+
+async function createUserPrisma(params: {
+  email: string;
+  password: string;
+  name: string;
+}): Promise<AuthUser> {
+  const passwordIssue = validatePasswordStrength(params.password);
+  if (passwordIssue) throw new Error(passwordIssue);
+
+  const prisma = await getPrismaClient();
+  if (!prisma) throw new Error("Database not available");
+
+  const email = params.email.trim().toLowerCase();
+  const existing = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true },
+  });
+  if (existing) throw new Error("Email already registered");
+
+  const userId = makeId("usr");
+  const t = nowUnix();
+  const passwordHash = hashPassword(params.password);
+  const organizationId = makeId("org");
+  const membershipId = makeId("mbr");
+  const role: MembershipRole = "owner";
+  const name = params.name.trim();
+  const orgName = `${name}'s Workspace`;
+  const orgSlug = await createUniqueOrgSlugPrisma(prisma, orgName);
+
+  // Use a transaction for atomicity
+  await prisma.$transaction([
+    prisma.user.create({
+      data: {
+        id: userId,
+        email,
+        name,
+        passwordHash,
+        createdAt: t,
+        updatedAt: t,
+      },
+    }),
+    prisma.organization.create({
+      data: {
+        id: organizationId,
+        name: orgName,
+        slug: orgSlug,
+        ownerUserId: userId,
+        createdAt: t,
+        updatedAt: t,
+      },
+    }),
+    prisma.membership.create({
+      data: {
+        id: membershipId,
+        organizationId,
+        userId,
+        role,
+        createdAt: t,
+        updatedAt: t,
+      },
+    }),
+    prisma.auditLog.create({
+      data: {
+        id: makeId("audit"),
+        userId,
+        action: "auth.signup",
+        targetType: "user",
+        targetId: userId,
+        metadataJson: JSON.stringify({ emailSig: signEmail(email), organizationId, role }),
+        createdAt: t,
+      },
+    }),
+  ]);
+
+  return { id: userId, email, name };
+}
+
+async function verifyUserCredentialsPrisma(
+  emailRaw: string,
+  password: string
+): Promise<AuthUser | null> {
+  const prisma = await getPrismaClient();
+  if (!prisma) return null;
+
+  const email = emailRaw.trim().toLowerCase();
+  const row = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true, email: true, name: true, passwordHash: true },
+  });
+
+  if (!row || !verifyPassword(password, row.passwordHash)) return null;
+  return { id: row.id, email: row.email, name: row.name };
+}
+
+async function createSessionPrisma(params: {
+  userId: string;
+  ipAddress?: string;
+  userAgent?: string;
+}): Promise<{ token: string; expiresAt: number }> {
+  const prisma = await getPrismaClient();
+  if (!prisma) throw new Error("Database not available");
+
+  const token = createSessionToken();
+  const tokenHash = sha256(token);
+  const createdAt = nowUnix();
+  const expiresAt = createdAt + SESSION_TTL_SECONDS;
+
+  await prisma.session.create({
+    data: {
+      id: makeId("sess"),
+      userId: params.userId,
+      tokenHash,
+      createdAt,
+      expiresAt,
+      ipAddress: params.ipAddress ?? null,
+      userAgent: params.userAgent ?? null,
+    },
+  });
+
+  return { token, expiresAt };
+}
+
+async function getUserFromSessionTokenPrisma(
+  token: string
+): Promise<AuthUser | null> {
+  const prisma = await getPrismaClient();
+  if (!prisma) return null;
+
+  const tokenHash = sha256(token);
+  const t = nowUnix();
+
+  const session = await prisma.session.findUnique({
+    where: { tokenHash },
+    select: {
+      revokedAt: true,
+      expiresAt: true,
+      user: { select: { id: true, email: true, name: true } },
+    },
+  });
+
+  if (!session || session.revokedAt != null || session.expiresAt <= t) return null;
+  return session.user;
+}
+
+async function revokeSessionByTokenPrisma(token: string): Promise<void> {
+  const prisma = await getPrismaClient();
+  if (!prisma) return;
+
+  const tokenHash = sha256(token);
+  await prisma.session.updateMany({
+    where: { tokenHash },
+    data: { revokedAt: nowUnix() },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// SQLite (better-sqlite3) implementations — local dev fallback
+// ---------------------------------------------------------------------------
+
+function createUniqueOrgSlugSqlite(baseName: string): string {
+  const base = slugify(baseName) || "workspace";
+  for (let i = 0; i < 20; i++) {
+    const suffix = i === 0 ? "" : `-${randomBytes(2).toString("hex")}`;
+    const candidate = `${base}${suffix}`.slice(0, 56);
+    const exists = db
+      .prepare("SELECT id FROM organizations WHERE slug = ? LIMIT 1")
+      .get(candidate) as { id: string } | undefined;
+    if (!exists) return candidate;
+  }
+  return `${base}-${randomBytes(4).toString("hex")}`.slice(0, 56);
+}
+
+function createUserSqlite(params: {
   email: string;
   password: string;
   name: string;
 }): AuthUser {
   const passwordIssue = validatePasswordStrength(params.password);
-  if (passwordIssue) {
-    throw new Error(passwordIssue);
-  }
+  if (passwordIssue) throw new Error(passwordIssue);
 
   const email = params.email.trim().toLowerCase();
   const existing = db
     .prepare("SELECT id FROM users WHERE email = ? LIMIT 1")
     .get(email) as { id: string } | undefined;
-
-  if (existing) {
-    throw new Error("Email already registered");
-  }
+  if (existing) throw new Error("Email already registered");
 
   const user: AuthUser = {
     id: makeId("usr"),
@@ -139,18 +314,18 @@ export function createUser(params: {
   };
 
   const t = nowUnix();
-  const passwordHash = hashPassword(params.password);
+  const passwordHashVal = hashPassword(params.password);
   const organizationId = makeId("org");
   const membershipId = makeId("mbr");
   const role: MembershipRole = "owner";
   const orgName = `${user.name}'s Workspace`;
-  const orgSlug = createUniqueOrgSlug(orgName);
+  const orgSlug = createUniqueOrgSlugSqlite(orgName);
 
   db.exec("BEGIN");
   try {
     db.prepare(
       "INSERT INTO users (id, email, name, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
-    ).run(user.id, user.email, user.name, passwordHash, t, t);
+    ).run(user.id, user.email, user.name, passwordHashVal, t, t);
 
     db.prepare(
       "INSERT INTO organizations (id, name, slug, owner_user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
@@ -181,7 +356,7 @@ export function createUser(params: {
   return user;
 }
 
-export function verifyUserCredentials(
+function verifyUserCredentialsSqlite(
   emailRaw: string,
   password: string
 ): AuthUser | null {
@@ -194,14 +369,11 @@ export function verifyUserCredentials(
     | { id: string; email: string; name: string; password_hash: string }
     | undefined;
 
-  if (!row || !verifyPassword(password, row.password_hash)) {
-    return null;
-  }
-
+  if (!row || !verifyPassword(password, row.password_hash)) return null;
   return { id: row.id, email: row.email, name: row.name };
 }
 
-export function createSession(params: {
+function createSessionSqlite(params: {
   userId: string;
   ipAddress?: string;
   userAgent?: string;
@@ -226,23 +398,7 @@ export function createSession(params: {
   return { token, expiresAt };
 }
 
-export function rotateSession(params: {
-  userId: string;
-  previousToken?: string;
-  ipAddress?: string;
-  userAgent?: string;
-}): { token: string; expiresAt: number } {
-  if (params.previousToken) {
-    revokeSessionByToken(params.previousToken);
-  }
-  return createSession({
-    userId: params.userId,
-    ipAddress: params.ipAddress,
-    userAgent: params.userAgent,
-  });
-}
-
-export function getUserFromSessionToken(token: string): AuthUser | null {
+function getUserFromSessionTokenSqlite(token: string): AuthUser | null {
   const tokenHash = sha256(token);
   const t = nowUnix();
 
@@ -263,10 +419,70 @@ export function getUserFromSessionToken(token: string): AuthUser | null {
   return row ?? null;
 }
 
-export function revokeSessionByToken(token: string) {
+function revokeSessionByTokenSqlite(token: string): void {
   const tokenHash = sha256(token);
   db.prepare("UPDATE sessions SET revoked_at = ? WHERE token_hash = ?").run(
     nowUnix(),
     tokenHash
   );
+}
+
+// ---------------------------------------------------------------------------
+// Unified exports — route to Prisma (Postgres) or SQLite based on DATABASE_URL
+// ---------------------------------------------------------------------------
+
+const usePrisma = usePrismaRuntime();
+
+export async function createUser(params: {
+  email: string;
+  password: string;
+  name: string;
+}): Promise<AuthUser> {
+  if (usePrisma) return createUserPrisma(params);
+  return createUserSqlite(params);
+}
+
+export async function verifyUserCredentials(
+  emailRaw: string,
+  password: string
+): Promise<AuthUser | null> {
+  if (usePrisma) return verifyUserCredentialsPrisma(emailRaw, password);
+  return verifyUserCredentialsSqlite(emailRaw, password);
+}
+
+export async function createSession(params: {
+  userId: string;
+  ipAddress?: string;
+  userAgent?: string;
+}): Promise<{ token: string; expiresAt: number }> {
+  if (usePrisma) return createSessionPrisma(params);
+  return createSessionSqlite(params);
+}
+
+export function rotateSession(params: {
+  userId: string;
+  previousToken?: string;
+  ipAddress?: string;
+  userAgent?: string;
+}): Promise<{ token: string; expiresAt: number }> {
+  if (params.previousToken) {
+    revokeSessionByToken(params.previousToken);
+  }
+  return createSession({
+    userId: params.userId,
+    ipAddress: params.ipAddress,
+    userAgent: params.userAgent,
+  });
+}
+
+export async function getUserFromSessionToken(
+  token: string
+): Promise<AuthUser | null> {
+  if (usePrisma) return getUserFromSessionTokenPrisma(token);
+  return getUserFromSessionTokenSqlite(token);
+}
+
+export async function revokeSessionByToken(token: string): Promise<void> {
+  if (usePrisma) return revokeSessionByTokenPrisma(token);
+  revokeSessionByTokenSqlite(token);
 }

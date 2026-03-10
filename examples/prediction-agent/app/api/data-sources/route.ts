@@ -67,7 +67,7 @@ function getDefaultSources(question: string): DataSourceName[] {
 
 export async function GET(request: NextRequest) {
   // Auth is optional — unauthenticated users get a looser IP-based rate limit
-  const context = requireRole(request, "viewer");
+  const context = await requireRole(request, "viewer");
 
   const rateLimitKey = context
     ? `research:${context.membership.organizationId}:${context.user.id}`

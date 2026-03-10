@@ -746,15 +746,25 @@ function TradeSidebar({
   const [betResult, setBetResult] = useState<{ status: string; txHash?: string; error?: string } | null>(null);
   const [position, setPosition] = useState<{ yesBet: string; noBet: string } | null>(null);
 
+  const isPolymarket = market.source === "polymarket" || market.id >= 100_000;
+  const [mirrorAddress, setMirrorAddress] = useState<string | null>(market.mirrorAddress ?? null);
+  const [deploying, setDeploying] = useState(false);
+  const [deployError, setDeployError] = useState<string | null>(null);
+
+  const hasMirror = !!mirrorAddress && mirrorAddress !== "0x0";
+  const tradingAddress = hasMirror ? mirrorAddress : market.address;
+
   useEffect(() => {
     if (!isConnected || !address || !market?.id) { setPosition(null); return; }
+    // For Polymarket without a mirror, skip position fetch
+    if (isPolymarket && !hasMirror) { setPosition(null); return; }
     let cancelled = false;
-    fetch(`/api/markets/${market.id}/position?user=${address}`)
+    fetch(`/api/markets/${market.id}/position?user=${address}${hasMirror ? `&mirror=${mirrorAddress}` : ""}`)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => { if (!cancelled && data) setPosition({ yesBet: data.yesBet, noBet: data.noBet }); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [isConnected, address, market?.id, betResult]);
+  }, [isConnected, address, market?.id, betResult, isPolymarket, hasMirror, mirrorAddress]);
 
   const amountNum = parseFloat(amount || "0");
   const amountBigInt = useMemo(() => {
@@ -776,12 +786,35 @@ function TradeSidebar({
   const noPoolStrk = Number(safeBigInt(market.noPool)) / 1e18;
   const totalPoolStrk = Number(safeBigInt(market.totalPool)) / 1e18;
 
+  async function handleDeployMirror() {
+    setDeploying(true);
+    setDeployError(null);
+    try {
+      const res = await fetch("/api/polymarket/mirror", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ marketId: market.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setDeployError(data.error ?? "Failed to deploy mirror market");
+        return;
+      }
+      setMirrorAddress(data.mirrorAddress);
+    } catch (err: unknown) {
+      setDeployError(err instanceof Error ? err.message : "Network error");
+    } finally {
+      setDeploying(false);
+    }
+  }
+
   async function handleTrade() {
     if (!isConnected || !account || amountBigInt <= 0n) return;
+    if (isPolymarket && !hasMirror) return;
     setBetResult(null);
     setSending(true);
     try {
-      const calls = buildBetCalls(market.address, outcome, amountBigInt);
+      const calls = buildBetCalls(tradingAddress, outcome, amountBigInt);
       const response = await account.execute(calls);
       setBetResult({ status: "success", txHash: response.transaction_hash });
       if (onTradeSuccess) setTimeout(() => onTradeSuccess(), 3000);
@@ -901,7 +934,43 @@ function TradeSidebar({
           </div>
 
           {/* CTA Button */}
-          {!isConnected ? (
+          {isPolymarket && !hasMirror ? (
+            /* Polymarket without mirror — show deploy button */
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={!isConnected ? () => window.dispatchEvent(new Event("hc-wallet-connect-open")) : handleDeployMirror}
+                disabled={deploying}
+                className={`w-full py-3.5 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+                  deploying
+                    ? "bg-white/[0.06] text-white/25 cursor-wait"
+                    : "bg-gradient-to-r from-neo-brand/80 to-emerald-500/80 hover:from-neo-brand hover:to-emerald-500 text-white shadow-[0_0_24px_rgba(0,212,184,0.15)]"
+                }`}
+              >
+                {deploying ? (
+                  <>
+                    <span className="inline-block w-4 h-4 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+                    Deploying Mirror...
+                  </>
+                ) : !isConnected ? (
+                  "Connect Wallet to Trade"
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                    </svg>
+                    Activate STRK Trading
+                  </>
+                )}
+              </button>
+              {deployError && (
+                <p className="text-[11px] text-rose-400 text-center">{deployError}</p>
+              )}
+              <p className="text-[10px] text-center text-white/25 leading-relaxed">
+                Deploys an on-chain mirror market so you can bet with STRK on Starknet
+              </p>
+            </div>
+          ) : !isConnected ? (
             <button
               type="button"
               onClick={() => window.dispatchEvent(new Event("hc-wallet-connect-open"))}
@@ -974,81 +1043,137 @@ function TradeSidebar({
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-40" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
             </span>
-            <span className="text-[11px] font-bold text-emerald-400">LIVE</span>
+            <span className="text-[11px] font-bold text-emerald-400">{isPolymarket ? (hasMirror ? "STRK MIRROR" : "POLYMARKET") : "LIVE"}</span>
           </div>
         </div>
 
-        {/* Bid/Ask balance bar */}
-        <div className="px-5 pt-3">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[11px] font-bold text-emerald-400">B {bidPct}%</span>
-            <span className="text-[11px] font-bold text-rose-400">{askPct}% S</span>
+        {isPolymarket && !hasMirror ? (
+          /* Polymarket without mirror: show market stats */
+          <div className="px-5 py-4 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-3">
+                <p className="text-[9px] uppercase tracking-widest text-white/25 font-semibold mb-1">Yes Price</p>
+                <p className="text-lg font-bold tabular-nums text-emerald-400">{yesPercent}&cent;</p>
+              </div>
+              <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-3">
+                <p className="text-[9px] uppercase tracking-widest text-white/25 font-semibold mb-1">No Price</p>
+                <p className="text-lg font-bold tabular-nums text-rose-400">{noPercent}&cent;</p>
+              </div>
+            </div>
+            {typeof market.volume24h === "number" && market.volume24h > 0 && (
+              <div className="flex items-center justify-between text-xs text-white/40">
+                <span>24h Volume</span>
+                <span className="font-mono font-semibold text-white/60">
+                  ${market.volume24h >= 1_000_000
+                    ? (market.volume24h / 1_000_000).toFixed(1) + "M"
+                    : market.volume24h >= 1_000
+                      ? (market.volume24h / 1_000).toFixed(1) + "K"
+                      : Math.round(market.volume24h)}
+                </span>
+              </div>
+            )}
+            {typeof market.liquidity === "number" && market.liquidity > 0 && (
+              <div className="flex items-center justify-between text-xs text-white/40">
+                <span>Liquidity</span>
+                <span className="font-mono font-semibold text-white/60">
+                  ${market.liquidity >= 1_000_000
+                    ? (market.liquidity / 1_000_000).toFixed(1) + "M"
+                    : market.liquidity >= 1_000
+                      ? (market.liquidity / 1_000).toFixed(1) + "K"
+                      : Math.round(market.liquidity)}
+                </span>
+              </div>
+            )}
+            {typeof market.oneDayChange === "number" && market.oneDayChange !== 0 && (
+              <div className="flex items-center justify-between text-xs text-white/40">
+                <span>24h Change</span>
+                <span className={`font-mono font-semibold ${market.oneDayChange > 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                  {market.oneDayChange > 0 ? "+" : ""}{(market.oneDayChange * 100).toFixed(1)}%
+                </span>
+              </div>
+            )}
+            <div className="pt-1">
+              <p className="text-[10px] text-white/20 text-center">
+                Order book data sourced from Polymarket CLOB. Trade directly on Polymarket for best execution.
+              </p>
+            </div>
           </div>
-          <div className="flex h-1.5 rounded-full overflow-hidden">
-            <div className="bg-emerald-500 transition-all" style={{ width: `${bidPct}%` }} />
-            <div className="bg-rose-500 flex-1 transition-all" />
-          </div>
-        </div>
+        ) : (
+          /* On-chain: simulated order book */
+          <>
+            {/* Bid/Ask balance bar */}
+            <div className="px-5 pt-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[11px] font-bold text-emerald-400">B {bidPct}%</span>
+                <span className="text-[11px] font-bold text-rose-400">{askPct}% S</span>
+              </div>
+              <div className="flex h-1.5 rounded-full overflow-hidden">
+                <div className="bg-emerald-500 transition-all" style={{ width: `${bidPct}%` }} />
+                <div className="bg-rose-500 flex-1 transition-all" />
+              </div>
+            </div>
 
-        {/* Order book table */}
-        <div className="px-5 py-3">
-          <div className="flex items-center text-[10px] font-semibold uppercase tracking-wider text-white/25 mb-2">
-            <span className="flex-1">Price (&cent;)</span>
-            <span className="w-16 text-right">Shares</span>
-            <span className="w-20 text-right">Total</span>
-          </div>
+            {/* Order book table */}
+            <div className="px-5 py-3">
+              <div className="flex items-center text-[10px] font-semibold uppercase tracking-wider text-white/25 mb-2">
+                <span className="flex-1">Price (&cent;)</span>
+                <span className="w-16 text-right">Shares</span>
+                <span className="w-20 text-right">Total</span>
+              </div>
 
-          {/* Bid side (green) */}
-          {(() => {
-            const basePrice = costPerShare;
-            const rows = [];
-            for (let i = 0; i < 5; i++) {
-              const price = Math.max(1, basePrice + 4 - i);
-              const shares = Math.floor(800 + Math.random() * 600);
-              const total = shares * price;
-              const depth = (5 - i) / 5;
-              rows.push(
-                <div key={`bid-${i}`} className="relative flex items-center py-1 text-xs font-mono">
-                  <div className="absolute inset-0 rounded-sm bg-emerald-500/8" style={{ width: `${depth * 100}%` }} />
-                  <span className="flex-1 text-emerald-400 relative z-10">{price}&cent;</span>
-                  <span className="w-16 text-right text-white/40 relative z-10">{shares.toLocaleString()}</span>
-                  <span className="w-20 text-right text-white/50 relative z-10">${total.toLocaleString()}</span>
-                </div>
-              );
-            }
-            return rows;
-          })()}
+              {/* Bid side (green) */}
+              {(() => {
+                const basePrice = costPerShare;
+                const rows = [];
+                for (let i = 0; i < 5; i++) {
+                  const price = Math.max(1, basePrice + 4 - i);
+                  const shares = Math.floor(800 + Math.random() * 600);
+                  const total = shares * price;
+                  const depth = (5 - i) / 5;
+                  rows.push(
+                    <div key={`bid-${i}`} className="relative flex items-center py-1 text-xs font-mono">
+                      <div className="absolute inset-0 rounded-sm bg-emerald-500/8" style={{ width: `${depth * 100}%` }} />
+                      <span className="flex-1 text-emerald-400 relative z-10">{price}&cent;</span>
+                      <span className="w-16 text-right text-white/40 relative z-10">{shares.toLocaleString()}</span>
+                      <span className="w-20 text-right text-white/50 relative z-10">${total.toLocaleString()}</span>
+                    </div>
+                  );
+                }
+                return rows;
+              })()}
 
-          {/* Spread */}
-          <div className="flex items-center justify-between py-2 my-1 border-y border-white/[0.04]">
-            <span className="text-[10px] text-white/25">Spread</span>
-            <span className="text-xs font-mono font-bold text-white/60">1.0&cent;</span>
-            <span className="text-[10px] text-white/25 font-mono">2.00%</span>
-          </div>
+              {/* Spread */}
+              <div className="flex items-center justify-between py-2 my-1 border-y border-white/[0.04]">
+                <span className="text-[10px] text-white/25">Spread</span>
+                <span className="text-xs font-mono font-bold text-white/60">1.0&cent;</span>
+                <span className="text-[10px] text-white/25 font-mono">2.00%</span>
+              </div>
 
-          {/* Ask side (red) */}
-          {(() => {
-            const basePrice = 100 - costPerShare;
-            const rows = [];
-            for (let i = 0; i < 5; i++) {
-              const price = Math.max(1, basePrice - 4 + i);
-              const shares = Math.floor(600 + Math.random() * 700);
-              const total = shares * price;
-              const depth = (i + 1) / 5;
-              rows.push(
-                <div key={`ask-${i}`} className="relative flex items-center py-1 text-xs font-mono">
-                  <div className="absolute inset-0 right-0 left-auto rounded-sm bg-rose-500/8" style={{ width: `${depth * 100}%` }} />
-                  <span className="flex-1 text-rose-400 relative z-10">{price}&cent;</span>
-                  <span className="w-16 text-right text-white/40 relative z-10">{shares.toLocaleString()}</span>
-                  <span className="w-20 text-right text-white/50 relative z-10">${total.toLocaleString()}</span>
-                </div>
-              );
-            }
-            return rows;
-          })()}
+              {/* Ask side (red) */}
+              {(() => {
+                const basePrice = 100 - costPerShare;
+                const rows = [];
+                for (let i = 0; i < 5; i++) {
+                  const price = Math.max(1, basePrice - 4 + i);
+                  const shares = Math.floor(600 + Math.random() * 700);
+                  const total = shares * price;
+                  const depth = (i + 1) / 5;
+                  rows.push(
+                    <div key={`ask-${i}`} className="relative flex items-center py-1 text-xs font-mono">
+                      <div className="absolute inset-0 right-0 left-auto rounded-sm bg-rose-500/8" style={{ width: `${depth * 100}%` }} />
+                      <span className="flex-1 text-rose-400 relative z-10">{price}&cent;</span>
+                      <span className="w-16 text-right text-white/40 relative z-10">{shares.toLocaleString()}</span>
+                      <span className="w-20 text-right text-white/50 relative z-10">${total.toLocaleString()}</span>
+                    </div>
+                  );
+                }
+                return rows;
+              })()}
 
-          <p className="text-[10px] text-white/15 text-center mt-3">Click price to fill order form</p>
-        </div>
+              <p className="text-[10px] text-white/15 text-center mt-3">Click price to fill order form</p>
+            </div>
+          </>
+        )}
       </div>
 
       {/* ---- Pool & Position Card ---- */}
@@ -1344,13 +1469,14 @@ export default function MarketPage() {
   const predictions = data?.predictions ?? [];
   const yesPercent = market ? Math.round(market.impliedProbYes * 100) : 50;
   const noPercent = 100 - yesPercent;
-  const category = market ? categorizeMarket(market.question) : "other";
+  const category = market ? (market.category ?? categorizeMarket(market.question)) : "other";
   const now = Date.now() / 1000;
   const secsLeft = market ? Math.max(0, market.resolutionTime - now) : 0;
   const daysLeft = Math.floor(secsLeft / 86400);
   const hoursLeft = Math.floor(secsLeft / 3600);
   const minsLeft = Math.ceil(secsLeft / 60);
   const isExpired = market ? market.resolutionTime <= now : false;
+  const isPolymarketDetail = market ? (market.source === "polymarket" || market.id >= 100_000) : false;
   const poolWei = market ? safeBigInt(market.totalPool) : 0n;
   const poolStrk = Number(poolWei) / 1e18;
   const disagreement = computeDisagreement(predictions);
@@ -1492,11 +1618,25 @@ export default function MarketPage() {
                   {statusLabel}
                 </span>
 
+                {isPolymarketDetail && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border bg-blue-500/15 text-blue-300 border-blue-500/25">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                    Polymarket
+                  </span>
+                )}
+
                 <span className="text-white/10">|</span>
 
                 {/* Volume */}
                 <span className="text-[12px] text-white/40 tabular-nums">
-                  {poolStrk.toLocaleString(undefined, { maximumFractionDigits: 0 })} STRK Vol.
+                  {isPolymarketDetail && typeof market.volume24h === "number" && market.volume24h > 0
+                    ? `$${market.volume24h >= 1_000_000
+                        ? (market.volume24h / 1_000_000).toFixed(1) + "M"
+                        : market.volume24h >= 1_000
+                          ? (market.volume24h / 1_000).toFixed(1) + "K"
+                          : Math.round(market.volume24h)
+                      } Vol.`
+                    : `${poolStrk.toLocaleString(undefined, { maximumFractionDigits: 0 })} STRK Vol.`}
                 </span>
 
                 <span className="text-white/10">|</span>

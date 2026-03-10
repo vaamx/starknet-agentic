@@ -14,7 +14,7 @@ const querySchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
-    const membership = requireMembership(request);
+    const membership = await requireMembership(request);
     const parsed = querySchema.parse({
       question:
         request.nextUrl.searchParams.get("question") ?? "Prediction markets",

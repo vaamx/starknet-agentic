@@ -19,6 +19,18 @@ export interface Market {
   winningOutcome?: number;
   resolutionEscalation?: "auto" | "needs_manual_review" | "manually_resolved";
   totalResolutionAttempts?: number;
+  // Polymarket integration fields
+  source?: "onchain" | "polymarket";
+  category?: string;
+  slug?: string;
+  imageUrl?: string | null;
+  volume24h?: number;
+  liquidity?: number;
+  description?: string | null;
+  outcomes?: string;
+  oneDayChange?: number | null;
+  polymarketUrl?: string | null;
+  mirrorAddress?: string | null;
 }
 
 export interface LeaderboardEntry {

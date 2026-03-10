@@ -4,6 +4,7 @@ import { getMarkets } from "@/lib/market-reader";
 import { claimWinnings, type ExecutionSurface } from "@/lib/starknet-executor";
 import { requireRole } from "@/lib/require-auth";
 import { recordAudit, recordTradeExecution } from "@/lib/ops-store";
+import { getPolymarketMarketById } from "@/lib/polymarket-reader";
 
 const ClaimSchema = z.object({
   executionSurface: z.enum(["direct", "starkzap", "avnu"]).optional(),
@@ -14,7 +15,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const context = requireRole(request, "analyst");
+    const context = await requireRole(request, "analyst");
     if (!context) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -24,14 +25,27 @@ export async function POST(
     const body = await request.json().catch(() => ({}));
     const parsed = ClaimSchema.parse(body);
 
-    const markets = await getMarkets();
-    const market = markets.find((m) => m.id === marketId);
-    if (!market) {
-      return NextResponse.json({ error: "Market not found" }, { status: 404 });
+    let claimAddress: string | null = null;
+
+    if (marketId >= 100_000) {
+      // Polymarket — use mirror address
+      const polyMarket = await getPolymarketMarketById(marketId);
+      if (polyMarket?.mirrorAddress && polyMarket.mirrorAddress !== "0x0") {
+        claimAddress = polyMarket.mirrorAddress;
+      } else {
+        return NextResponse.json({ error: "No mirror market deployed for claim" }, { status: 404 });
+      }
+    } else {
+      const markets = await getMarkets();
+      const market = markets.find((m) => m.id === marketId);
+      if (!market) {
+        return NextResponse.json({ error: "Market not found" }, { status: 404 });
+      }
+      claimAddress = market.address;
     }
 
     const tx = await claimWinnings(
-      market.address,
+      claimAddress,
       parsed.executionSurface as ExecutionSurface | undefined
     );
     await recordTradeExecution({

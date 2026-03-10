@@ -332,6 +332,15 @@ export default function SimpleHeader({
                         📚 API Docs
                       </a>
                       {isAuthed && (
+                        <a
+                          href="/profile"
+                          onClick={() => setMenuOpen(false)}
+                          className="block rounded-lg px-3 py-2 text-sm font-medium text-white/75 no-underline transition-colors hover:bg-white/[0.06] hover:text-white"
+                        >
+                          👤 Profile
+                        </a>
+                      )}
+                      {isAuthed && (
                         <button
                           type="button"
                           onClick={() => {

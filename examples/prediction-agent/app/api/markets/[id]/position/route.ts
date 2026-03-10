@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMarketById, getUserPosition } from "@/lib/market-reader";
+import { getPolymarketMarketById } from "@/lib/polymarket-reader";
 
 export const runtime = "nodejs";
 
@@ -18,13 +19,31 @@ export async function GET(
     return NextResponse.json({ error: "user query param required (hex address)" }, { status: 400 });
   }
 
+  // For Polymarket markets, use the mirror address if provided or look it up
+  const mirrorParam = request.nextUrl.searchParams.get("mirror");
+
   try {
-    const market = await getMarketById(marketId);
-    if (!market) {
-      return NextResponse.json({ error: "Market not found" }, { status: 404 });
+    let contractAddress: string | null = null;
+
+    if (mirrorParam && /^0x[0-9a-fA-F]+$/.test(mirrorParam)) {
+      contractAddress = mirrorParam;
+    } else if (marketId >= 100_000) {
+      // Polymarket — look up mirror address
+      const polyMarket = await getPolymarketMarketById(marketId);
+      if (polyMarket?.mirrorAddress && polyMarket.mirrorAddress !== "0x0") {
+        contractAddress = polyMarket.mirrorAddress;
+      } else {
+        return NextResponse.json({ error: "No mirror market deployed" }, { status: 404 });
+      }
+    } else {
+      const market = await getMarketById(marketId);
+      if (!market) {
+        return NextResponse.json({ error: "Market not found" }, { status: 404 });
+      }
+      contractAddress = market.address;
     }
 
-    const position = await getUserPosition(market.address, userAddress);
+    const position = await getUserPosition(contractAddress, userAddress);
     return NextResponse.json({
       marketId,
       user: userAddress,

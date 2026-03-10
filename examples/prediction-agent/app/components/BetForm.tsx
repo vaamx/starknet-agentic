@@ -9,6 +9,7 @@ import { friendlyTxError } from "@/lib/tx-errors";
 interface BetFormProps {
   marketId: number;
   marketAddress: string;
+  mirrorAddress?: string | null;
   question: string;
   yesPool: string;
   noPool: string;
@@ -22,6 +23,7 @@ interface BetFormProps {
 export default function BetForm({
   marketId,
   marketAddress,
+  mirrorAddress,
   question,
   yesPool,
   noPool,
@@ -110,7 +112,8 @@ export default function BetForm({
     setResult(null);
     setSending(true);
     try {
-      const calls = buildBetCalls(marketAddress, outcome, amountBigInt);
+      const betAddress = (mirrorAddress && mirrorAddress !== "0x0") ? mirrorAddress : marketAddress;
+      const calls = buildBetCalls(betAddress, outcome, amountBigInt);
       const response = await account.execute(calls);
       setResult({
         status: "success",

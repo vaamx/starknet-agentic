@@ -24,6 +24,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 let tickInProgress = false;
+let heartbeatCount = 0;
 const heartbeatBodySchema = z
   .object({
     secret: z.string().optional(),
@@ -80,11 +81,13 @@ export async function POST(request: NextRequest) {
   }
 
   tickInProgress = true;
+  heartbeatCount++;
   let actions: unknown[] = [];
   let tickError: string | undefined;
   let alertDispatch:
     | Awaited<ReturnType<typeof evaluateAndDispatchMetricAlerts>>
     | undefined;
+  let polySyncResult: { synced?: number; errors?: number } | undefined;
 
   try {
     actions = await withTimeout(
@@ -101,6 +104,23 @@ export async function POST(request: NextRequest) {
         "[heartbeat] alert dispatch failed:",
         alertErr?.message ?? String(alertErr)
       );
+    }
+
+    // Sync Polymarket markets every 5th heartbeat (~5 min with 1-min cron)
+    if (heartbeatCount % 5 === 0) {
+      try {
+        const { syncPolymarketMarkets } = await import("@/lib/polymarket-sync");
+        polySyncResult = await withTimeout(
+          syncPolymarketMarkets(30),
+          25_000,
+          "Polymarket sync timed out"
+        );
+        console.log(
+          `[heartbeat] Polymarket sync: ${polySyncResult.synced} synced, ${polySyncResult.errors} errors`
+        );
+      } catch (polyErr: any) {
+        console.error("[heartbeat] Polymarket sync failed:", polyErr?.message);
+      }
     }
   } catch (err: any) {
     tickError = err?.message ?? String(err);
@@ -124,6 +144,7 @@ export async function POST(request: NextRequest) {
             resolved: alertDispatch.resolved,
           }
         : undefined,
+      polymarketSync: polySyncResult ?? undefined,
     }),
     { status: 200, headers: { "Content-Type": "application/json" } }
   );

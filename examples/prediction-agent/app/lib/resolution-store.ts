@@ -7,6 +7,7 @@
 
 import { randomBytes } from "node:crypto";
 import { db, nowUnix } from "./db";
+import { getPrismaClient } from "./prisma";
 
 function makeId(prefix: string): string {
   return `${prefix}_${randomBytes(12).toString("hex")}`;
@@ -40,7 +41,7 @@ export interface ResolutionStatusRecord {
   escalation: ResolutionEscalation;
 }
 
-export function recordResolutionAttempt(params: {
+export async function recordResolutionAttempt(params: {
   orgId: string;
   marketId: number;
   strategy: string;
@@ -52,13 +53,70 @@ export function recordResolutionAttempt(params: {
   resolveTxHash?: string | null;
   finalizeTxHash?: string | null;
   errorMessage?: string | null;
-}): ResolutionAttemptRecord | null {
+}): Promise<ResolutionAttemptRecord | null> {
   try {
     const now = nowUnix();
     const id = makeId("rattempt");
 
-    // DatabaseSync is synchronous and single-threaded, so sequential
-    // calls are inherently atomic within a single request.
+    const prisma = await getPrismaClient();
+    if (prisma) {
+      // Upsert resolution status
+      const statusRow = await prisma.$queryRawUnsafe(
+        `INSERT INTO resolution_statuses (org_id, market_id, total_attempts, last_attempt_at, last_status, escalation)
+         VALUES ($1, $2, 1, $3, $4, 'auto')
+         ON CONFLICT(org_id, market_id) DO UPDATE SET
+           total_attempts = resolution_statuses.total_attempts + 1,
+           last_attempt_at = $3,
+           last_status = $4
+         RETURNING total_attempts as "totalAttempts"`,
+        params.orgId,
+        params.marketId,
+        now,
+        params.status
+      ) as Array<{ totalAttempts: number }>;
+
+      const attemptNumber = statusRow[0]?.totalAttempts ?? 1;
+
+      const record: ResolutionAttemptRecord = {
+        id,
+        orgId: params.orgId,
+        marketId: params.marketId,
+        attemptNumber,
+        strategy: params.strategy,
+        status: params.status,
+        outcome: params.outcome ?? null,
+        confidence: params.confidence ?? null,
+        evidence: params.evidence ?? null,
+        reasoning: params.reasoning ?? null,
+        resolveTxHash: params.resolveTxHash ?? null,
+        finalizeTxHash: params.finalizeTxHash ?? null,
+        errorMessage: params.errorMessage ?? null,
+        createdAt: now,
+      };
+
+      await prisma.resolutionAttempt.create({
+        data: {
+          id: record.id,
+          orgId: record.orgId,
+          marketId: record.marketId,
+          attemptNumber: record.attemptNumber,
+          strategy: record.strategy,
+          status: record.status,
+          outcome: record.outcome,
+          confidence: record.confidence,
+          evidence: record.evidence,
+          reasoning: record.reasoning,
+          resolveTxHash: record.resolveTxHash,
+          finalizeTxHash: record.finalizeTxHash,
+          errorMessage: record.errorMessage,
+          createdAt: record.createdAt,
+        },
+      });
+
+      return record;
+    }
+
+    // SQLite fallback
     db.prepare(
       `INSERT INTO resolution_statuses (org_id, market_id, total_attempts, last_attempt_at, last_status, escalation)
        VALUES (?, ?, 1, ?, ?, 'auto')
@@ -68,7 +126,6 @@ export function recordResolutionAttempt(params: {
          last_status = excluded.last_status`
     ).run(params.orgId, params.marketId, now, params.status);
 
-    // Read the authoritative attempt number AFTER the upsert
     const row = db
       .prepare(
         `SELECT total_attempts FROM resolution_statuses WHERE org_id = ? AND market_id = ?`
@@ -124,10 +181,26 @@ export function recordResolutionAttempt(params: {
   }
 }
 
-export function getResolutionStatus(
+export async function getResolutionStatus(
   orgId: string,
   marketId: number
-): ResolutionStatusRecord | null {
+): Promise<ResolutionStatusRecord | null> {
+  const prisma = await getPrismaClient();
+  if (prisma) {
+    const row = await prisma.resolutionStatus.findUnique({
+      where: { orgId_marketId: { orgId, marketId } },
+    });
+    if (!row) return null;
+    return {
+      orgId: row.orgId,
+      marketId: row.marketId,
+      totalAttempts: row.totalAttempts,
+      lastAttemptAt: row.lastAttemptAt,
+      lastStatus: row.lastStatus,
+      escalation: row.escalation as ResolutionEscalation,
+    };
+  }
+
   const row = db
     .prepare(
       `SELECT
@@ -145,12 +218,38 @@ export function getResolutionStatus(
   return row ?? null;
 }
 
-export function listResolutionAttempts(
+export async function listResolutionAttempts(
   orgId: string,
   marketId: number,
   limit = 20
-): ResolutionAttemptRecord[] {
+): Promise<ResolutionAttemptRecord[]> {
   const finalLimit = Math.min(100, Math.max(1, limit));
+  const prisma = await getPrismaClient();
+
+  if (prisma) {
+    const rows = await prisma.resolutionAttempt.findMany({
+      where: { orgId, marketId },
+      orderBy: { createdAt: "desc" },
+      take: finalLimit,
+    });
+    return rows.map((row: any) => ({
+      id: row.id,
+      orgId: row.orgId,
+      marketId: row.marketId,
+      attemptNumber: row.attemptNumber,
+      strategy: row.strategy,
+      status: row.status,
+      outcome: row.outcome,
+      confidence: row.confidence,
+      evidence: row.evidence,
+      reasoning: row.reasoning,
+      resolveTxHash: row.resolveTxHash,
+      finalizeTxHash: row.finalizeTxHash,
+      errorMessage: row.errorMessage,
+      createdAt: row.createdAt,
+    }));
+  }
+
   return db
     .prepare(
       `SELECT
@@ -176,7 +275,23 @@ export function listResolutionAttempts(
     .all(orgId, marketId, finalLimit) as ResolutionAttemptRecord[];
 }
 
-export function listNeedsReview(orgId: string): ResolutionStatusRecord[] {
+export async function listNeedsReview(orgId: string): Promise<ResolutionStatusRecord[]> {
+  const prisma = await getPrismaClient();
+  if (prisma) {
+    const rows = await prisma.resolutionStatus.findMany({
+      where: { orgId, escalation: "needs_manual_review" },
+      orderBy: { lastAttemptAt: "desc" },
+    });
+    return rows.map((row: any) => ({
+      orgId: row.orgId,
+      marketId: row.marketId,
+      totalAttempts: row.totalAttempts,
+      lastAttemptAt: row.lastAttemptAt,
+      lastStatus: row.lastStatus,
+      escalation: row.escalation as ResolutionEscalation,
+    }));
+  }
+
   return db
     .prepare(
       `SELECT
@@ -193,24 +308,44 @@ export function listNeedsReview(orgId: string): ResolutionStatusRecord[] {
     .all(orgId) as ResolutionStatusRecord[];
 }
 
-export function escalateToManualReview(orgId: string, marketId: number): void {
+export async function escalateToManualReview(orgId: string, marketId: number): Promise<void> {
+  const prisma = await getPrismaClient();
+  if (prisma) {
+    await prisma.resolutionStatus.update({
+      where: { orgId_marketId: { orgId, marketId } },
+      data: { escalation: "needs_manual_review" },
+    });
+    return;
+  }
+
   db.prepare(
     `UPDATE resolution_statuses SET escalation = 'needs_manual_review' WHERE org_id = ? AND market_id = ?`
   ).run(orgId, marketId);
 }
 
-export function markManuallyResolved(orgId: string, marketId: number): void {
+export async function markManuallyResolved(orgId: string, marketId: number): Promise<void> {
+  const prisma = await getPrismaClient();
+  if (prisma) {
+    await prisma.resolutionStatus.update({
+      where: { orgId_marketId: { orgId, marketId } },
+      data: { escalation: "manually_resolved" },
+    });
+    return;
+  }
+
   db.prepare(
     `UPDATE resolution_statuses SET escalation = 'manually_resolved' WHERE org_id = ? AND market_id = ?`
   ).run(orgId, marketId);
 }
 
 /** Convenience: returns both the status and the latest attempt in one call. */
-export function getResolutionSummary(
+export async function getResolutionSummary(
   orgId: string,
   marketId: number
-): { status: ResolutionStatusRecord | null; latestAttempt: ResolutionAttemptRecord | null } {
-  const status = getResolutionStatus(orgId, marketId);
-  const attempts = listResolutionAttempts(orgId, marketId, 1);
+): Promise<{ status: ResolutionStatusRecord | null; latestAttempt: ResolutionAttemptRecord | null }> {
+  const [status, attempts] = await Promise.all([
+    getResolutionStatus(orgId, marketId),
+    listResolutionAttempts(orgId, marketId, 1),
+  ]);
   return { status, latestAttempt: attempts[0] ?? null };
 }

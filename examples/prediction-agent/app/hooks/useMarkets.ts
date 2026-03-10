@@ -109,7 +109,7 @@ export default function useMarkets(): UseMarketsReturn {
 
     try {
       const marketsRes = await fetchWithTimeout(
-        "/api/markets?status=all&limit=100&hideEmpty=true",
+        "/api/markets?status=all&limit=200&hideEmpty=true",
         8_000
       );
       if (!marketsRes)

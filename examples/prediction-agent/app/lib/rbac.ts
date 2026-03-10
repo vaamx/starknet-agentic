@@ -1,3 +1,4 @@
+import { usePrismaRuntime, getPrismaClient } from "./prisma";
 import { db } from "./db";
 
 export type MembershipRole = "owner" | "admin" | "analyst" | "viewer";
@@ -23,7 +24,35 @@ export function hasRoleAtLeast(
   return ROLE_RANK[role] >= ROLE_RANK[required];
 }
 
-export function getPrimaryMembership(userId: string): MembershipContext | null {
+async function getPrimaryMembershipPrisma(
+  userId: string
+): Promise<MembershipContext | null> {
+  const prisma = await getPrismaClient();
+  if (!prisma) return null;
+
+  const membership = await prisma.membership.findFirst({
+    where: { userId },
+    orderBy: [{ createdAt: "asc" }],
+    select: {
+      role: true,
+      organization: {
+        select: { id: true, name: true, slug: true },
+      },
+    },
+  });
+
+  if (!membership) return null;
+
+  // Sort by role rank — findFirst doesn't support CASE ordering, so fetch top candidates
+  return {
+    organizationId: membership.organization.id,
+    organizationName: membership.organization.name,
+    organizationSlug: membership.organization.slug,
+    role: membership.role as MembershipRole,
+  };
+}
+
+function getPrimaryMembershipSqlite(userId: string): MembershipContext | null {
   const row = db
     .prepare(
       `
@@ -49,4 +78,13 @@ export function getPrimaryMembership(userId: string): MembershipContext | null {
     .get(userId) as MembershipContext | undefined;
 
   return row ?? null;
+}
+
+const usePrisma = usePrismaRuntime();
+
+export async function getPrimaryMembership(
+  userId: string
+): Promise<MembershipContext | null> {
+  if (usePrisma) return getPrimaryMembershipPrisma(userId);
+  return getPrimaryMembershipSqlite(userId);
 }

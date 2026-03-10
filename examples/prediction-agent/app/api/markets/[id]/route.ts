@@ -25,6 +25,7 @@ import {
   upsertAgentTake,
 } from "@/lib/market-db";
 import { getResolutionStatus, listResolutionAttempts } from "@/lib/resolution-store";
+import { getPolymarketMarketById } from "@/lib/polymarket-reader";
 
 export const runtime = "nodejs";
 
@@ -63,16 +64,16 @@ function serializeSnapshotMarket(
   };
 }
 
-function readDbAux(marketId: number): {
-  predictions: ReturnType<typeof getPredictionsFromDb>;
-  weightedProbability: ReturnType<typeof getWeightedProbFromDb>;
-  latestAgentTake: ReturnType<typeof getLatestAgentTakeFromDb>;
-} {
+async function readDbAux(marketId: number): Promise<{
+  predictions: Awaited<ReturnType<typeof getPredictionsFromDb>>;
+  weightedProbability: Awaited<ReturnType<typeof getWeightedProbFromDb>>;
+  latestAgentTake: Awaited<ReturnType<typeof getLatestAgentTakeFromDb>>;
+}> {
   try {
     return {
-      predictions: getPredictionsFromDb(marketId),
-      weightedProbability: getWeightedProbFromDb(marketId),
-      latestAgentTake: getLatestAgentTakeFromDb(marketId),
+      predictions: await getPredictionsFromDb(marketId),
+      weightedProbability: await getWeightedProbFromDb(marketId),
+      latestAgentTake: await getLatestAgentTakeFromDb(marketId),
     };
   } catch {
     return {
@@ -83,13 +84,13 @@ function readDbAux(marketId: number): {
   }
 }
 
-function fallbackMarketResponse(args: {
+async function fallbackMarketResponse(args: {
   marketId: number;
   snapshot: PersistedMarketSnapshot;
   source: "db" | "cache";
   warning?: string;
 }) {
-  const aux = readDbAux(args.marketId);
+  const aux = await readDbAux(args.marketId);
   return NextResponse.json({
     market: serializeSnapshotMarket(args.snapshot),
     predictions: aux.predictions,
@@ -141,9 +142,29 @@ export async function GET(
     const market = await withTimeout(getMarketById(marketId), 3_000, null);
 
     if (!market) {
-      // SQLite fallback first.
+      // Polymarket DB fallback (IDs >= 100_000)
+      if (marketId >= 100_000) {
+        try {
+          const polyMarket = await getPolymarketMarketById(marketId);
+          if (polyMarket) {
+            const aux = await readDbAux(marketId);
+            return NextResponse.json({
+              market: {
+                ...polyMarket,
+                impliedProbYes: polyMarket.impliedProbYes,
+                impliedProbNo: polyMarket.impliedProbNo,
+              },
+              predictions: aux.predictions,
+              weightedProbability: aux.weightedProbability,
+              latestAgentTake: aux.latestAgentTake,
+              source: "polymarket",
+            });
+          }
+        } catch { /* Prisma unavailable */ }
+      }
+      // SQLite fallback.
       try {
-        const dbMarket = getMarketByIdFromDb(marketId);
+        const dbMarket = await getMarketByIdFromDb(marketId);
         if (dbMarket) {
           return fallbackMarketResponse({
             marketId,
@@ -237,10 +258,10 @@ export async function GET(
 
     // Write-through to SQLite
     try {
-      if (predictions.length > 0) upsertPredictions(marketId, predictions);
-      if (weightedProb !== null) upsertWeightedProb(marketId, weightedProb);
+      if (predictions.length > 0) await upsertPredictions(marketId, predictions);
+      if (weightedProb !== null) await upsertWeightedProb(marketId, weightedProb);
       if (latestAgentTake) {
-        upsertAgentTake({
+        await upsertAgentTake({
           marketId,
           agentName: latestAgentTake.agentName,
           probability: latestAgentTake.probability,
@@ -253,9 +274,9 @@ export async function GET(
     // Resolution status (best-effort)
     let resolution = null;
     try {
-      const resStatus = getResolutionStatus("default", marketId);
+      const resStatus = await getResolutionStatus("default", marketId);
       if (resStatus) {
-        const lastAttempt = listResolutionAttempts("default", marketId, 1);
+        const lastAttempt = await listResolutionAttempts("default", marketId, 1);
         resolution = {
           ...resStatus,
           lastAttempt: lastAttempt[0] ?? null,
@@ -283,7 +304,7 @@ export async function GET(
   } catch (err: any) {
     // Try SQLite fallback before 500
     try {
-      const dbMarket = getMarketByIdFromDb(marketId);
+      const dbMarket = await getMarketByIdFromDb(marketId);
       if (dbMarket) {
         return fallbackMarketResponse({
           marketId,

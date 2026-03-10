@@ -8,7 +8,7 @@ import { requireRole } from "@/lib/require-auth";
  * Optional query params: ?category=crypto&limit=5
  */
 export async function GET(request: NextRequest) {
-  const context = requireRole(request, "viewer");
+  const context = await requireRole(request, "viewer");
   if (!context) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }

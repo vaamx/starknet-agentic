@@ -231,15 +231,34 @@ export default function PortfolioPage() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabFilter>("all");
   const [totalInvested, setTotalInvested] = useState("0");
+  const [savedWallets, setSavedWallets] = useState<string[]>([]);
+
+  // Fetch saved wallets from session for users who aren't actively connected
+  useEffect(() => {
+    fetch("/api/auth/session", { credentials: "include" })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = await res.json();
+        const wallets: string[] = (data.wallets ?? [])
+          .map((w: { walletAddress: string }) => w.walletAddress)
+          .filter(Boolean);
+        setSavedWallets(wallets);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Use connected wallet first, fall back to primary saved wallet
+  const effectiveAddress = address ?? savedWallets[0] ?? null;
+  const hasWallet = isConnected || effectiveAddress !== null;
 
   const fetchPortfolio = (showLoader: boolean) => {
-    if (!isConnected || !address) {
+    if (!hasWallet || !effectiveAddress) {
       setPositions([]);
       setLoading(false);
       return;
     }
     if (showLoader) { setLoading(true); setError(null); }
-    fetch(`/api/portfolio?user=${address}`, { cache: "no-store" })
+    fetch(`/api/portfolio?user=${effectiveAddress}`, { cache: "no-store" })
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
@@ -255,7 +274,7 @@ export default function PortfolioPage() {
     const interval = setInterval(() => fetchPortfolio(false), 30_000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConnected, address]);
+  }, [isConnected, address, savedWallets.length]);
 
   const refresh = () => fetchPortfolio(true);
 

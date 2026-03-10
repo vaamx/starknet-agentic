@@ -94,6 +94,34 @@ const CAT_META: Record<string, { icon: string; label: string; color: string; bor
     icon: "\u{1F4BB}", label: "Tech", color: "#8b5cf6",
     border: "border-violet-500/20", bg: "bg-violet-500/[0.06]", text: "text-violet-400",
   },
+  finance: {
+    icon: "\u{1F4B0}", label: "Finance", color: "#22d3ee",
+    border: "border-cyan-400/20", bg: "bg-cyan-400/[0.06]", text: "text-cyan-400",
+  },
+  climate: {
+    icon: "\u{1F30D}", label: "Climate", color: "#34d399",
+    border: "border-emerald-400/20", bg: "bg-emerald-400/[0.06]", text: "text-emerald-400",
+  },
+  culture: {
+    icon: "\u{1F3AC}", label: "Culture", color: "#f472b6",
+    border: "border-pink-400/20", bg: "bg-pink-400/[0.06]", text: "text-pink-400",
+  },
+  elections: {
+    icon: "\u{1F5F3}\uFE0F", label: "Elections", color: "#818cf8",
+    border: "border-indigo-400/20", bg: "bg-indigo-400/[0.06]", text: "text-indigo-400",
+  },
+  geopolitics: {
+    icon: "\u{1F30F}", label: "Geopolitics", color: "#fb923c",
+    border: "border-orange-400/20", bg: "bg-orange-400/[0.06]", text: "text-orange-400",
+  },
+  economy: {
+    icon: "\u{1F4C8}", label: "Economy", color: "#a78bfa",
+    border: "border-violet-400/20", bg: "bg-violet-400/[0.06]", text: "text-violet-400",
+  },
+  world: {
+    icon: "\u{1F30E}", label: "World", color: "#ec4899",
+    border: "border-pink-500/20", bg: "bg-pink-500/[0.06]", text: "text-pink-400",
+  },
   other: {
     icon: "\u{1F30D}", label: "World", color: "#ec4899",
     border: "border-pink-500/20", bg: "bg-pink-500/[0.06]", text: "text-pink-400",
@@ -334,7 +362,8 @@ export default function MarketGridCard({
   index,
 }: MarketGridCardProps) {
   const baseYesPct = Math.round(market.impliedProbYes * 100);
-  const category = categorizeMarket(market.question);
+  const isPolymarket = market.source === "polymarket";
+  const category = market.category ?? categorizeMarket(market.question);
   const cat = CAT_META[category] || CAT_META.other;
   const poolVol = formatVolume(safeBigInt(market.totalPool));
   const time = formatTimeLeft(market.resolutionTime, market.status);
@@ -347,8 +376,11 @@ export default function MarketGridCard({
   // Live ticking probability
   const [yesPct, setYesPct] = useState(baseYesPct);
   const [ticked, setTicked] = useState(false);
+  // Sync when real probability changes (e.g. fresh API data)
+  useEffect(() => { setYesPct(baseYesPct); }, [baseYesPct]);
   useEffect(() => {
-    if (isExpired) return;
+    // Skip cosmetic ticker for Polymarket markets — they have real prices
+    if (isExpired || isPolymarket) return;
     const id = setInterval(() => {
       const move = Math.round((Math.random() - 0.48) * 2);
       if (move !== 0) {
@@ -358,13 +390,22 @@ export default function MarketGridCard({
       }
     }, 3000 + Math.random() * 4000);
     return () => clearInterval(id);
-  }, [isExpired]);
+  }, [isExpired, isPolymarket]);
 
   const noPct = 100 - yesPct;
   const aiProb = typeof weightedProb === "number" ? Math.round(weightedProb * 100) : null;
   const aiDiff = aiProb !== null ? aiProb - yesPct : 0;
   const chartColor = yesPct >= 50 ? "#10b981" : "#3b82f6";
   const tradeCount = typeof market.tradeCount === "number" ? market.tradeCount : Math.floor(seededRand(market.id, 77) * 200 + 12);
+
+  // For Polymarket, show real USD volume instead of simulated STRK pool
+  const displayVolume = isPolymarket && typeof market.volume24h === "number" && market.volume24h > 0
+    ? (market.volume24h >= 1_000_000
+        ? `$${(market.volume24h / 1_000_000).toFixed(1)}M`
+        : market.volume24h >= 1_000
+          ? `$${(market.volume24h / 1_000).toFixed(1)}K`
+          : `$${Math.round(market.volume24h)}`)
+    : poolVol;
   const surface = SURFACE_META[automationState.executionSurface];
 
   const forecastSummary = useMemo(() => {
@@ -451,6 +492,12 @@ export default function MarketGridCard({
                 <span className="text-[11px] leading-none">{cat.icon}</span>
                 {cat.label}
               </span>
+              {isPolymarket && (
+                <span className="inline-flex items-center gap-1 px-2 py-[3px] rounded-md text-[9px] font-semibold uppercase tracking-wider border border-blue-400/25 bg-blue-500/[0.08] text-blue-300">
+                  <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" opacity="0.3"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15h2v-6h-2v6zm0-8h2V7h-2v2z"/></svg>
+                  Polymarket
+                </span>
+              )}
               {automationState.enabled && (
                 <span className="inline-flex items-center gap-1 rounded-md border border-neo-green/30 bg-neo-green/15 px-2 py-[3px] text-[9px] font-semibold uppercase tracking-wider text-neo-green">
                   🤖 Auto {automationState.cadence}
@@ -775,7 +822,21 @@ export default function MarketGridCard({
             </svg>
             {tradeCount}
           </span>
-          <span className="text-[10px] font-mono text-white/20 tabular-nums">{poolVol}</span>
+          <span className="text-[10px] font-mono text-white/20 tabular-nums">{displayVolume}</span>
+          {isPolymarket && market.polymarketUrl && (
+            <a
+              href={market.polymarketUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-[10px] text-blue-400/50 hover:text-blue-300/80 transition-colors"
+              title="View on Polymarket"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          )}
         </div>
       </div>
     </Link>

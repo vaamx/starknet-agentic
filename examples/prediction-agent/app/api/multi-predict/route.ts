@@ -16,6 +16,7 @@ import { config } from "@/lib/config";
 import { getLlmConfigurationError } from "@/lib/llm-provider";
 import { z } from "zod";
 import { enforceRateLimit, jsonError } from "@/lib/api-guard";
+import { getPolymarketMarketById } from "@/lib/polymarket-reader";
 
 /**
  * Multi-agent forecast endpoint.
@@ -47,18 +48,35 @@ export async function POST(request: NextRequest) {
     return jsonError("Invalid request body", 400, err?.issues ?? err?.message);
   }
 
-  const market = await getMarketById(marketId);
+  const onChainMarket = await getMarketById(marketId);
+  let question: string;
+  let impliedProbYes: number;
+  let totalPoolDisplay: string;
+  let resolutionTime: number;
 
-  if (!market) {
+  if (onChainMarket) {
+    question = resolveMarketQuestion(marketId, onChainMarket.questionHash);
+    impliedProbYes = onChainMarket.impliedProbYes;
+    totalPoolDisplay = (onChainMarket.totalPool / 10n ** 18n).toString();
+    resolutionTime = onChainMarket.resolutionTime;
+  } else if (marketId >= 100_000) {
+    const polyMarket = await getPolymarketMarketById(marketId);
+    if (!polyMarket) return jsonError("Market not found", 404);
+    question = polyMarket.question;
+    impliedProbYes = polyMarket.impliedProbYes;
+    totalPoolDisplay = polyMarket.volume24h
+      ? `$${Math.round(polyMarket.volume24h).toLocaleString()} (Polymarket)`
+      : "N/A";
+    resolutionTime = polyMarket.resolutionTime;
+  } else {
     return jsonError("Market not found", 404);
   }
 
   const predictions = await getAgentPredictions(marketId);
-  const question = resolveMarketQuestion(marketId, market.questionHash);
 
   const daysUntil = Math.max(
     0,
-    Math.floor((market.resolutionTime - Date.now() / 1000) / 86400)
+    Math.floor((resolutionTime - Date.now() / 1000) / 86400)
   );
 
   if (!config.llmConfigured) {
@@ -103,8 +121,8 @@ export async function POST(request: NextRequest) {
         // Base context fields are identical across all personas; only systemPrompt varies.
         // Factoring avoids re-computing agentPredictions.map() 5× unnecessarily.
         const baseContext = {
-          currentMarketProb: market.impliedProbYes,
-          totalPool: (market.totalPool / 10n ** 18n).toString(),
+          currentMarketProb: impliedProbYes,
+          totalPool: totalPoolDisplay,
           agentPredictions: predictions.map((p) => ({
             agent: p.agent.slice(0, 10),
             prob: p.predictedProb,

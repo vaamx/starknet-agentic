@@ -14,7 +14,7 @@ const BetSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    const context = requireRole(request, "analyst");
+    const context = await requireRole(request, "analyst");
     if (!context) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

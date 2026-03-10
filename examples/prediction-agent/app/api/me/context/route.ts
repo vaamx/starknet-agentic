@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireMembership } from "@/lib/require-auth";
 
 export async function GET(request: NextRequest) {
-  const context = requireMembership(request);
+  const context = await requireMembership(request);
   if (!context) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

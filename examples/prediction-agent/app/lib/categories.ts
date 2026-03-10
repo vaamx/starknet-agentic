@@ -123,7 +123,7 @@ export function categorizeMarket(question: string): MarketCategory {
 }
 
 export function getCategoryCounts(
-  markets: { question: string }[]
+  markets: { question: string; category?: string }[]
 ): Record<MarketCategory, number> {
   const counts: Record<MarketCategory, number> = {
     all: markets.length,
@@ -142,7 +142,10 @@ export function getCategoryCounts(
     other: 0,
   };
   for (const m of markets) {
-    counts[categorizeMarket(m.question)]++;
+    // Use pre-assigned category (e.g. from Polymarket) when available
+    const cat = (m.category as MarketCategory) ?? categorizeMarket(m.question);
+    const key = cat in counts ? cat : "other";
+    counts[key as MarketCategory]++;
   }
   return counts;
 }

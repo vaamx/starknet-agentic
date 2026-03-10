@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAccount } from "@starknet-react/core";
+import { useAccount, useDisconnect } from "@starknet-react/core";
 import SimpleHeader from "./SimpleHeader";
 import AuthModal, { type AuthModalMode } from "./AuthModal";
 
@@ -30,6 +30,7 @@ export default function SiteHeader({
 }: SiteHeaderProps = {}) {
   const router = useRouter();
   const { isConnected } = useAccount();
+  const { disconnect: disconnectWallet } = useDisconnect();
   const [authUser, setAuthUser] = useState<SessionUser | null>(null);
   const [authRole, setAuthRole] = useState<SessionResponse["role"]>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -97,9 +98,10 @@ export default function SiteHeader({
         credentials: "include",
       });
     } catch {}
+    try { disconnectWallet(); } catch {}
     setAuthUser(null);
     setAuthRole(null);
-  }, []);
+  }, [disconnectWallet]);
 
   const handleOpenCreator = useCallback(() => {
     if (!authUser && !isConnected) {

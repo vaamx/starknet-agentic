@@ -10,7 +10,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ marketId: string }> }
 ) {
-  const auth = requireRole(request, "admin");
+  const auth = await requireRole(request, "admin");
   if (!auth) {
     return NextResponse.json(
       { error: "Unauthorized — admin role required" },
@@ -25,7 +25,7 @@ export async function POST(
   }
 
   try {
-    markManuallyResolved(DEFAULT_ORG, marketId);
+    await markManuallyResolved(DEFAULT_ORG, marketId);
     return NextResponse.json({ success: true, marketId });
   } catch (err: any) {
     return NextResponse.json(

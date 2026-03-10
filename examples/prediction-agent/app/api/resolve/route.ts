@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
   // Require either a valid session or the heartbeat secret
   const secret = process.env.HEARTBEAT_SECRET;
   const authHeader = request.headers.get("authorization");
-  const user = requireAuth(request);
+  const user = await requireAuth(request);
   const hasSecretAuth = secret && authHeader === `Bearer ${secret}`;
   if (!user && !hasSecretAuth) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {

@@ -2059,7 +2059,7 @@ class AgentLoop {
 
     if (result.marketId !== undefined) {
       registerQuestion(result.marketId, questionRaw);
-      registerMarketQuestion(result.marketId, questionRaw);
+      await registerMarketQuestion(result.marketId, questionRaw);
     }
     recordMarketCreated();
 
@@ -2132,13 +2132,13 @@ class AgentLoop {
       // Check escalation state — skip if needs_manual_review or already resolved
       const orgId = "default";
       try {
-        const resStatus = getResolutionStatus(orgId, market.id);
+        const resStatus = await getResolutionStatus(orgId, market.id);
         if (resStatus) {
           if (resStatus.escalation === "needs_manual_review" || resStatus.escalation === "manually_resolved") {
             continue;
           }
           if (resStatus.totalAttempts >= config.resolutionMaxAttempts) {
-            escalateToManualReview(orgId, market.id);
+            await escalateToManualReview(orgId, market.id);
             emit(
               this.createAction({
                 agentId: "resolution-oracle",
@@ -2184,7 +2184,7 @@ class AgentLoop {
 
       // Record attempt regardless of outcome
       try {
-        recordResolutionAttempt({
+        await recordResolutionAttempt({
           orgId,
           marketId: market.id,
           strategy: category,
@@ -2388,7 +2388,7 @@ class AgentLoop {
         if (result.status === "success") {
           if (result.marketId !== undefined) {
             registerQuestion(result.marketId, successorQuestion);
-            registerMarketQuestion(result.marketId, successorQuestion);
+            await registerMarketQuestion(result.marketId, successorQuestion);
           }
           emit(
             this.createAction({

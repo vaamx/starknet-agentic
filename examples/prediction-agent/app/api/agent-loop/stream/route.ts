@@ -9,7 +9,7 @@ import { getPersistedLoopActions } from "@/lib/state-store";
  * Clients connect to receive real-time updates as agents research, predict, and bet.
  */
 export async function GET(request: NextRequest) {
-  const context = requireRole(request, "viewer");
+  const context = await requireRole(request, "viewer");
   if (!context) {
     return new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403,

@@ -14,7 +14,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const context = requireRole(request, "admin");
+    const context = await requireRole(request, "admin");
     if (!context) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

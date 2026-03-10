@@ -3,7 +3,7 @@ import { requireRole } from "@/lib/require-auth";
 import { getAnalyticsOverview } from "@/lib/ops-store";
 
 export async function GET(request: NextRequest) {
-  const context = requireRole(request, "viewer");
+  const context = await requireRole(request, "viewer");
   if (!context) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

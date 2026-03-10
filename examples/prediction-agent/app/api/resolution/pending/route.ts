@@ -11,16 +11,16 @@ const DEFAULT_ORG = "default";
 
 export async function GET() {
   try {
-    const needsReview = listNeedsReview(DEFAULT_ORG);
+    const needsReview = await listNeedsReview(DEFAULT_ORG);
 
     const markets = await getMarkets().catch(() => []);
     const nowSec = Math.floor(Date.now() / 1000);
 
     // Also include markets past resolution time that haven't been escalated yet
-    const pendingMarkets = markets
+    const pendingMarkets = await Promise.all(markets
       .filter((m) => m.status === 0 && m.resolutionTime <= nowSec)
-      .map((m) => {
-        const status = getResolutionStatus(DEFAULT_ORG, m.id);
+      .map(async (m) => {
+        const status = await getResolutionStatus(DEFAULT_ORG, m.id);
         return {
           marketId: m.id,
           question: resolveMarketQuestion(m.id, m.questionHash),
@@ -29,7 +29,7 @@ export async function GET() {
           lastStatus: status?.lastStatus ?? null,
           escalation: status?.escalation ?? "auto",
         };
-      });
+      }));
 
     return NextResponse.json({
       needsReview,

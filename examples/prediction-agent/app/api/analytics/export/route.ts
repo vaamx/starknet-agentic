@@ -35,7 +35,7 @@ function normalizeDataset(raw: string | null): ExportDataset | null {
 }
 
 export async function GET(request: NextRequest) {
-  const context = requireRole(request, "viewer");
+  const context = await requireRole(request, "viewer");
   if (!context) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

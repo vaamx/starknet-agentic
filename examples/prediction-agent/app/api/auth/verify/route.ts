@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { enforceRateLimit, jsonError } from "@/lib/api-guard";
 import { verifyNetworkAuthEnvelope } from "@/lib/network-auth";
@@ -10,6 +11,8 @@ import {
   normalizeManualAuthScopes,
   setWalletSessionCookie,
 } from "@/lib/wallet-session";
+import { getUserFromSessionToken, sessionCookieName } from "@/lib/auth";
+import { getPrismaClient } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
@@ -75,6 +78,45 @@ export async function POST(request: NextRequest) {
       walletAddress,
       payload.scopes
     );
+
+    // Auto-link wallet to user account if logged in
+    try {
+      const sessionToken = request.cookies.get(sessionCookieName())?.value;
+      const user = sessionToken ? await getUserFromSessionToken(sessionToken) : null;
+      if (user) {
+        const prisma = await getPrismaClient();
+        if (prisma) {
+          const now = Math.floor(Date.now() / 1000);
+          const addr = session.walletAddress.toLowerCase();
+
+          // Check the wallet isn't owned by another user
+          const existing = await prisma.userWallet.findUnique({
+            where: { walletAddress: addr },
+          });
+          if (!existing || existing.userId === user.id) {
+            const walletCount = await prisma.userWallet.count({ where: { userId: user.id } });
+            await prisma.userWallet.upsert({
+              where: { userId_walletAddress: { userId: user.id, walletAddress: addr } },
+              update: { lastUsedAt: now, verifiedAt: now },
+              create: {
+                id: `uw_${randomBytes(12).toString("hex")}`,
+                userId: user.id,
+                walletAddress: addr,
+                provider: "starknet",
+                isPrimary: walletCount === 0,
+                chainId: "SN_SEPOLIA",
+                verifiedAt: now,
+                lastUsedAt: now,
+                createdAt: now,
+              },
+            });
+          }
+        }
+      }
+    } catch {
+      // Non-blocking — wallet linking is best-effort
+    }
+
     const response = NextResponse.json({
       ok: true,
       walletAddress: session.walletAddress,

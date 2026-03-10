@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     try {
       const persistedRuntime = await getPersistedLoopRuntime();
       agentLoop.hydrateRuntime(persistedRuntime);
-      const membership = requireMembership(request);
+      const membership = await requireMembership(request);
       const actions = await withTimeout(
         agentLoop.singleTick(
           membership

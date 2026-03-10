@@ -287,7 +287,7 @@ async function loadMarketContext(marketId: number): Promise<MarketContext | null
     };
   }
 
-  const dbMarket = getMarketByIdFromDb(marketId);
+  const dbMarket = await getMarketByIdFromDb(marketId);
   if (!dbMarket) return null;
   return {
     id: dbMarket.id,
@@ -305,7 +305,7 @@ async function loadWeightedProbability(marketId: number): Promise<number | null>
   if (typeof fromChain === "number" && Number.isFinite(fromChain)) {
     return clamp(fromChain, 0, 1);
   }
-  const fromDb = getWeightedProbFromDb(marketId);
+  const fromDb = await getWeightedProbFromDb(marketId);
   return typeof fromDb === "number" && Number.isFinite(fromDb)
     ? clamp(fromDb, 0, 1)
     : null;

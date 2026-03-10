@@ -2,16 +2,18 @@
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useAccount } from "@starknet-react/core";
+import { useAccount, useDisconnect } from "@starknet-react/core";
 import SimpleHeader from "../components/SimpleHeader";
 import CategoryNav from "../components/CategoryNav";
 import CategorySidebar, { SUBCATEGORIES } from "../components/CategorySidebar";
 import FeaturedHero from "../components/FeaturedHero";
+import SportsHeroSection from "../components/SportsHeroSection";
 import MarketList from "../components/MarketList";
 import BetForm from "../components/BetForm";
 import AnalyzeModal from "../components/AnalyzeModal";
 import MarketCreator from "../components/MarketCreator";
 import AuthModal, { type AuthModalMode } from "../components/AuthModal";
+import OnboardingWizard from "../components/OnboardingWizard";
 import Footer from "../components/Footer";
 import useMarkets from "../hooks/useMarkets";
 import { computeDisagreement, safeBigInt } from "../components/dashboard/utils";
@@ -48,6 +50,8 @@ interface SessionResponse {
   user?: SessionUser;
   organization?: SessionContext["organization"] | null;
   role?: SessionContext["role"] | null;
+  onboardingCompleted?: boolean;
+  interests?: string[];
 }
 
 type ManualAuthScope = "spawn" | "fund" | "tick";
@@ -141,6 +145,7 @@ export default function Dashboard() {
   } = useMarkets();
 
   const { isConnected: walletConnected } = useAccount();
+  const { disconnect: disconnectWallet } = useDisconnect();
 
   // UI state
   const [searchQuery, setSearchQuery] = useState("");
@@ -172,6 +177,7 @@ export default function Dashboard() {
     marketId: number;
     outcome?: 0 | 1;
   } | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [agentSweepBusy, setAgentSweepBusy] = useState(false);
   const [agentSweepMessage, setAgentSweepMessage] = useState<string | null>(
     null
@@ -233,8 +239,10 @@ export default function Dashboard() {
         !String(market.id).includes(normalizedQuery)
       )
         return false;
-      if (activeCategory !== "all" && categorizeMarket(market.question) !== activeCategory)
-        return false;
+      if (activeCategory !== "all") {
+        const marketCat = market.category ?? categorizeMarket(market.question);
+        if (marketCat !== activeCategory) return false;
+      }
       // Subcategory regex filter
       if (activeSubcategory && activeCategory !== "all") {
         const subs = SUBCATEGORIES[activeCategory];
@@ -274,8 +282,9 @@ export default function Dashboard() {
     };
   }, []);
 
-  const refreshAuthSession = useCallback(async () => {
+  const refreshAuthSession = useCallback(async (): Promise<{ context: SessionContext | null; onboardingCompleted: boolean }> => {
     let nextContext: SessionContext | null = null;
+    let onboardingDone = true;
     try {
       const response = await fetch("/api/auth/session", {
         method: "GET",
@@ -291,10 +300,11 @@ export default function Dashboard() {
           expiresAt: null,
           scopes: [],
         });
-        return null;
+        return { context: null, onboardingCompleted: true };
       }
       const payload = (await response.json()) as SessionResponse;
       nextContext = parseSessionContext(payload);
+      onboardingDone = payload.onboardingCompleted !== false;
       setSessionContext(nextContext);
       const scopes = Array.isArray(payload.scopes)
         ? payload.scopes
@@ -325,11 +335,11 @@ export default function Dashboard() {
         expiresAt: null,
         scopes: [],
       });
-      return null;
+      return { context: null, onboardingCompleted: true };
     } finally {
       setSessionLoading(false);
     }
-    return nextContext;
+    return { context: nextContext, onboardingCompleted: onboardingDone };
   }, [parseSessionContext]);
 
   const clearAuthIntentQuery = useCallback(() => {
@@ -367,8 +377,12 @@ export default function Dashboard() {
     setPendingCreatorAfterAuth(false);
     setPendingBetAfterAuth(null);
     clearAuthIntentQuery();
-    const authed = await refreshAuthSession();
+    const { context: authed, onboardingCompleted } = await refreshAuthSession();
     if (!authed) return;
+    if (!onboardingCompleted) {
+      setShowOnboarding(true);
+      return; // defer creator/bet intents until after onboarding
+    }
     if (creatorIntent) {
       setShowCreator(true);
     }
@@ -392,11 +406,13 @@ export default function Dashboard() {
     } catch {
       // Ignore transient logout network errors.
     }
+    // Disconnect wallet so isConnected becomes false
+    try { disconnectWallet(); } catch { /* wallet may not be connected */ }
     setSessionContext(null);
     setPendingCreatorAfterAuth(false);
     setPendingBetAfterAuth(null);
     void refreshAuthSession();
-  }, [refreshAuthSession]);
+  }, [disconnectWallet, refreshAuthSession]);
 
   const handleOpenCreator = useCallback(() => {
     if (!sessionContext && !walletConnected) {
@@ -608,6 +624,14 @@ export default function Dashboard() {
               predictions={predictions}
               weightedProbs={weightedProbs}
               latestTakes={latestTakes}
+              onBet={handleBet}
+            />
+          )}
+
+          {/* Sports hero section — horizontal matchup strip */}
+          {(activeCategory === "all" || activeCategory === "sports") && !loading && sortedMarkets.length > 0 && (
+            <SportsHeroSection
+              markets={sortedMarkets}
               onBet={handleBet}
             />
           )}
@@ -834,6 +858,15 @@ export default function Dashboard() {
         initialMode={authModalMode}
         onClose={handleCloseAuthModal}
         onAuthenticated={handleAuthSuccess}
+      />
+
+      <OnboardingWizard
+        open={showOnboarding}
+        userName={sessionContext?.user?.name ?? ""}
+        onComplete={() => {
+          setShowOnboarding(false);
+        }}
+        onClose={() => setShowOnboarding(false)}
       />
 
       {showCreator && (

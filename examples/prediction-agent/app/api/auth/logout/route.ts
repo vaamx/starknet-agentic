@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
   if (clearAccount) {
     const sessionToken = request.cookies.get(sessionCookieName())?.value;
     if (sessionToken) {
-      revokeSessionByToken(sessionToken);
+      await revokeSessionByToken(sessionToken);
     }
 
     response.cookies.set(sessionCookieName(), "", {

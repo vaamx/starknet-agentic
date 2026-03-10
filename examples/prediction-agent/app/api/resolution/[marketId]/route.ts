@@ -19,8 +19,8 @@ export async function GET(
   }
 
   try {
-    const status = getResolutionStatus(DEFAULT_ORG, marketId);
-    const attempts = listResolutionAttempts(DEFAULT_ORG, marketId, 50);
+    const status = await getResolutionStatus(DEFAULT_ORG, marketId);
+    const attempts = await listResolutionAttempts(DEFAULT_ORG, marketId, 50);
 
     return NextResponse.json({
       status,

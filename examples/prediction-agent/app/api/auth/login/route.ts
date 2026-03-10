@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const user = verifyUserCredentials(email, parsed.password);
+    const user = await verifyUserCredentials(email, parsed.password);
     if (!user) {
       return NextResponse.json(
         { error: "Invalid email or password" },
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     }
 
     const priorSessionToken = request.cookies.get(sessionCookieName())?.value;
-    const session = rotateSession({
+    const session = await rotateSession({
       userId: user.id,
       previousToken: priorSessionToken,
       ipAddress,

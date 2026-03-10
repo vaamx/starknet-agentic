@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
 
     if (marketId !== undefined) {
       registerQuestion(marketId, question.trim());
-      registerMarketQuestion(marketId, question.trim());
+      await registerMarketQuestion(marketId, question.trim());
     }
 
     return NextResponse.json({

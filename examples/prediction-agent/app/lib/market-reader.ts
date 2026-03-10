@@ -688,9 +688,9 @@ const SEED_QUESTIONS: Record<number, string> = {
  * Fills in questions for markets 14+ that were created at runtime
  * and lost on Vercel cold starts.
  */
-function hydrateQuestionsFromDb(): void {
+async function hydrateQuestionsFromDb(): Promise<void> {
   try {
-    const dbQuestions = getAllMarketQuestions();
+    const dbQuestions = await getAllMarketQuestions();
     for (const row of dbQuestions) {
       if (!MARKET_QUESTIONS[row.id] && row.question) {
         MARKET_QUESTIONS[row.id] = row.question;
@@ -721,7 +721,7 @@ export function seedKnownQuestions(): void {
 
   // Hydrate from SQLite — fills in questions for markets 14+ that were
   // created at runtime and lost on Vercel cold starts.
-  hydrateQuestionsFromDb();
+  hydrateQuestionsFromDb().catch(() => {});
 
   // Async hydration from Upstash — resolves after seed but fills in-memory map
   // for subsequent resolveMarketQuestion() calls within the same request.

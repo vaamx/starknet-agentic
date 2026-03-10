@@ -14,6 +14,7 @@ import { config } from "@/lib/config";
 import { getLlmConfigurationError } from "@/lib/llm-provider";
 import { z } from "zod";
 import { enforceRateLimit, jsonError } from "@/lib/api-guard";
+import { getPolymarketMarketById } from "@/lib/polymarket-reader";
 
 export const maxDuration = 60;
 const predictBodySchema = z.object({
@@ -78,9 +79,36 @@ export async function POST(request: NextRequest) {
         );
 
         // Fetch market data inside the stream to avoid pre-stream timeout
-        const market = await getMarketById(marketId);
+        let market = await getMarketById(marketId);
+        let question: string;
+        let impliedProbYes: number;
+        let totalPoolDisplay: string;
+        let resolutionTime: number;
 
-        if (!market) {
+        if (market) {
+          question = resolveMarketQuestion(marketId, market.questionHash);
+          impliedProbYes = market.impliedProbYes;
+          totalPoolDisplay = (market.totalPool / 10n ** 18n).toString();
+          resolutionTime = market.resolutionTime;
+        } else if (marketId >= 100_000) {
+          // Polymarket market — fetch from PostgreSQL
+          const polyMarket = await getPolymarketMarketById(marketId);
+          if (!polyMarket) {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: "error", message: "Market not found" })}\n\n`
+              )
+            );
+            controller.close();
+            return;
+          }
+          question = polyMarket.question;
+          impliedProbYes = polyMarket.impliedProbYes;
+          totalPoolDisplay = polyMarket.volume24h
+            ? `$${Math.round(polyMarket.volume24h).toLocaleString()} (Polymarket)`
+            : "N/A";
+          resolutionTime = polyMarket.resolutionTime;
+        } else {
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({ type: "error", message: "Market not found" })}\n\n`
@@ -91,11 +119,10 @@ export async function POST(request: NextRequest) {
         }
 
         const predictions = await getAgentPredictions(marketId);
-        const question = resolveMarketQuestion(marketId, market.questionHash);
 
         const daysUntil = Math.max(
           0,
-          Math.floor((market.resolutionTime - Date.now() / 1000) / 86400)
+          Math.floor((resolutionTime - Date.now() / 1000) / 86400)
         );
 
         const alphaPrompt =
@@ -104,8 +131,8 @@ export async function POST(request: NextRequest) {
         const useToolUse = process.env.AGENT_TOOL_USE_ENABLED !== "false";
 
         const forecastContext = {
-          currentMarketProb: market.impliedProbYes,
-          totalPool: (market.totalPool / 10n ** 18n).toString(),
+          currentMarketProb: impliedProbYes,
+          totalPool: totalPoolDisplay,
           agentPredictions: predictions.map((p) => ({
             agent: p.agent.slice(0, 10),
             prob: p.predictedProb,

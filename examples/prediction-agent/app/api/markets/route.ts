@@ -23,6 +23,7 @@ import { requireRole } from "@/lib/require-auth";
 import { recordAudit, recordTradeExecution } from "@/lib/ops-store";
 import { reviewMarketQuestion } from "@/lib/market-quality";
 import { getResolutionStatus } from "@/lib/resolution-store";
+import { getPolymarketMarkets } from "@/lib/polymarket-reader";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -94,7 +95,47 @@ function applyMarketWindow<T extends { id: number; status: number; resolutionTim
     filtered = markets.filter((m) => m.status === 2 || m.resolutionTime <= nowSec);
   }
 
-  return filtered.sort((a, b) => b.id - a.id).slice(0, limit);
+  // Sort: on-chain first, then polymarket with category diversity
+  const onChain = filtered.filter((m) => ((m as any).source ?? "onchain") === "onchain");
+  const poly = filtered.filter((m) => (m as any).source === "polymarket");
+
+  // Sort on-chain by id desc
+  onChain.sort((a, b) => b.id - a.id);
+
+  // Sort polymarket by volume desc within each category, then round-robin interleave
+  const polyByCat = new Map<string, T[]>();
+  for (const m of poly) {
+    const cat = (m as any).category ?? "other";
+    if (!polyByCat.has(cat)) polyByCat.set(cat, []);
+    polyByCat.get(cat)!.push(m);
+  }
+  for (const arr of polyByCat.values()) {
+    arr.sort((a, b) => ((b as any).volume24h ?? 0) - ((a as any).volume24h ?? 0));
+  }
+
+  // Round-robin: take top markets from each category in rotation
+  const interleaved: T[] = [];
+  const catKeys = [...polyByCat.keys()].sort();
+  const catIdx = new Map(catKeys.map((k) => [k, 0]));
+  const polyLimit = limit - onChain.length;
+  let added = 0;
+  while (added < polyLimit) {
+    let anyAdded = false;
+    for (const cat of catKeys) {
+      const idx = catIdx.get(cat)!;
+      const arr = polyByCat.get(cat)!;
+      if (idx < arr.length) {
+        interleaved.push(arr[idx]);
+        catIdx.set(cat, idx + 1);
+        added++;
+        anyAdded = true;
+        if (added >= polyLimit) break;
+      }
+    }
+    if (!anyAdded) break;
+  }
+
+  return [...onChain, ...interleaved].slice(0, limit);
 }
 
 const LEGACY_TIME_HASH_SUFFIX_REGEX = /\s+\d{1,3}d\s+[0-9a-f]{4,8}\??$/i;
@@ -219,6 +260,9 @@ function filterEmptyMarkets<
   const keepRecentMarketIds = options?.keepRecentMarketIds ?? new Set<number>();
 
   return markets.filter((m) => {
+    // Polymarket markets are pre-vetted — never filter them out
+    if ("source" in m && (m as any).source === "polymarket") return true;
+
     const hasPool = m.totalPool !== "0";
     const hasTrades = m.tradeCount > 0;
     const isOpen = m.status === 0 && m.resolutionTime > nowSec;
@@ -338,12 +382,13 @@ export async function GET(request: NextRequest) {
     const allEnriched = allEnrichedRaw;
 
     // Merge seeded DB markets (e.g. sports games) that aren't on-chain yet
+    // Exclude polymarket markets here — they come via getPolymarketMarkets below
     const onChainIds = new Set(allEnriched.map((m) => m.id));
     let dbSeeded: typeof allEnriched = [];
     try {
-      const dbAll = getAllMarkets();
+      const dbAll = await getAllMarkets();
       dbSeeded = dbAll
-        .filter((s) => !onChainIds.has(s.id) && s.totalPool !== "0")
+        .filter((s) => !onChainIds.has(s.id) && s.totalPool !== "0" && s.source !== "polymarket")
         .map((s) => ({
           id: s.id,
           address: s.address ?? "0x0",
@@ -363,8 +408,46 @@ export async function GET(request: NextRequest) {
           tradeCount: s.tradeCount ?? 0,
         }));
     } catch { /* SQLite unavailable */ }
-    const merged = [...allEnriched, ...dbSeeded];
-    console.log(`[markets] allEnriched=${allEnriched.length} dbSeeded=${dbSeeded.length} merged=${merged.length} hideEmpty=${hideEmpty}`);
+    // Merge Polymarket markets from MarketCache
+    let polymarketMarkets: typeof allEnriched = [];
+    try {
+      const polyRows = await getPolymarketMarkets(500);
+      const allIds = new Set([...onChainIds, ...dbSeeded.map((s) => s.id)]);
+      polymarketMarkets = polyRows
+        .filter((p) => !allIds.has(p.id))
+        .map((p) => ({
+          id: p.id,
+          address: p.address ?? `poly_${p.id}`,
+          questionHash: p.questionHash ?? "0x0",
+          question: p.question,
+          resolutionTime: p.resolutionTime,
+          oracle: p.oracle ?? "polymarket_uma",
+          collateralToken: p.collateralToken ?? "USDC",
+          feeBps: p.feeBps ?? 0,
+          status: p.status ?? 0,
+          totalPool: p.totalPool,
+          yesPool: p.yesPool,
+          noPool: p.noPool,
+          impliedProbYes: p.impliedProbYes,
+          impliedProbNo: p.impliedProbNo,
+          winningOutcome: p.winningOutcome,
+          tradeCount: p.tradeCount ?? 0,
+          source: "polymarket" as const,
+          category: p.category ?? undefined,
+          slug: p.slug ?? undefined,
+          imageUrl: p.imageUrl ?? null,
+          volume24h: p.volume24h ?? undefined,
+          liquidity: p.liquidity ?? undefined,
+          description: p.description ?? null,
+          outcomes: p.outcomes ?? undefined,
+          oneDayChange: p.oneDayChange ?? null,
+          polymarketUrl: p.polymarketUrl ?? null,
+          mirrorAddress: p.mirrorAddress ?? null,
+        }));
+    } catch { /* Polymarket cache unavailable */ }
+
+    const merged = [...allEnriched, ...dbSeeded, ...polymarketMarkets];
+    console.log(`[markets] allEnriched=${allEnriched.length} dbSeeded=${dbSeeded.length} polymarket=${polymarketMarkets.length} merged=${merged.length} hideEmpty=${hideEmpty}`);
 
     const filtered = hideEmpty
       ? filterEmptyMarkets(merged, { keepRecentMarketIds })
@@ -405,7 +488,7 @@ export async function GET(request: NextRequest) {
     await setPersistedMarketSnapshots(persistedSnapshots);
 
     // Write-through to SQLite
-    try { upsertMarkets(persistedSnapshots); } catch { /* best-effort */ }
+    try { await upsertMarkets(persistedSnapshots); } catch { /* best-effort */ }
 
     // Persist real questions to Upstash for cold-start resilience
     const realQuestions = allEnriched
@@ -418,10 +501,10 @@ export async function GET(request: NextRequest) {
     // Enrich expired/resolved markets with resolution status
     const nowSec = Math.floor(Date.now() / 1000);
     const defaultOrgId = "default";
-    const marketsWithResolution = enriched.map((m) => {
+    const marketsWithResolution = await Promise.all(enriched.map(async (m) => {
       if (m.status === 2 || m.resolutionTime <= nowSec) {
         try {
-          const resStatus = getResolutionStatus(defaultOrgId, m.id);
+          const resStatus = await getResolutionStatus(defaultOrgId, m.id);
           if (resStatus) {
             return {
               ...m,
@@ -432,7 +515,7 @@ export async function GET(request: NextRequest) {
         } catch { /* resolution store unavailable */ }
       }
       return m;
-    });
+    }));
 
     return NextResponse.json({
       markets: marketsWithResolution,
@@ -444,7 +527,7 @@ export async function GET(request: NextRequest) {
   } catch (err: any) {
     // Try SQLite as first fallback tier
     let dbSnapshots: typeof cachedSnapshots = [];
-    try { dbSnapshots = getAllMarkets(); } catch { /* SQLite unavailable */ }
+    try { dbSnapshots = await getAllMarkets(); } catch { /* SQLite unavailable */ }
 
     const fallback = dbSnapshots.length > 0
       ? dbSnapshots
@@ -498,7 +581,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const context = requireRole(request, "admin");
+    const context = await requireRole(request, "admin");
     if (!context) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -608,7 +691,7 @@ export async function POST(request: NextRequest) {
 
     if (createdMarket) {
       registerQuestion(createdMarket.id, normalizedQuestion);
-      registerMarketQuestion(createdMarket.id, normalizedQuestion);
+      await registerMarketQuestion(createdMarket.id, normalizedQuestion);
       await recordAudit({
         organizationId: context.membership.organizationId,
         userId: context.user.id,
